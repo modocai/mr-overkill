@@ -47,6 +47,7 @@ fi
 if [[ -n "$_GIT_ROOT" && "$PROMPTS_DIR" != /* ]]; then
   PROMPTS_DIR="$_GIT_ROOT/$PROMPTS_DIR"
 fi
+unset _GIT_ROOT
 
 # ── Usage ─────────────────────────────────────────────────────────────
 usage() {
@@ -57,6 +58,7 @@ Options:
   -t, --target <branch>    Target branch to diff against (default: develop)
   -n, --max-loop <N>       Maximum review-fix iterations (required)
   --dry-run                Run review only, do not fix
+  --no-auto-commit         Fix but do not commit/push (single iteration)
   -V, --version            Show version
   -h, --help               Show this help message
 
@@ -84,7 +86,8 @@ while [[ $# -gt 0 ]]; do
     -n|--max-loop)
       if [[ $# -lt 2 ]]; then echo "Error: '$1' requires an argument."; usage 1; fi
       MAX_LOOP="$2"; shift 2 ;;
-    --dry-run)    DRY_RUN=true; shift ;;
+    --dry-run)         DRY_RUN=true; shift ;;
+    --no-auto-commit)  AUTO_COMMIT=false; shift ;;
     -V|--version) echo "review-loop v$VERSION"; exit 0 ;;
     -h|--help)    usage ;;
     *)            echo "Error: unknown option '$1'"; usage 1 ;;

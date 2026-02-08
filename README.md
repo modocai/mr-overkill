@@ -57,6 +57,7 @@ Options:
   -t, --target <branch>    Target branch to diff against (default: develop)
   -n, --max-loop <N>       Maximum review-fix iterations (required)
   --dry-run                Run review only, do not fix
+  --no-auto-commit         Fix but do not commit/push (single iteration)
   -V, --version            Show version
   -h, --help               Show this help message
 
@@ -135,6 +136,7 @@ The loop terminates when any of these occur:
 - **no_diff** — No changes between branches
 - **dry_run** — Review-only mode
 - **max_iterations_reached** — Hit the `-n` limit
+- **auto_commit_disabled** — `--no-auto-commit` or `AUTO_COMMIT=false`; fixes applied but not committed
 - **parse_error** — Could not parse Codex output as JSON
 
 ## Uninstall

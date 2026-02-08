@@ -7,7 +7,11 @@ TARGET_DIR="${1:-.}"
 # Read version from review-loop.sh
 VERSION=$(grep -m1 '^VERSION=' "$SCRIPT_DIR/bin/review-loop.sh" | cut -d'"' -f2)
 
-# Resolve to absolute path
+# Ensure target directory exists and resolve to absolute path
+if [[ ! -d "$TARGET_DIR" ]]; then
+  echo "Error: target directory '$TARGET_DIR' does not exist."
+  exit 1
+fi
 TARGET_DIR=$(cd "$TARGET_DIR" && pwd)
 
 echo "Installing review-loop v${VERSION} into: $TARGET_DIR"

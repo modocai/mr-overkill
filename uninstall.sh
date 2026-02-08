@@ -50,6 +50,11 @@ if [[ -f "$GITIGNORE" ]] && grep -qxF '# AI review logs' "$GITIGNORE"; then
   sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$TMP_GITIGNORE" > "$GITIGNORE"
   rm -f "$TMP_GITIGNORE"
   echo "Removed .ai-review-logs/ from .gitignore"
+  # Remove .gitignore if it became empty
+  if [[ ! -s "$GITIGNORE" ]]; then
+    rm "$GITIGNORE"
+    echo "Removed empty .gitignore"
+  fi
 fi
 
 echo "Done. review-loop has been uninstalled."
