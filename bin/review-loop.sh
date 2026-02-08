@@ -23,7 +23,7 @@ if [[ -n "$_GIT_ROOT" && -f "$_GIT_ROOT/$REVIEWLOOPRC" ]]; then
     # Skip blank lines and comments
     [[ -z "$_rc_line" || "$_rc_line" =~ ^[[:space:]]*# ]] && continue
     # Match KEY=VALUE (optionally quoted value); reject anything else
-    if [[ "$_rc_line" =~ ^[[:space:]]*(TARGET_BRANCH|MAX_LOOP|DRY_RUN|AUTO_COMMIT)=[\"\']?([^\"\']*)[\"\']?[[:space:]]*$ ]]; then
+    if [[ "$_rc_line" =~ ^[[:space:]]*(TARGET_BRANCH|MAX_LOOP|DRY_RUN|AUTO_COMMIT|PROMPTS_DIR)=[\"\']?([^\"\']*)[\"\']?[[:space:]]*$ ]]; then
       declare "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
     else
       echo "Warning: ignoring unrecognised .reviewlooprc line: $_rc_line" >&2
