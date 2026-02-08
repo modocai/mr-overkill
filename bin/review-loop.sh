@@ -24,12 +24,23 @@ if [[ -n "$_GIT_ROOT" && -f "$_GIT_ROOT/$REVIEWLOOPRC" ]]; then
     [[ -z "$_rc_line" || "$_rc_line" =~ ^[[:space:]]*# ]] && continue
     # Match KEY=VALUE (optionally quoted value); reject anything else
     if [[ "$_rc_line" =~ ^[[:space:]]*(TARGET_BRANCH|MAX_LOOP|DRY_RUN|AUTO_COMMIT|PROMPTS_DIR)=[\"\']?([^\"\']*)[\"\']?[[:space:]]*$ ]]; then
-      declare "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+      _rc_val="${BASH_REMATCH[2]}"
+      _rc_key="${BASH_REMATCH[1]}"
+      # Trim trailing whitespace from unquoted values
+      _rc_val="${_rc_val%"${_rc_val##*[![:space:]]}"}"
+      # Validate boolean values
+      if [[ "$_rc_key" == "DRY_RUN" || "$_rc_key" == "AUTO_COMMIT" ]]; then
+        if [[ "$_rc_val" != "true" && "$_rc_val" != "false" ]]; then
+          echo "Error: $_rc_key must be 'true' or 'false', got '$_rc_val'." >&2
+          exit 1
+        fi
+      fi
+      declare "${_rc_key}=${_rc_val}"
     else
       echo "Warning: ignoring unrecognised .reviewlooprc line: $_rc_line" >&2
     fi
   done < "$_GIT_ROOT/$REVIEWLOOPRC"
-  unset _rc_line
+  unset _rc_line _rc_key _rc_val
 fi
 
 # Resolve relative PROMPTS_DIR against git root so the script works from any cwd
