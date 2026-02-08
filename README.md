@@ -8,6 +8,7 @@ Codex(reviewer) and Claude(developer) collaborate to automatically improve code 
 - [claude](https://github.com/anthropics/claude-code) — Claude Code CLI
 - [jq](https://jqlang.github.io/jq/) — JSON processor
 - [gh](https://cli.github.com/) — GitHub CLI (for PR comments)
+- [envsubst](https://www.gnu.org/software/gettext/) — part of GNU gettext
 - git
 
 ## Quick Start
