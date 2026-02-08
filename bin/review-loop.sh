@@ -32,7 +32,7 @@ Examples:
   review-loop.sh -n 5                  # diff against develop, max 5 loops
   review-loop.sh -n 1 --dry-run        # single review, no fixes
 EOF
-  exit 0
+  exit "${1:-0}"
 }
 
 # ── Argument parsing ──────────────────────────────────────────────────
@@ -42,14 +42,14 @@ while [[ $# -gt 0 ]]; do
     -n|--max-loop) MAX_LOOP="$2"; shift 2 ;;
     --dry-run)    DRY_RUN=true; shift ;;
     -h|--help)    usage ;;
-    *)            echo "Error: unknown option '$1'"; usage ;;
+    *)            echo "Error: unknown option '$1'"; usage 1 ;;
   esac
 done
 
 if [[ -z "$MAX_LOOP" ]]; then
   echo "Error: -n / --max-loop is required."
   echo ""
-  usage
+  usage 1
 fi
 
 # ── Prerequisite checks ──────────────────────────────────────────────
@@ -179,8 +179,8 @@ EOF
   echo "[$(date +%H:%M:%S)] Running Claude fix..."
   FIX_FILE="$LOG_DIR/fix-${i}.md"
 
-  # Snapshot dirty files before Claude runs so we only commit its changes
-  PRE_FIX_DIRTY=$(git diff --name-only)
+  # Snapshot dirty/untracked files before Claude runs so we only commit its changes
+  PRE_FIX_DIRTY=$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u )
 
   export REVIEW_JSON
   FIX_PROMPT=$(envsubst < "$TEMPLATES_DIR/claude-fix.prompt.md")
@@ -192,13 +192,13 @@ EOF
   echo "  Fix log saved to $FIX_FILE"
 
   # ── g. Commit & push fixes ──────────────────────────────────────
-  if git diff --quiet && git diff --cached --quiet; then
+  POST_FIX_DIRTY=$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u )
+  if git diff --quiet && git diff --cached --quiet && [[ "$PRE_FIX_DIRTY" == "$POST_FIX_DIRTY" ]]; then
     echo "  No file changes after fix — nothing to commit."
   else
     echo "[$(date +%H:%M:%S)] Committing fixes..."
     # Only stage files changed by Claude (not in the pre-fix dirty set)
-    POST_FIX_DIRTY=$(git diff --name-only)
-    FIX_FILES=$(comm -13 <(echo "$PRE_FIX_DIRTY" | sort) <(echo "$POST_FIX_DIRTY" | sort))
+    FIX_FILES=$(comm -13 <(echo "$PRE_FIX_DIRTY") <(echo "$POST_FIX_DIRTY"))
     if [[ -z "$FIX_FILES" ]]; then
       echo "  No new changes from Claude fix — skipping commit."
     else
