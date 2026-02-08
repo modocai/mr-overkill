@@ -313,7 +313,11 @@ EOF
     # on the next iteration, causing the loop to re-review the same diff.
     if [[ "$STASH_CREATED" == true ]]; then
       trap - EXIT
-      git stash pop --index -q || echo "Warning: stash pop failed; your changes are still in git stash."
+      if ! git stash pop --index -q; then
+        echo "  Error: stash pop had conflicts; resolve manually before rerunning."
+        FINAL_STATUS="stash_conflict"
+        break
+      fi
     fi
     FINAL_STATUS="auto_commit_disabled"
     break
