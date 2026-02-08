@@ -144,7 +144,7 @@ for (( i=1; i<=MAX_LOOP; i++ )); do
     REVIEW_JSON=$(cat "$REVIEW_FILE")
   else
     # Extract JSON from markdown fences or mixed text
-    REVIEW_JSON=$(sed -n '/^```\(json\)\{0,1\}$/,/^```$/{ /^```/d; p; }' "$REVIEW_FILE" | head -1000)
+    REVIEW_JSON=$(sed -n '/^```\(json\)\{0,1\}$/,/^```$/{ /^```/d; p; }' "$REVIEW_FILE")
     # Fallback: find first { ... } block
     if ! echo "$REVIEW_JSON" | jq empty 2>/dev/null; then
       REVIEW_JSON=$(perl -0777 -ne 'print $1 if /(\{.*\})/s' "$REVIEW_FILE" 2>/dev/null || true)
@@ -215,7 +215,7 @@ EOF
   # Collect changed/new files as NUL-delimited list for whitespace safety.
   # Use a temp file because Bash strips NUL bytes in command substitution.
   FIX_FILES_NUL_FILE=$(mktemp)
-  { git diff --name-only -z; git diff --cached --name-only -z; git ls-files --others --exclude-standard -z; } | sort -zu > "$FIX_FILES_NUL_FILE"
+  { git diff --name-only -z; git diff --cached --name-only -z; git ls-files --others --exclude-standard -z; } | awk -v RS='\0' -v ORS='\0' '!seen[$0]++' > "$FIX_FILES_NUL_FILE"
   if [[ ! -s "$FIX_FILES_NUL_FILE" ]]; then
     echo "  No file changes after fix — nothing to commit."
     rm -f "$FIX_FILES_NUL_FILE"
