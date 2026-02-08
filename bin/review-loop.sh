@@ -76,7 +76,11 @@ if [[ "$DRY_RUN" == false ]]; then
 fi
 check_cmd jq
 check_cmd envsubst
-check_cmd gh
+HAS_GH=true
+if ! command -v gh &>/dev/null; then
+  HAS_GH=false
+  echo "Warning: 'gh' is not installed — PR commenting will be disabled."
+fi
 
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
   echo "Error: not inside a git repository."
@@ -91,11 +95,16 @@ fi
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 LOG_DIR=".ai-review-logs"
 mkdir -p "$LOG_DIR"
+# Remove stale logs from previous runs so the summary only reflects this execution
+rm -f "$LOG_DIR"/review-*.json "$LOG_DIR"/fix-*.md "$LOG_DIR"/summary.md
 
 export CURRENT_BRANCH TARGET_BRANCH
 
 # Detect open PR for current branch (if any)
-PR_NUMBER=$(gh pr view "$CURRENT_BRANCH" --json number -q .number 2>/dev/null || true)
+PR_NUMBER=""
+if [[ "$HAS_GH" == true ]]; then
+  PR_NUMBER=$(gh pr view "$CURRENT_BRANCH" --json number -q .number 2>/dev/null || true)
+fi
 if [[ -n "$PR_NUMBER" ]]; then
   echo "Detected PR #$PR_NUMBER for branch $CURRENT_BRANCH"
 else
