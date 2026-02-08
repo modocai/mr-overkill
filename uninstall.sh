@@ -33,11 +33,12 @@ fi
 # Remove .ai-review-logs/ entry from .gitignore
 GITIGNORE="$TARGET_DIR/.gitignore"
 if [[ -f "$GITIGNORE" ]] && grep -qF '.ai-review-logs/' "$GITIGNORE"; then
-  # Remove the comment line and the entry
-  sed -i '' '/^# AI review logs$/d' "$GITIGNORE"
-  sed -i '' '/^\.ai-review-logs\/$/d' "$GITIGNORE"
+  # Remove the comment line and the entry (portable across BSD and GNU sed)
+  TMP_GITIGNORE=$(mktemp)
+  sed '/^# AI review logs$/d; /^\.ai-review-logs\/$/d' "$GITIGNORE" > "$TMP_GITIGNORE"
   # Remove trailing blank lines
-  sed -i '' -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$GITIGNORE"
+  sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$TMP_GITIGNORE" > "$GITIGNORE"
+  rm -f "$TMP_GITIGNORE"
   echo "Removed .ai-review-logs/ from .gitignore"
 fi
 

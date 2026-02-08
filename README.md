@@ -6,7 +6,9 @@ Codex(reviewer) and Claude(developer) collaborate to automatically improve code 
 
 ```bash
 # Install into your project
-curl -fsSL https://raw.githubusercontent.com/modocai/review_collaboration/main/install.sh | bash -s -- /path/to/your-project
+git clone --depth 1 https://github.com/modocai/review_collaboration.git /tmp/review_collaboration \
+  && /tmp/review_collaboration/install.sh /path/to/your-project \
+  && rm -rf /tmp/review_collaboration
 ```
 
 Or clone and install manually:
