@@ -48,7 +48,7 @@ Examples:
 ## How It Works
 
 ```
-1. Check prerequisites (git, codex, claude, jq, target branch)
+1. Check prerequisites (git, codex, claude, jq, envsubst, target branch)
 2. Create .ai-review-logs/ directory
 3. Loop (iteration 1..N):
    a. Generate diff: git diff $TARGET...$CURRENT
@@ -56,7 +56,9 @@ Examples:
    c. Codex reviews the diff → JSON with findings
    d. No P0/P1 findings + "patch is correct" → exit
    e. Claude fixes P0/P1 issues (skips P2/P3)
-   f. Log fix results → next iteration
+   f. Auto-commit fixes to branch
+   g. Push to remote (updates PR)
+   h. Next iteration reviews the updated committed state
 4. Write summary to .ai-review-logs/summary.md
 ```
 
