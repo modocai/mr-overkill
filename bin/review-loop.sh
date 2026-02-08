@@ -15,11 +15,21 @@ AUTO_COMMIT=true
 # ── Load .reviewlooprc (if present) ──────────────────────────────────
 # Project-level config file can override defaults above.
 # CLI arguments take precedence over .reviewlooprc values.
+# SECURITY: parse only whitelisted KEY=VALUE lines; never source the file.
 REVIEWLOOPRC=".reviewlooprc"
 _GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
 if [[ -n "$_GIT_ROOT" && -f "$_GIT_ROOT/$REVIEWLOOPRC" ]]; then
-  # shellcheck source=/dev/null
-  source "$_GIT_ROOT/$REVIEWLOOPRC"
+  while IFS= read -r _rc_line || [[ -n "$_rc_line" ]]; do
+    # Skip blank lines and comments
+    [[ -z "$_rc_line" || "$_rc_line" =~ ^[[:space:]]*# ]] && continue
+    # Match KEY=VALUE (optionally quoted value); reject anything else
+    if [[ "$_rc_line" =~ ^[[:space:]]*(TARGET_BRANCH|MAX_LOOP|DRY_RUN|AUTO_COMMIT)=[\"\']?([^\"\']*)[\"\']?[[:space:]]*$ ]]; then
+      declare "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+    else
+      echo "Warning: ignoring unrecognised .reviewlooprc line: $_rc_line" >&2
+    fi
+  done < "$_GIT_ROOT/$REVIEWLOOPRC"
+  unset _rc_line
 fi
 
 # Resolve relative PROMPTS_DIR against git root so the script works from any cwd
