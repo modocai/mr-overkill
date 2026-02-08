@@ -8,6 +8,9 @@
 # Maximum review-fix iterations (default: unset, required via CLI)
 # MAX_LOOP=5
 
+# Run review only, do not fix (default: false)
+# DRY_RUN=false
+
 # Enable auto-commit of fixes (default: true)
 # AUTO_COMMIT=true
 

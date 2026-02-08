@@ -3,7 +3,11 @@ set -euo pipefail
 
 TARGET_DIR="${1:-.}"
 
-# Resolve to absolute path
+# Ensure target directory exists and resolve to absolute path
+if [[ ! -d "$TARGET_DIR" ]]; then
+  echo "Error: target directory '$TARGET_DIR' does not exist."
+  exit 1
+fi
 TARGET_DIR=$(cd "$TARGET_DIR" && pwd)
 
 echo "Uninstalling review-loop from: $TARGET_DIR"
