@@ -71,7 +71,9 @@ check_cmd() {
 
 check_cmd git
 check_cmd codex
-check_cmd claude
+if [[ "$DRY_RUN" == false ]]; then
+  check_cmd claude
+fi
 check_cmd jq
 check_cmd envsubst
 check_cmd gh
@@ -199,13 +201,16 @@ for (( i=1; i<=MAX_LOOP; i++ )); do
     echo "  All clear — no issues found."
     # Post all-clear comment to PR
     if [[ -n "$PR_NUMBER" ]]; then
-      gh pr comment "$PR_NUMBER" --body "$(cat <<EOF
+      if gh pr comment "$PR_NUMBER" --body "$(cat <<EOF
 ### AI Review — Iteration $i ✅
 
 No issues found. Patch is correct.
 EOF
-)"
-      echo "  PR comment posted."
+)"; then
+        echo "  PR comment posted."
+      else
+        echo "  Warning: failed to post PR comment (non-fatal)."
+      fi
     fi
     FINAL_STATUS="all_clear"
     # Restore stash before breaking
@@ -331,8 +336,11 @@ $FIX_SUMMARY
 </details>
 EOF
 )
-    gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"
-    echo "  PR comment posted."
+    if gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"; then
+      echo "  PR comment posted."
+    else
+      echo "  Warning: failed to post PR comment (non-fatal)."
+    fi
   fi
 
   echo ""
