@@ -1,2 +1,5 @@
 # review-loop runtime logs (bin/../logs → repo-root /logs/)
 /logs/
+
+# Legacy log directory from previous versions
+.ai-review-logs/
