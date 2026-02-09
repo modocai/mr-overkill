@@ -297,7 +297,7 @@ EOF
     # Collect changed/new files as NUL-delimited list for whitespace safety.
     # Use a temp file because Bash strips NUL bytes in command substitution.
     FIX_FILES_NUL_FILE=$(mktemp)
-    { git diff --name-only -z; git diff --cached --name-only -z; git ls-files --others --exclude-standard -z; } | tr '\0' '\n' | sort -u | { grep -v -E '^\.review-loop/logs/' || true; } | tr '\n' '\0' > "$FIX_FILES_NUL_FILE"
+    { git diff --name-only -z; git diff --cached --name-only -z; git ls-files --others --exclude-standard -z; } | tr '\0' '\n' | sort -u | { grep -v -E '^(\.review-loop/logs/|\.gitignore$)' || true; } | tr '\n' '\0' > "$FIX_FILES_NUL_FILE"
     if [[ ! -s "$FIX_FILES_NUL_FILE" ]]; then
       echo "  No file changes after fix — nothing to commit."
       rm -f "$FIX_FILES_NUL_FILE"
