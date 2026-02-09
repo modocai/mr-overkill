@@ -146,7 +146,8 @@ CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 # Allow .gitignore to be dirty — the installer modifies it to add .review-loop/
 _dirty_files=$(git diff --name-only)
 _dirty_non_gitignore=$(echo "$_dirty_files" | grep -v '^\.gitignore$' || true)
-if [[ -n "$_dirty_non_gitignore" ]] || ! git diff --cached --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+_untracked_non_gitignore=$(git ls-files --others --exclude-standard | grep -v '^\.gitignore$' || true)
+if [[ -n "$_dirty_non_gitignore" ]] || ! git diff --cached --quiet || [[ -n "$_untracked_non_gitignore" ]]; then
   echo "Error: working tree is not clean. Commit or stash your changes before running review-loop."
   echo ""
   echo "  git stash        # stash changes"
@@ -154,7 +155,7 @@ if [[ -n "$_dirty_non_gitignore" ]] || ! git diff --cached --quiet || [[ -n "$(g
   echo ""
   exit 1
 fi
-unset _dirty_files _dirty_non_gitignore
+unset _dirty_files _dirty_non_gitignore _untracked_non_gitignore
 
 LOG_DIR="$SCRIPT_DIR/../logs"
 mkdir -p "$LOG_DIR"
