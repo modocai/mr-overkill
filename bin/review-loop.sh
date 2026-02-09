@@ -58,7 +58,9 @@ Options:
   -t, --target <branch>    Target branch to diff against (default: develop)
   -n, --max-loop <N>       Maximum review-fix iterations (required)
   --dry-run                Run review only, do not fix
+  --no-dry-run             Force fixes even if .reviewlooprc sets DRY_RUN=true
   --no-auto-commit         Fix but do not commit/push (single iteration)
+  --auto-commit            Force commit/push even if .reviewlooprc sets AUTO_COMMIT=false
   -V, --version            Show version
   -h, --help               Show this help message
 
@@ -87,7 +89,9 @@ while [[ $# -gt 0 ]]; do
       if [[ $# -lt 2 ]]; then echo "Error: '$1' requires an argument."; usage 1; fi
       MAX_LOOP="$2"; shift 2 ;;
     --dry-run)         DRY_RUN=true; shift ;;
+    --no-dry-run)      DRY_RUN=false; shift ;;
     --no-auto-commit)  AUTO_COMMIT=false; shift ;;
+    --auto-commit)     AUTO_COMMIT=true; shift ;;
     -V|--version) echo "review-loop v$VERSION"; exit 0 ;;
     -h|--help)    usage ;;
     *)            echo "Error: unknown option '$1'"; usage 1 ;;
