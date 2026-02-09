@@ -38,17 +38,17 @@ if [[ -f "$TARGET_DIR/.reviewlooprc.example" ]]; then
 fi
 
 # Remove .ai-review-logs/ entry from .gitignore only if it was added by install.sh
-# The installer writes a "# AI review logs" comment immediately before the entry.
-# If the entry exists without that comment, it was user-managed and must be preserved.
+# The installer writes a unique comment "# AI review logs (added by review-loop installer)"
+# immediately before the entry. User-managed entries without this exact comment are preserved.
 GITIGNORE="$TARGET_DIR/.gitignore"
-if [[ -f "$GITIGNORE" ]] && grep -qxF '# AI review logs' "$GITIGNORE"; then
+if [[ -f "$GITIGNORE" ]] && grep -qxF '# AI review logs (added by review-loop installer)' "$GITIGNORE"; then
   TMP_GITIGNORE=$(mktemp)
   # Remove only the installer-owned comment + entry pair
   awk '
-    /^# AI review logs$/ { marker=1; next }
+    /^# AI review logs \(added by review-loop installer\)$/ { marker=1; next }
     marker && /^\.ai-review-logs\/$/ { marker=0; next }
-    { if (marker) print "# AI review logs"; marker=0; print }
-    END { if (marker) print "# AI review logs" }
+    { if (marker) print "# AI review logs (added by review-loop installer)"; marker=0; print }
+    END { if (marker) print "# AI review logs (added by review-loop installer)" }
   ' "$GITIGNORE" > "$TMP_GITIGNORE"
   # Remove trailing blank lines
   sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$TMP_GITIGNORE" > "$GITIGNORE"

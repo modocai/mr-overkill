@@ -33,7 +33,7 @@ GITIGNORE="$TARGET_DIR/.gitignore"
 if [[ -f "$GITIGNORE" ]]; then
   if ! grep -qF '.ai-review-logs/' "$GITIGNORE"; then
     echo "" >> "$GITIGNORE"
-    echo "# AI review logs" >> "$GITIGNORE"
+    echo "# AI review logs (added by review-loop installer)" >> "$GITIGNORE"
     echo ".ai-review-logs/" >> "$GITIGNORE"
     echo "Added .ai-review-logs/ to existing .gitignore"
   else
@@ -41,7 +41,7 @@ if [[ -f "$GITIGNORE" ]]; then
   fi
 else
   cat > "$GITIGNORE" <<'EOF'
-# AI review logs
+# AI review logs (added by review-loop installer)
 .ai-review-logs/
 EOF
   echo "Created .gitignore with .ai-review-logs/"
