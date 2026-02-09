@@ -1,13 +1,53 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+VERSION="0.1.0"
+
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-TEMPLATES_DIR="$SCRIPT_DIR/../templates"
+PROMPTS_DIR="$SCRIPT_DIR/../prompts/active"
 
 # ── Defaults ──────────────────────────────────────────────────────────
 TARGET_BRANCH="develop"
 MAX_LOOP=""
 DRY_RUN=false
+AUTO_COMMIT=true
+
+# ── Load .reviewlooprc (if present) ──────────────────────────────────
+# Project-level config file can override defaults above.
+# CLI arguments take precedence over .reviewlooprc values.
+# SECURITY: parse only whitelisted KEY=VALUE lines; never source the file.
+REVIEWLOOPRC=".reviewlooprc"
+_GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [[ -n "$_GIT_ROOT" && -f "$_GIT_ROOT/$REVIEWLOOPRC" ]]; then
+  while IFS= read -r _rc_line || [[ -n "$_rc_line" ]]; do
+    # Skip blank lines and comments
+    [[ -z "$_rc_line" || "$_rc_line" =~ ^[[:space:]]*# ]] && continue
+    # Match KEY=VALUE (optionally quoted value); reject anything else
+    if [[ "$_rc_line" =~ ^[[:space:]]*(TARGET_BRANCH|MAX_LOOP|DRY_RUN|AUTO_COMMIT|PROMPTS_DIR)=[\"\']?([^\"\']*)[\"\']?[[:space:]]*$ ]]; then
+      _rc_val="${BASH_REMATCH[2]}"
+      _rc_key="${BASH_REMATCH[1]}"
+      # Trim trailing whitespace from unquoted values
+      _rc_val="${_rc_val%"${_rc_val##*[![:space:]]}"}"
+      # Validate boolean values
+      if [[ "$_rc_key" == "DRY_RUN" || "$_rc_key" == "AUTO_COMMIT" ]]; then
+        if [[ "$_rc_val" != "true" && "$_rc_val" != "false" ]]; then
+          echo "Error: $_rc_key must be 'true' or 'false', got '$_rc_val'." >&2
+          exit 1
+        fi
+      fi
+      declare "${_rc_key}=${_rc_val}"
+    else
+      echo "Warning: ignoring unrecognised .reviewlooprc line: $_rc_line" >&2
+    fi
+  done < "$_GIT_ROOT/$REVIEWLOOPRC"
+  unset _rc_line _rc_key _rc_val
+fi
+
+# Resolve relative PROMPTS_DIR against git root so the script works from any cwd
+if [[ -n "$_GIT_ROOT" && "$PROMPTS_DIR" != /* ]]; then
+  PROMPTS_DIR="$_GIT_ROOT/$PROMPTS_DIR"
+fi
+unset _GIT_ROOT
 
 # ── Usage ─────────────────────────────────────────────────────────────
 usage() {
@@ -18,6 +58,10 @@ Options:
   -t, --target <branch>    Target branch to diff against (default: develop)
   -n, --max-loop <N>       Maximum review-fix iterations (required)
   --dry-run                Run review only, do not fix
+  --no-dry-run             Force fixes even if .reviewlooprc sets DRY_RUN=true
+  --no-auto-commit         Fix but do not commit/push (single iteration)
+  --auto-commit            Force commit/push even if .reviewlooprc sets AUTO_COMMIT=false
+  -V, --version            Show version
   -h, --help               Show this help message
 
 Flow:
@@ -44,7 +88,11 @@ while [[ $# -gt 0 ]]; do
     -n|--max-loop)
       if [[ $# -lt 2 ]]; then echo "Error: '$1' requires an argument."; usage 1; fi
       MAX_LOOP="$2"; shift 2 ;;
-    --dry-run)    DRY_RUN=true; shift ;;
+    --dry-run)         DRY_RUN=true; shift ;;
+    --no-dry-run)      DRY_RUN=false; shift ;;
+    --no-auto-commit)  AUTO_COMMIT=false; shift ;;
+    --auto-commit)     AUTO_COMMIT=true; shift ;;
+    -V|--version) echo "review-loop v$VERSION"; exit 0 ;;
     -h|--help)    usage ;;
     *)            echo "Error: unknown option '$1'"; usage 1 ;;
   esac
@@ -156,7 +204,7 @@ for (( i=1; i<=MAX_LOOP; i++ )); do
   REVIEW_FILE="$LOG_DIR/review-${i}.json"
   rm -f "$REVIEW_FILE"
 
-  REVIEW_PROMPT=$(envsubst < "$TEMPLATES_DIR/codex-review.prompt.md")
+  REVIEW_PROMPT=$(envsubst < "$PROMPTS_DIR/codex-review.prompt.md")
 
   if ! codex exec \
     --sandbox read-only \
@@ -247,7 +295,7 @@ EOF
   FIX_FILE="$LOG_DIR/fix-${i}.md"
 
   export REVIEW_JSON
-  FIX_PROMPT=$(envsubst < "$TEMPLATES_DIR/claude-fix.prompt.md")
+  FIX_PROMPT=$(envsubst < "$PROMPTS_DIR/claude-fix.prompt.md")
 
   if ! printf '%s' "$FIX_PROMPT" | claude -p - \
     --allowedTools "Edit,Read,Glob,Grep,Bash" \
@@ -266,30 +314,46 @@ EOF
 
   # ── h. Commit & push fixes ──────────────────────────────────────
   # After Claude, only its changes are in the working tree (stash holds user edits).
-  # Collect changed/new files as NUL-delimited list for whitespace safety.
-  # Use a temp file because Bash strips NUL bytes in command substitution.
-  FIX_FILES_NUL_FILE=$(mktemp)
-  { git diff --name-only -z; git diff --cached --name-only -z; git ls-files --others --exclude-standard -z; } | tr '\0' '\n' | sort -u | { grep -v '^\.ai-review-logs/' || true; } | tr '\n' '\0' > "$FIX_FILES_NUL_FILE"
-  if [[ ! -s "$FIX_FILES_NUL_FILE" ]]; then
-    echo "  No file changes after fix — nothing to commit."
-    rm -f "$FIX_FILES_NUL_FILE"
+  if [[ "$AUTO_COMMIT" != true ]]; then
+    echo "  AUTO_COMMIT is disabled — skipping commit and push."
+    # Restore stash before breaking; uncommitted fixes would be stashed away
+    # on the next iteration, causing the loop to re-review the same diff.
+    if [[ "$STASH_CREATED" == true ]]; then
+      trap - EXIT
+      if ! git stash pop --index -q; then
+        echo "  Error: stash pop had conflicts; resolve manually before rerunning."
+        FINAL_STATUS="stash_conflict"
+        break
+      fi
+    fi
+    FINAL_STATUS="auto_commit_disabled"
+    break
   else
-    echo "[$(date +%H:%M:%S)] Committing fixes..."
-    xargs -0 git add -- < "$FIX_FILES_NUL_FILE"
-    git commit --pathspec-from-file="$FIX_FILES_NUL_FILE" --pathspec-file-nul \
-      -m "fix(ai-review): apply iteration $i fixes
+    # Collect changed/new files as NUL-delimited list for whitespace safety.
+    # Use a temp file because Bash strips NUL bytes in command substitution.
+    FIX_FILES_NUL_FILE=$(mktemp)
+    { git diff --name-only -z; git diff --cached --name-only -z; git ls-files --others --exclude-standard -z; } | tr '\0' '\n' | sort -u | { grep -v '^\.ai-review-logs/' || true; } | tr '\n' '\0' > "$FIX_FILES_NUL_FILE"
+    if [[ ! -s "$FIX_FILES_NUL_FILE" ]]; then
+      echo "  No file changes after fix — nothing to commit."
+      rm -f "$FIX_FILES_NUL_FILE"
+    else
+      echo "[$(date +%H:%M:%S)] Committing fixes..."
+      xargs -0 git add -- < "$FIX_FILES_NUL_FILE"
+      git commit --pathspec-from-file="$FIX_FILES_NUL_FILE" --pathspec-file-nul \
+        -m "fix(ai-review): apply iteration $i fixes
 
 Auto-generated by review-loop.sh (iteration $i/$MAX_LOOP)"
-    rm -f "$FIX_FILES_NUL_FILE"
-    echo "  Committed."
+      rm -f "$FIX_FILES_NUL_FILE"
+      echo "  Committed."
 
-    # Push to update PR (if remote tracking exists)
-    if git rev-parse --abbrev-ref --symbolic-full-name "@{u}" &>/dev/null; then
-      echo "[$(date +%H:%M:%S)] Pushing to remote..."
-      git push
-      echo "  Pushed."
-    else
-      echo "  No upstream set — skipping push. Run: git push -u origin $CURRENT_BRANCH"
+      # Push to update PR (if remote tracking exists)
+      if git rev-parse --abbrev-ref --symbolic-full-name "@{u}" &>/dev/null; then
+        echo "[$(date +%H:%M:%S)] Pushing to remote..."
+        git push
+        echo "  Pushed."
+      else
+        echo "  No upstream set — skipping push. Run: git push -u origin $CURRENT_BRANCH"
+      fi
     fi
   fi
 
