@@ -1,0 +1,18 @@
+# .reviewlooprc — project-level configuration for review-loop.sh
+# Copy this file to your project root as ".reviewlooprc" and customize.
+# CLI arguments always take precedence over these values.
+
+# Target branch to diff against (default: develop)
+# TARGET_BRANCH="main"
+
+# Maximum review-fix iterations (default: unset, required via CLI)
+# MAX_LOOP=5
+
+# Run review only, do not fix (default: false)
+# DRY_RUN=false
+
+# Enable auto-commit of fixes (default: true)
+# AUTO_COMMIT=true
+
+# Path to active prompt templates (default: <script_dir>/../prompts/active)
+# PROMPTS_DIR="./custom-prompts"

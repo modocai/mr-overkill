@@ -2,13 +2,43 @@
 
 Codex(reviewer) and Claude(developer) collaborate to automatically improve code quality through an iterative review-fix loop.
 
+## Quick Install
+
+```bash
+# Install into your project
+git clone --depth 1 https://github.com/modocai/review_collaboration.git /tmp/review_collaboration \
+  && /tmp/review_collaboration/install.sh /path/to/your-project \
+  && rm -rf /tmp/review_collaboration
+```
+
+Or clone and install manually:
+
+```bash
+git clone https://github.com/modocai/review_collaboration.git
+./review_collaboration/install.sh /path/to/your-project
+```
+
 ## Prerequisites
 
-- [codex](https://github.com/openai/codex) — OpenAI Codex CLI
-- [claude](https://github.com/anthropics/claude-code) — Claude Code CLI
+**Accounts**:
+
+- [OpenAI](https://platform.openai.com/) account (paid plan) — Codex CLI 사용에 필요
+- [Anthropic](https://console.anthropic.com/) account (Pro/Max plan 또는 API credits) — Claude Code CLI 사용에 필요
+
+**Runtime**:
+
+- [Node.js](https://nodejs.org/) v18+ — Codex, Claude Code CLI 실행에 필요
+
+**CLI Tools**:
+
+```bash
+npm install -g @openai/codex        # Codex CLI
+npm install -g @anthropic-ai/claude-code  # Claude Code CLI
+```
+
 - [jq](https://jqlang.github.io/jq/) — JSON processor
-- [gh](https://cli.github.com/) — GitHub CLI (for PR comments)
-- [envsubst](https://www.gnu.org/software/gettext/) — part of GNU gettext
+- [gh](https://cli.github.com/) — GitHub CLI (optional, for PR comments)
+- [envsubst](https://www.gnu.org/software/gettext/) — part of GNU gettext (macOS: `brew install gettext`)
 - git
 
 ## Quick Start
@@ -16,18 +46,6 @@ Codex(reviewer) and Claude(developer) collaborate to automatically improve code 
 ```bash
 # In your project directory:
 ./bin/review-loop.sh -n 3
-```
-
-## Installation in Another Project
-
-```bash
-# Copy bin/ and templates/ into target project
-/path/to/review_collaboration/install.sh /path/to/target-project
-
-# Or use as git submodule
-cd your-project
-git submodule add <repo-url> review_collaboration
-./review_collaboration/bin/review-loop.sh -n 3
 ```
 
 ## Usage
@@ -39,13 +57,30 @@ Options:
   -t, --target <branch>    Target branch to diff against (default: develop)
   -n, --max-loop <N>       Maximum review-fix iterations (required)
   --dry-run                Run review only, do not fix
+  --no-auto-commit         Fix but do not commit/push (single iteration)
+  -V, --version            Show version
   -h, --help               Show this help message
 
 Examples:
   review-loop.sh -t main -n 3          # diff against main, max 3 loops
   review-loop.sh -n 5                  # diff against develop, max 5 loops
   review-loop.sh -n 1 --dry-run        # single review, no fixes
+  review-loop.sh --version             # print version
 ```
+
+## Configuration (.reviewlooprc)
+
+Create a `.reviewlooprc` file in your project root to set defaults. CLI arguments always take precedence.
+
+```bash
+# .reviewlooprc
+TARGET_BRANCH="main"
+MAX_LOOP=5
+AUTO_COMMIT=true
+PROMPTS_DIR="./custom-prompts"
+```
+
+See `.reviewlooprc.example` for all available options.
 
 ## How It Works
 
@@ -77,10 +112,12 @@ All logs are saved to `.ai-review-logs/` (git-ignored by default):
 
 ## Customizing Prompts
 
-Edit the templates in `templates/`:
+Edit the templates in `prompts/active/`:
 
 - **`codex-review.prompt.md`** — Review prompt sent to Codex. Uses `envsubst` variables: `${CURRENT_BRANCH}`, `${TARGET_BRANCH}`, `${ITERATION}`.
 - **`claude-fix.prompt.md`** — Fix prompt sent to Claude. Uses: `${REVIEW_JSON}`, `${CURRENT_BRANCH}`, `${TARGET_BRANCH}`.
+
+Reference prompts (read-only originals) are in `prompts/reference/`.
 
 ## Priority Levels
 
@@ -99,4 +136,25 @@ The loop terminates when any of these occur:
 - **no_diff** — No changes between branches
 - **dry_run** — Review-only mode
 - **max_iterations_reached** — Hit the `-n` limit
+- **auto_commit_disabled** — `--no-auto-commit` or `AUTO_COMMIT=false`; fixes applied but not committed
 - **parse_error** — Could not parse Codex output as JSON
+
+## Uninstall
+
+```bash
+# Remove review-loop from a target project
+./uninstall.sh /path/to/your-project
+```
+
+This removes `bin/review-loop.sh`, `prompts/active/`, `.reviewlooprc.example`, and the `.ai-review-logs/` entry from `.gitignore`.
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feat/my-feature`)
+3. Commit your changes
+4. Open a Pull Request against `develop`
+
+## License
+
+[MIT](LICENSE) &copy; 2026 ModocAI
