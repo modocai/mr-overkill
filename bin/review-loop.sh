@@ -9,6 +9,7 @@ PROMPTS_DIR="$SCRIPT_DIR/../prompts/active"
 # ── Defaults ──────────────────────────────────────────────────────────
 TARGET_BRANCH="develop"
 MAX_LOOP=""
+MAX_SUBLOOP=2
 DRY_RUN=false
 AUTO_COMMIT=true
 
@@ -23,7 +24,7 @@ if [[ -n "$_GIT_ROOT" && -f "$_GIT_ROOT/$REVIEWLOOPRC" ]]; then
     # Skip blank lines and comments
     [[ -z "$_rc_line" || "$_rc_line" =~ ^[[:space:]]*# ]] && continue
     # Match KEY=VALUE (optionally quoted value); reject anything else
-    if [[ "$_rc_line" =~ ^[[:space:]]*(TARGET_BRANCH|MAX_LOOP|DRY_RUN|AUTO_COMMIT|PROMPTS_DIR)=[\"\']?([^\"\']*)[\"\']?[[:space:]]*$ ]]; then
+    if [[ "$_rc_line" =~ ^[[:space:]]*(TARGET_BRANCH|MAX_LOOP|MAX_SUBLOOP|DRY_RUN|AUTO_COMMIT|PROMPTS_DIR)=[\"\']?([^\"\']*)[\"\']?[[:space:]]*$ ]]; then
       _rc_val="${BASH_REMATCH[2]}"
       _rc_key="${BASH_REMATCH[1]}"
       # Trim trailing whitespace from unquoted values
@@ -57,6 +58,8 @@ Usage: review-loop.sh [OPTIONS]
 Options:
   -t, --target <branch>    Target branch to diff against (default: develop)
   -n, --max-loop <N>       Maximum review-fix iterations (required)
+  --max-subloop <N>        Maximum self-review sub-iterations per fix (default: 2)
+  --no-self-review         Disable self-review (equivalent to --max-subloop 0)
   --dry-run                Run review only, do not fix
   --no-dry-run             Force fixes even if .reviewlooprc sets DRY_RUN=true
   --no-auto-commit         Fix but do not commit/push (single iteration)
@@ -67,14 +70,16 @@ Options:
 Flow:
   1. Codex reviews diff (target...current)
   2. Claude fixes all issues (P0-P3)
-  3. Auto-commit & push fixes to update PR
-  4. Post review/fix summary as PR comment
-  5. Repeat until clean or max iterations
+  3. Claude self-reviews fixes, re-fixes if needed (up to --max-subloop times)
+  4. Auto-commit & push fixes to update PR
+  5. Post review/fix/self-review summary as PR comment
+  6. Repeat until clean or max iterations
 
 Examples:
   review-loop.sh -t main -n 3          # diff against main, max 3 loops
   review-loop.sh -n 5                  # diff against develop, max 5 loops
   review-loop.sh -n 1 --dry-run        # single review, no fixes
+  review-loop.sh -n 3 --no-self-review # disable self-review sub-loop
 EOF
   exit "${1:-0}"
 }
@@ -88,6 +93,10 @@ while [[ $# -gt 0 ]]; do
     -n|--max-loop)
       if [[ $# -lt 2 ]]; then echo "Error: '$1' requires an argument."; usage 1; fi
       MAX_LOOP="$2"; shift 2 ;;
+    --max-subloop)
+      if [[ $# -lt 2 ]]; then echo "Error: '$1' requires an argument."; usage 1; fi
+      MAX_SUBLOOP="$2"; shift 2 ;;
+    --no-self-review)  MAX_SUBLOOP=0; shift ;;
     --dry-run)         DRY_RUN=true; shift ;;
     --no-dry-run)      DRY_RUN=false; shift ;;
     --no-auto-commit)  AUTO_COMMIT=false; shift ;;
@@ -106,6 +115,11 @@ fi
 
 if ! [[ "$MAX_LOOP" =~ ^[1-9][0-9]*$ ]]; then
   echo "Error: --max-loop must be a positive integer, got '$MAX_LOOP'."
+  exit 1
+fi
+
+if ! [[ "$MAX_SUBLOOP" =~ ^(0|[1-9][0-9]*)$ ]]; then
+  echo "Error: --max-subloop must be a non-negative integer (no leading zeros), got '$MAX_SUBLOOP'."
   exit 1
 fi
 
@@ -161,7 +175,7 @@ unset _dirty_files _dirty_non_gitignore _staged_non_gitignore _untracked_non_git
 LOG_DIR="$SCRIPT_DIR/../logs"
 mkdir -p "$LOG_DIR"
 # Remove stale logs from previous runs so the summary only reflects this execution
-rm -f "$LOG_DIR"/review-*.json "$LOG_DIR"/fix-*.md "$LOG_DIR"/summary.md
+rm -f "$LOG_DIR"/review-*.json "$LOG_DIR"/fix-*.md "$LOG_DIR"/self-review-*.json "$LOG_DIR"/refix-*.md "$LOG_DIR"/summary.md
 
 export CURRENT_BRANCH TARGET_BRANCH
 
@@ -178,7 +192,7 @@ fi
 
 echo "═══════════════════════════════════════════════════════"
 echo " Review Loop: $CURRENT_BRANCH → $TARGET_BRANCH"
-echo " Max iterations: $MAX_LOOP | Dry-run: $DRY_RUN"
+echo " Max iterations: $MAX_LOOP | Sub-loops: $MAX_SUBLOOP | Dry-run: $DRY_RUN"
 echo "═══════════════════════════════════════════════════════"
 echo ""
 
@@ -288,12 +302,92 @@ EOF
 
   echo "  Fix log saved to $FIX_FILE"
 
+  # ── g2. Claude self-review sub-loop ─────────────────────────────
+  SELF_REVIEW_SUMMARY=""
+  ORIGINAL_REVIEW_JSON="$REVIEW_JSON"
+  if [[ "$MAX_SUBLOOP" -gt 0 ]] && [[ ! -f "$PROMPTS_DIR/claude-self-review.prompt.md" ]]; then
+    echo "  Warning: self-review prompt not found at $PROMPTS_DIR/claude-self-review.prompt.md — disabling self-review."
+    MAX_SUBLOOP=0
+  fi
+  if [[ "$MAX_SUBLOOP" -gt 0 ]]; then
+    for (( j=1; j<=MAX_SUBLOOP; j++ )); do
+      # Check if there are any working tree changes to review
+      # Must consider unstaged edits, staged changes, and untracked files
+      if [[ -z "$(git diff --name-only | grep -v '^\.gitignore$')" ]] && [[ -z "$(git diff --cached --name-only | grep -v '^\.gitignore$')" ]] && [[ -z "$(git ls-files --others --exclude-standard | grep -v -E '^(\.gitignore|\.reviewlooprc)$')" ]]; then
+        echo "  No working tree changes — skipping self-review."
+        break
+      fi
+
+      echo "[$(date +%H:%M:%S)] Running Claude self-review (sub-iteration $j/$MAX_SUBLOOP)..."
+      SELF_REVIEW_FILE="$LOG_DIR/self-review-${i}-${j}.json"
+
+      # Ensure self-review prompt always references the original Codex findings
+      export REVIEW_JSON="$ORIGINAL_REVIEW_JSON"
+      SELF_REVIEW_PROMPT=$(envsubst < "$PROMPTS_DIR/claude-self-review.prompt.md")
+
+      # Claude self-review — tool access for git diff, file reading, etc.
+      if ! printf '%s' "$SELF_REVIEW_PROMPT" | claude -p - \
+        --allowedTools "Read,Glob,Grep,Bash" \
+        > "$SELF_REVIEW_FILE" 2>&1; then
+        echo "  Warning: self-review failed (sub-iteration $j). Continuing with current fixes."
+        SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: self-review failed\n"
+        break
+      fi
+
+      # JSON parsing (same logic as codex review)
+      SELF_REVIEW_JSON=""
+      if [[ ! -s "$SELF_REVIEW_FILE" ]]; then
+        echo "  Warning: self-review produced empty output (sub-iteration $j). Continuing with current fixes."
+        SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: empty output\n"
+        break
+      fi
+      if jq empty "$SELF_REVIEW_FILE" 2>/dev/null; then
+        SELF_REVIEW_JSON=$(cat "$SELF_REVIEW_FILE")
+      else
+        SELF_REVIEW_JSON=$(sed -n '/^```\(json\)\{0,1\}$/,/^```$/{ /^```/d; p; }' "$SELF_REVIEW_FILE")
+        if ! echo "$SELF_REVIEW_JSON" | jq empty 2>/dev/null; then
+          SELF_REVIEW_JSON=$(perl -0777 -ne 'print $1 if /(\{.*\})/s' "$SELF_REVIEW_FILE" 2>/dev/null || true)
+        fi
+      fi
+
+      if ! echo "$SELF_REVIEW_JSON" | jq empty 2>/dev/null; then
+        echo "  Warning: could not parse self-review output. Continuing."
+        SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: parse error\n"
+        break
+      fi
+
+      SR_FINDINGS=$(echo "$SELF_REVIEW_JSON" | jq '.findings | length')
+      SR_OVERALL=$(echo "$SELF_REVIEW_JSON" | jq -r '.overall_correctness')
+      echo "  Self-review: $SR_FINDINGS findings | $SR_OVERALL"
+
+      if [[ "$SR_FINDINGS" -eq 0 ]] && [[ "$SR_OVERALL" == "patch is correct" ]]; then
+        echo "  Self-review passed — fixes are clean."
+        SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: 0 findings — passed\n"
+        break
+      fi
+
+      # Claude re-fix
+      echo "[$(date +%H:%M:%S)] Running Claude re-fix (sub-iteration $j/$MAX_SUBLOOP)..."
+      REFIX_FILE="$LOG_DIR/refix-${i}-${j}.md"
+
+      export REVIEW_JSON="$SELF_REVIEW_JSON"
+      REFIX_PROMPT=$(envsubst < "$PROMPTS_DIR/claude-fix.prompt.md")
+
+      if ! printf '%s' "$REFIX_PROMPT" | claude -p - \
+        --allowedTools "Edit,Read,Glob,Grep,Bash" \
+        > "$REFIX_FILE" 2>&1; then
+        echo "  Warning: re-fix failed (sub-iteration $j). Continuing with current state."
+        SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: $SR_FINDINGS findings — re-fix failed\n"
+        break
+      fi
+      SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: $SR_FINDINGS findings — re-fixed\n"
+      echo "  Re-fix log saved to $REFIX_FILE"
+    done
+  fi
+  export REVIEW_JSON="$ORIGINAL_REVIEW_JSON"
+
   # ── h. Commit & push fixes ──────────────────────────────────────
-  if [[ "$AUTO_COMMIT" != true ]]; then
-    echo "  AUTO_COMMIT is disabled — skipping commit and push."
-    FINAL_STATUS="auto_commit_disabled"
-    break
-  else
+  if [[ "$AUTO_COMMIT" == true ]]; then
     # Collect changed/new files as NUL-delimited list for whitespace safety.
     # Use a temp file because Bash strips NUL bytes in command substitution.
     FIX_FILES_NUL_FILE=$(mktemp)
@@ -304,10 +398,15 @@ EOF
     else
       echo "[$(date +%H:%M:%S)] Committing fixes..."
       xargs -0 git add -- < "$FIX_FILES_NUL_FILE"
-      git commit --pathspec-from-file="$FIX_FILES_NUL_FILE" --pathspec-file-nul \
-        -m "fix(ai-review): apply iteration $i fixes
+      COMMIT_MSG="fix(ai-review): apply iteration $i fixes
 
 Auto-generated by review-loop.sh (iteration $i/$MAX_LOOP)"
+      if [[ -n "$SELF_REVIEW_SUMMARY" ]]; then
+        COMMIT_MSG="${COMMIT_MSG}
+Self-review: $(printf '%b' "$SELF_REVIEW_SUMMARY" | tr '\n' '; ' | sed 's/; $//')"
+      fi
+      git commit --pathspec-from-file="$FIX_FILES_NUL_FILE" --pathspec-file-nul \
+        -m "$COMMIT_MSG"
       rm -f "$FIX_FILES_NUL_FILE"
       echo "  Committed."
 
@@ -320,6 +419,8 @@ Auto-generated by review-loop.sh (iteration $i/$MAX_LOOP)"
         echo "  No upstream set — skipping push. Run: git push -u origin $CURRENT_BRANCH"
       fi
     fi
+  else
+    echo "  AUTO_COMMIT is disabled — skipping commit and push."
   fi
 
   # ── i. Post iteration summary as PR comment ─────────────────────
@@ -342,6 +443,20 @@ Auto-generated by review-loop.sh (iteration $i/$MAX_LOOP)"
       fi
     fi
 
+    # Build self-review section
+    SELF_REVIEW_SECTION=""
+    if [[ -n "$SELF_REVIEW_SUMMARY" ]]; then
+      SELF_REVIEW_SECTION=$(cat <<SREOF
+
+<details>
+<summary>Self-Review ($MAX_SUBLOOP max sub-iterations)</summary>
+
+$(printf '%b' "$SELF_REVIEW_SUMMARY")
+</details>
+SREOF
+)
+    fi
+
     COMMENT_BODY=$(cat <<EOF
 ### AI Review — Iteration $i / $MAX_LOOP
 
@@ -362,6 +477,7 @@ $FINDINGS_TABLE
 $FIX_SUMMARY
 
 </details>
+${SELF_REVIEW_SECTION}
 EOF
 )
     if gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"; then
@@ -369,6 +485,12 @@ EOF
     else
       echo "  Warning: failed to post PR comment (non-fatal)."
     fi
+  fi
+
+  # Stop after first iteration when auto-commit is off (fixes applied but not committed)
+  if [[ "$AUTO_COMMIT" != true ]]; then
+    FINAL_STATUS="auto_commit_disabled"
+    break
   fi
 
   echo ""
@@ -393,6 +515,14 @@ SUMMARY_FILE="$LOG_DIR/summary.md"
     count=$(jq '.findings | length' "$f" 2>/dev/null || echo "?")
     verdict=$(jq -r '.overall_correctness' "$f" 2>/dev/null || echo "?")
     echo "- **Iteration $iter**: $count findings, verdict: $verdict"
+    # Include self-review sub-iteration info
+    for sf in "$LOG_DIR"/self-review-"${iter}"-*.json; do
+      [[ -e "$sf" ]] || continue
+      sub_iter=$(basename "$sf" | sed "s/self-review-${iter}-//;s/.json//")
+      sr_count=$(jq '.findings | length' "$sf" 2>/dev/null || echo "?")
+      sr_verdict=$(jq -r '.overall_correctness' "$sf" 2>/dev/null || echo "?")
+      echo "  - Sub-iteration $sub_iter: $sr_count findings, verdict: $sr_verdict"
+    done
   done
 } > "$SUMMARY_FILE"
 
