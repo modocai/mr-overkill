@@ -56,6 +56,8 @@ review-loop.sh [OPTIONS]
 Options:
   -t, --target <branch>    Target branch to diff against (default: develop)
   -n, --max-loop <N>       Maximum review-fix iterations (required)
+  --max-subloop <N>        Maximum self-review sub-iterations per fix (default: 2)
+  --no-self-review         Disable self-review (equivalent to --max-subloop 0)
   --dry-run                Run review only, do not fix
   --no-auto-commit         Fix but do not commit/push (single iteration)
   -V, --version            Show version
@@ -65,6 +67,7 @@ Examples:
   review-loop.sh -t main -n 3          # diff against main, max 3 loops
   review-loop.sh -n 5                  # diff against develop, max 5 loops
   review-loop.sh -n 1 --dry-run        # single review, no fixes
+  review-loop.sh -n 3 --no-self-review # disable self-review sub-loop
   review-loop.sh --version             # print version
 ```
 
@@ -76,6 +79,7 @@ Create a `.reviewlooprc` file in your project root to set defaults. CLI argument
 # .reviewlooprc
 TARGET_BRANCH="main"
 MAX_LOOP=5
+MAX_SUBLOOP=2
 AUTO_COMMIT=true
 PROMPTS_DIR="./custom-prompts"
 ```
@@ -93,10 +97,14 @@ See `.review-loop/.reviewlooprc.example` for all available options.
    c. Codex reviews the diff → JSON with findings
    d. No findings + "patch is correct" → exit
    e. Claude fixes all issues (P0-P3)
-   f. Auto-commit fixes to branch
-   g. Push to remote (updates PR)
-   h. Post review findings + fix summary as PR comment
-   i. Next iteration reviews the updated committed state
+   f. Sub-loop (1..MAX_SUBLOOP):
+      - Claude self-reviews the uncommitted fixes (git diff)
+      - If clean → break
+      - Claude re-fixes based on self-review findings
+   g. Auto-commit all fixes + re-fixes to branch
+   h. Push to remote (updates PR)
+   i. Post review/fix/self-review summary as PR comment
+   j. Next iteration reviews the updated committed state
 4. Write summary to .review-loop/logs/summary.md
 ```
 
@@ -108,6 +116,8 @@ All logs are saved to `.review-loop/logs/` (git-ignored by default):
 |------|-------------|
 | `review-N.json` | Codex review output for iteration N |
 | `fix-N.md` | Claude fix log for iteration N |
+| `self-review-N-M.json` | Claude self-review output (iteration N, sub-iteration M) |
+| `refix-N-M.md` | Claude re-fix log (iteration N, sub-iteration M) |
 | `summary.md` | Final summary with status and per-iteration results |
 
 ## Customizing Prompts
@@ -116,6 +126,7 @@ Edit the templates in `.review-loop/prompts/active/` (or `prompts/active/` in th
 
 - **`codex-review.prompt.md`** — Review prompt sent to Codex. Uses `envsubst` variables: `${CURRENT_BRANCH}`, `${TARGET_BRANCH}`, `${ITERATION}`.
 - **`claude-fix.prompt.md`** — Fix prompt sent to Claude. Uses: `${REVIEW_JSON}`, `${CURRENT_BRANCH}`, `${TARGET_BRANCH}`.
+- **`claude-self-review.prompt.md`** — Self-review prompt for Claude to check its own fixes. Uses: `${REVIEW_JSON}`, `${CURRENT_BRANCH}`, `${TARGET_BRANCH}`, `${ITERATION}`.
 
 Reference prompts (read-only originals) are in `prompts/reference/`.
 
