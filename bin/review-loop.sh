@@ -118,8 +118,8 @@ if ! [[ "$MAX_LOOP" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
-if ! [[ "$MAX_SUBLOOP" =~ ^[0-9]+$ ]]; then
-  echo "Error: --max-subloop must be a non-negative integer, got '$MAX_SUBLOOP'."
+if ! [[ "$MAX_SUBLOOP" =~ ^(0|[1-9][0-9]*)$ ]]; then
+  echo "Error: --max-subloop must be a non-negative integer (no leading zeros), got '$MAX_SUBLOOP'."
   exit 1
 fi
 
