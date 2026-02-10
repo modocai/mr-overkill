@@ -12,10 +12,30 @@ TARGET_DIR=$(cd "$TARGET_DIR" && pwd)
 
 echo "Uninstalling review-loop from: $TARGET_DIR"
 
-# Remove .review-loop/ directory (current layout)
+# Remove installer-owned files inside .review-loop/ (current layout)
 if [[ -d "$TARGET_DIR/.review-loop" ]]; then
-  rm -rf "$TARGET_DIR/.review-loop"
-  echo "Removed .review-loop/"
+  # bin/
+  if [[ -f "$TARGET_DIR/.review-loop/bin/review-loop.sh" ]]; then
+    rm "$TARGET_DIR/.review-loop/bin/review-loop.sh"
+    echo "Removed .review-loop/bin/review-loop.sh"
+  fi
+  rmdir "$TARGET_DIR/.review-loop/bin" 2>/dev/null && echo "Removed empty .review-loop/bin/" || true
+  # prompts/active/
+  for _pfile in codex-review.prompt.md claude-fix.prompt.md claude-self-review.prompt.md; do
+    if [[ -f "$TARGET_DIR/.review-loop/prompts/active/$_pfile" ]]; then
+      rm "$TARGET_DIR/.review-loop/prompts/active/$_pfile"
+      echo "Removed .review-loop/prompts/active/$_pfile"
+    fi
+  done
+  rmdir "$TARGET_DIR/.review-loop/prompts/active" 2>/dev/null && echo "Removed empty .review-loop/prompts/active/" || true
+  rmdir "$TARGET_DIR/.review-loop/prompts" 2>/dev/null && echo "Removed empty .review-loop/prompts/" || true
+  # .reviewlooprc.example
+  if [[ -f "$TARGET_DIR/.review-loop/.reviewlooprc.example" ]]; then
+    rm "$TARGET_DIR/.review-loop/.reviewlooprc.example"
+    echo "Removed .review-loop/.reviewlooprc.example"
+  fi
+  # Remove .review-loop/ only if empty (preserves user-added files)
+  rmdir "$TARGET_DIR/.review-loop" 2>/dev/null && echo "Removed empty .review-loop/" || true
 fi
 
 # Remove legacy install layout (pre-.review-loop/ consolidation)
