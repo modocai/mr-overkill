@@ -313,7 +313,7 @@ EOF
     for (( j=1; j<=MAX_SUBLOOP; j++ )); do
       # Check if there are any working tree changes to review
       # Must consider unstaged edits, staged changes, and untracked files
-      if git diff --quiet && git diff --cached --quiet && [[ -z "$(git ls-files --others --exclude-standard | grep -v -E '^(\.gitignore|\.reviewlooprc)$')" ]]; then
+      if [[ -z "$(git diff --name-only | grep -v '^\.gitignore$')" ]] && [[ -z "$(git diff --cached --name-only | grep -v '^\.gitignore$')" ]] && [[ -z "$(git ls-files --others --exclude-standard | grep -v -E '^(\.gitignore|\.reviewlooprc)$')" ]]; then
         echo "  No working tree changes — skipping self-review."
         break
       fi
