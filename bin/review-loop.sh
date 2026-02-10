@@ -298,10 +298,10 @@ EOF
   # can distinguish pre-existing changes from Claude's fixes.
   PRE_FIX_STATE=$(mktemp)
   {
-    git diff --name-only
-    git diff --cached --name-only
-    git ls-files --others --exclude-standard
-  } | sort -u | while IFS= read -r _f; do
+    git diff -z --name-only
+    git diff -z --cached --name-only
+    git ls-files -z --others --exclude-standard
+  } | sort -uz | while IFS= read -r -d '' _f; do
     [[ -n "$_f" ]] || continue
     if [[ -f "$_f" ]]; then
       printf '%s\t%s\n' "$(git hash-object "$_f" 2>/dev/null || echo UNHASHABLE)" "$_f"
@@ -334,9 +334,9 @@ EOF
     for (( j=1; j<=MAX_SUBLOOP; j++ )); do
       # Check if Claude's fix produced any changes vs pre-fix snapshot
       _fix_dirty=$(mktemp)
-      { git diff --name-only; git diff --cached --name-only; git ls-files --others --exclude-standard; } | sort -u > "$_fix_dirty"
+      { git diff -z --name-only; git diff -z --cached --name-only; git ls-files -z --others --exclude-standard; } | sort -uz > "$_fix_dirty"
       _has_fix_changes=false
-      while IFS= read -r _f; do
+      while IFS= read -r -d '' _f; do
         [[ -n "$_f" ]] || continue
         [[ "$_f" == .review-loop/logs/* ]] && continue
         if [[ -f "$_f" ]]; then
@@ -431,8 +431,8 @@ EOF
     # so pre-existing changes (e.g. installer's .gitignore) are never swept in.
     FIX_FILES_NUL_FILE=$(mktemp)
     _post_dirty=$(mktemp)
-    { git diff --name-only; git diff --cached --name-only; git ls-files --others --exclude-standard; } | sort -u > "$_post_dirty"
-    while IFS= read -r _f; do
+    { git diff -z --name-only; git diff -z --cached --name-only; git ls-files -z --others --exclude-standard; } | sort -uz > "$_post_dirty"
+    while IFS= read -r -d '' _f; do
       [[ -n "$_f" ]] || continue
       [[ "$_f" == .review-loop/logs/* ]] && continue
       if [[ -f "$_f" ]]; then
