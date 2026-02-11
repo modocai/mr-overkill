@@ -171,11 +171,12 @@ _git_all_dirty_nul() {
 }
 
 # 3-tier JSON extraction: direct jq → sed fence → perl regex
-# $1 = file path; stdout = JSON; return 1 on failure
+# $1 = file path; stdout = JSON
+# Returns: 0 on success, 2 if file not found, 1 if parse failure
 _extract_json_from_file() {
   local _file="$1" _json=""
   if [[ ! -f "$_file" ]]; then
-    return 1
+    return 2
   fi
   if jq empty "$_file" 2>/dev/null; then
     cat "$_file"
@@ -244,7 +245,8 @@ _changed_files_since_snapshot() {
 
 # Two-step Claude fix: opinion (read-only) → execute (edit tools).
 # $1 = review JSON, $2 = opinion output file, $3 = fix output file, $4 = label
-# Uses globals: CURRENT_BRANCH, TARGET_BRANCH, PROMPTS_DIR
+# Uses globals: CURRENT_BRANCH, TARGET_BRANCH, PROMPTS_DIR (read-only)
+# Does not modify global state.
 # Returns 1 on failure; caller handles FINAL_STATUS/cleanup.
 _claude_two_step_fix() {
   local _rjson="$1" _opinion_file="$2" _fix_file="$3" _label="$4"
@@ -252,8 +254,7 @@ _claude_two_step_fix() {
 
   _session_id=$(_gen_uuid)
 
-  export REVIEW_JSON="$_rjson"
-  _prompt=$(envsubst '$CURRENT_BRANCH $TARGET_BRANCH $REVIEW_JSON' < "$PROMPTS_DIR/claude-fix.prompt.md")
+  _prompt=$(REVIEW_JSON="$_rjson" envsubst '$CURRENT_BRANCH $TARGET_BRANCH $REVIEW_JSON' < "$PROMPTS_DIR/claude-fix.prompt.md")
 
   echo "[$(date +%H:%M:%S)] Running Claude $_label (step 1: opinion)..."
   if ! printf '%s' "$_prompt" | claude -p - \
@@ -483,8 +484,14 @@ for (( i=1; i<=MAX_LOOP; i++ )); do
   fi
 
   # ── d. Extract JSON from response ────────────────────────────────
-  if ! REVIEW_JSON=$(_extract_json_from_file "$REVIEW_FILE"); then
-    echo "Warning: could not parse review output as JSON. Saving raw output."
+  _rc=0
+  REVIEW_JSON=$(_extract_json_from_file "$REVIEW_FILE") || _rc=$?
+  if [[ $_rc -ne 0 ]]; then
+    if [[ $_rc -eq 2 ]]; then
+      echo "Warning: review output file not found ($REVIEW_FILE). Codex may have failed."
+    else
+      echo "Warning: could not parse review output as JSON. Saving raw output."
+    fi
     echo "  See $REVIEW_FILE for details."
     FINAL_STATUS="parse_error"
     break
