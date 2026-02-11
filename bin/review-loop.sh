@@ -162,6 +162,212 @@ if ! command -v gh &>/dev/null; then
   echo "Warning: 'gh' is not installed — PR commenting will be disabled."
 fi
 
+# ── Helper functions ─────────────────────────────────────────────────
+
+# NUL-separated unique list of dirty/untracked files
+_git_all_dirty_nul() {
+  { git diff -z --name-only; git diff -z --cached --name-only; git ls-files -z --others --exclude-standard; } \
+    | perl -0 -e 'my %seen; while (defined(my $l = <>)) { chomp $l; print "$l\0" unless $seen{$l}++ }'
+}
+
+# 3-tier JSON extraction: direct jq → sed fence → perl regex
+# $1 = file path; stdout = JSON; return 1 on failure
+_extract_json_from_file() {
+  local _file="$1" _json=""
+  if [[ ! -f "$_file" ]]; then
+    return 1
+  fi
+  if jq empty "$_file" 2>/dev/null; then
+    cat "$_file"
+    return 0
+  fi
+  _json=$(sed -n '/^```[a-zA-Z]*$/,/^```$/{ /^```/d; p; }' "$_file")
+  if [[ -z "$_json" ]] || ! printf '%s' "$_json" | jq empty 2>/dev/null; then
+    _json=$(perl -0777 -ne 'print $1 if /(\{.*\})/s' "$_file" 2>/dev/null || true)
+  fi
+  if [[ -z "$_json" ]] || ! printf '%s' "$_json" | jq empty 2>/dev/null; then
+    return 1
+  fi
+  printf '%s' "$_json"
+}
+
+# Snapshot every dirty/untracked file's hash+mode into a temp file.
+# Prints temp file path to stdout; caller must rm.
+_snapshot_worktree() {
+  local _snap _f _hash _fmode
+  _snap=$(mktemp)
+  _git_all_dirty_nul | while IFS= read -r -d '' _f; do
+    [[ -n "$_f" ]] || continue
+    if [[ -f "$_f" ]]; then
+      _hash=$(git hash-object "$_f" 2>/dev/null || echo UNHASHABLE)
+      if [[ -x "$_f" ]]; then _fmode="100755"; else _fmode="100644"; fi
+      printf '%s\t%s\t%s\n' "$_hash" "$_fmode" "$_f"
+    else
+      printf 'DELETED\t000000\t%s\n' "$_f"
+    fi
+  done > "$_snap"
+  printf '%s' "$_snap"
+}
+
+# Compare current dirty files against a snapshot from _snapshot_worktree.
+# $1 = snapshot file path
+# Prints temp file (NUL-separated changed file list) path to stdout.
+# Returns 1 if no changes detected (temp file is removed in that case).
+_changed_files_since_snapshot() {
+  local _snap="$1" _dirty _out _f _cur_hash _cur_mode _pre_hash _pre_mode
+  _dirty=$(mktemp)
+  _git_all_dirty_nul > "$_dirty"
+  _out=$(mktemp)
+  while IFS= read -r -d '' _f; do
+    [[ -n "$_f" ]] || continue
+    [[ "$_f" == .review-loop/logs/* ]] && continue
+    if [[ -f "$_f" ]]; then
+      _cur_hash=$(git hash-object "$_f" 2>/dev/null || echo UNHASHABLE)
+      if [[ -x "$_f" ]]; then _cur_mode="100755"; else _cur_mode="100644"; fi
+    else
+      _cur_hash="DELETED"
+      _cur_mode="000000"
+    fi
+    _pre_hash=$(awk -F'\t' -v f="$_f" '$3 == f { print $1; exit }' "$_snap")
+    _pre_mode=$(awk -F'\t' -v f="$_f" '$3 == f { print $2; exit }' "$_snap")
+    if [[ -z "$_pre_hash" ]] || [[ "$_cur_hash" != "$_pre_hash" ]] || [[ "$_cur_mode" != "$_pre_mode" ]]; then
+      printf '%s\0' "$_f"
+    fi
+  done < "$_dirty" > "$_out"
+  rm -f "$_dirty"
+  if [[ ! -s "$_out" ]]; then
+    rm -f "$_out"
+    return 1
+  fi
+  printf '%s' "$_out"
+}
+
+# Two-step Claude fix: opinion (read-only) → execute (edit tools).
+# $1 = review JSON, $2 = opinion output file, $3 = fix output file, $4 = label
+# Uses globals: CURRENT_BRANCH, TARGET_BRANCH, PROMPTS_DIR
+# Returns 1 on failure; caller handles FINAL_STATUS/cleanup.
+_claude_two_step_fix() {
+  local _rjson="$1" _opinion_file="$2" _fix_file="$3" _label="$4"
+  local _session_id _prompt _exec_prompt
+
+  _session_id=$(_gen_uuid)
+
+  export REVIEW_JSON="$_rjson"
+  _prompt=$(envsubst '$CURRENT_BRANCH $TARGET_BRANCH $REVIEW_JSON' < "$PROMPTS_DIR/claude-fix.prompt.md")
+
+  echo "[$(date +%H:%M:%S)] Running Claude $_label (step 1: opinion)..."
+  if ! printf '%s' "$_prompt" | claude -p - \
+    --session-id "$_session_id" \
+    --allowedTools "Read,Glob,Grep" \
+    > "$_opinion_file" 2>&1; then
+    echo "  Error: Claude $_label opinion failed. See $_opinion_file for details."
+    return 1
+  fi
+  echo "  Opinion saved to $_opinion_file"
+
+  echo "[$(date +%H:%M:%S)] Running Claude $_label (step 2: execute)..."
+  _exec_prompt=$(cat "$PROMPTS_DIR/claude-fix-execute.prompt.md")
+
+  if ! printf '%s' "$_exec_prompt" | claude -p - \
+    --resume "$_session_id" \
+    --allowedTools "Edit,Read,Glob,Grep,Bash" \
+    > "$_fix_file" 2>&1; then
+    echo "  Error: Claude $_label execute failed. See $_fix_file for details."
+    return 1
+  fi
+  echo "  $_label log saved to $_fix_file"
+}
+
+# Post iteration summary as PR comment.
+# Reads globals: PR_NUMBER, REVIEW_JSON, OVERALL, FINDINGS_COUNT,
+#   FIX_FILE, OPINION_FILE, SELF_REVIEW_SUMMARY, MAX_SUBLOOP, MAX_LOOP, i
+_post_pr_comment() {
+  [[ -n "$PR_NUMBER" ]] || return 0
+  echo "[$(date +%H:%M:%S)] Posting PR comment..."
+
+  local FINDINGS_TABLE FIX_SUMMARY COMMENT_BODY_FILE
+
+  FINDINGS_TABLE=$(printf '%s' "$REVIEW_JSON" | jq -r '
+    .findings[] |
+    "| \(.title) | \(.confidence_score) | `\(.code_location.absolute_file_path):\(.code_location.line_range.start)` |"
+  ')
+
+  FIX_SUMMARY=""
+  if [[ -f "$FIX_FILE" ]]; then
+    FIX_SUMMARY=$(sed -n '/^## Fix Summary/,/^## /{ /^## Fix Summary/d; /^## /d; p; }' "$FIX_FILE")
+    if [[ -z "$FIX_SUMMARY" ]]; then
+      FIX_SUMMARY=$(sed -n '/^## Fix Summary/,${ /^## Fix Summary/d; p; }' "$FIX_FILE")
+    fi
+  fi
+
+  COMMENT_BODY_FILE=$(mktemp)
+
+  printf '### AI Review — Iteration %d / %d\n\n' "$i" "$MAX_LOOP" > "$COMMENT_BODY_FILE"
+  printf '**Overall**: %s (%s findings)\n\n' "$OVERALL" "$FINDINGS_COUNT" >> "$COMMENT_BODY_FILE"
+
+  printf '<details>\n<summary>Review Findings</summary>\n\n' >> "$COMMENT_BODY_FILE"
+  printf '| Finding | Confidence | Location |\n' >> "$COMMENT_BODY_FILE"
+  printf '|---------|-----------|----------|\n' >> "$COMMENT_BODY_FILE"
+  printf '%s\n' "$FINDINGS_TABLE" >> "$COMMENT_BODY_FILE"
+  printf '\n</details>\n\n' >> "$COMMENT_BODY_FILE"
+
+  printf '<details>\n<summary>Fix Actions</summary>\n\n' >> "$COMMENT_BODY_FILE"
+  printf '%s\n' "$FIX_SUMMARY" >> "$COMMENT_BODY_FILE"
+  printf '\n</details>\n' >> "$COMMENT_BODY_FILE"
+
+  if [[ -f "$OPINION_FILE" ]] && [[ -s "$OPINION_FILE" ]]; then
+    printf '\n<details>\n<summary>Claude Opinion</summary>\n\n' >> "$COMMENT_BODY_FILE"
+    head -c 2000 "$OPINION_FILE" >> "$COMMENT_BODY_FILE"
+    printf '\n\n</details>\n' >> "$COMMENT_BODY_FILE"
+  fi
+
+  if [[ -n "$SELF_REVIEW_SUMMARY" ]]; then
+    printf '\n<details>\n<summary>Self-Review (%d max sub-iterations)</summary>\n\n' "$MAX_SUBLOOP" >> "$COMMENT_BODY_FILE"
+    printf '%b\n' "$SELF_REVIEW_SUMMARY" >> "$COMMENT_BODY_FILE"
+    printf '</details>\n' >> "$COMMENT_BODY_FILE"
+  fi
+
+  if gh pr comment "$PR_NUMBER" --body-file "$COMMENT_BODY_FILE"; then
+    echo "  PR comment posted."
+  else
+    echo "  Warning: failed to post PR comment (non-fatal)."
+  fi
+  rm -f "$COMMENT_BODY_FILE"
+}
+
+# Generate summary.md from iteration logs.
+# Reads globals: LOG_DIR, CURRENT_BRANCH, TARGET_BRANCH, MAX_LOOP, FINAL_STATUS
+_generate_summary() {
+  local SUMMARY_FILE="$LOG_DIR/summary.md"
+  {
+    echo "# Review Loop Summary"
+    echo ""
+    echo "- **Branch**: $CURRENT_BRANCH → $TARGET_BRANCH"
+    echo "- **Max iterations**: $MAX_LOOP"
+    echo "- **Final status**: $FINAL_STATUS"
+    echo "- **Timestamp**: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo ""
+    echo "## Iteration Logs"
+    echo ""
+    local f iter count verdict sf sub_iter sr_count sr_verdict
+    for f in "$LOG_DIR"/review-*.json; do
+      [[ -e "$f" ]] || continue
+      iter=$(basename "$f" | sed 's/review-//;s/.json//')
+      count=$(jq '.findings | length' "$f" 2>/dev/null || echo "?")
+      verdict=$(jq -r '.overall_correctness' "$f" 2>/dev/null || echo "?")
+      echo "- **Iteration $iter**: $count findings, verdict: $verdict"
+      for sf in "$LOG_DIR"/self-review-"${iter}"-*.json; do
+        [[ -e "$sf" ]] || continue
+        sub_iter=$(basename "$sf" | sed "s/self-review-${iter}-//;s/.json//")
+        sr_count=$(jq '.findings | length' "$sf" 2>/dev/null || echo "?")
+        sr_verdict=$(jq -r '.overall_correctness' "$sf" 2>/dev/null || echo "?")
+        echo "  - Sub-iteration $sub_iter: $sr_count findings, verdict: $sr_verdict"
+      done
+    done
+  } > "$SUMMARY_FILE"
+  printf '%s' "$SUMMARY_FILE"
+}
+
 if ! git rev-parse --is-inside-work-tree &>/dev/null; then
   echo "Error: not inside a git repository."
   exit 1
@@ -277,22 +483,7 @@ for (( i=1; i<=MAX_LOOP; i++ )); do
   fi
 
   # ── d. Extract JSON from response ────────────────────────────────
-  REVIEW_JSON=""
-  if [[ ! -f "$REVIEW_FILE" ]]; then
-    echo "Warning: review output file not found ($REVIEW_FILE). Codex may have failed."
-  elif jq empty "$REVIEW_FILE" 2>/dev/null; then
-    # Direct jq parse
-    REVIEW_JSON=$(cat "$REVIEW_FILE")
-  else
-    # Extract JSON from markdown fences or mixed text
-    REVIEW_JSON=$(sed -n '/^```\(json\)\{0,1\}$/,/^```$/{ /^```/d; p; }' "$REVIEW_FILE")
-    # Fallback: find first { ... } block
-    if [[ -z "$REVIEW_JSON" ]] || ! printf '%s' "$REVIEW_JSON" | jq empty 2>/dev/null; then
-      REVIEW_JSON=$(perl -0777 -ne 'print $1 if /(\{.*\})/s' "$REVIEW_FILE" 2>/dev/null || true)
-    fi
-  fi
-
-  if [[ -z "$REVIEW_JSON" ]] || ! printf '%s' "$REVIEW_JSON" | jq empty 2>/dev/null; then
+  if ! REVIEW_JSON=$(_extract_json_from_file "$REVIEW_FILE"); then
     echo "Warning: could not parse review output as JSON. Saving raw output."
     echo "  See $REVIEW_FILE for details."
     FINAL_STATUS="parse_error"
@@ -349,62 +540,18 @@ EOF
   fi
 
   # ── Snapshot pre-fix working tree state ──────────────────────────
-  # Record every dirty/untracked file with its content hash so that step h
-  # can distinguish pre-existing changes from Claude's fixes.
-  PRE_FIX_STATE=$(mktemp)
-  {
-    git diff -z --name-only
-    git diff -z --cached --name-only
-    git ls-files -z --others --exclude-standard
-  } | perl -0 -e 'my %seen; while (defined(my $l = <>)) { chomp $l; print "$l\0" unless $seen{$l}++ }' | while IFS= read -r -d '' _f; do
-    [[ -n "$_f" ]] || continue
-    if [[ -f "$_f" ]]; then
-      _hash=$(git hash-object "$_f" 2>/dev/null || echo UNHASHABLE)
-      if [[ -x "$_f" ]]; then _fmode="100755"; else _fmode="100644"; fi
-      printf '%s\t%s\t%s\n' "$_hash" "$_fmode" "$_f"
-    else
-      printf 'DELETED\t000000\t%s\n' "$_f"
-    fi
-  done > "$PRE_FIX_STATE"
+  PRE_FIX_STATE=$(_snapshot_worktree)
 
   # ── g. Claude fix (two-step: opinion → execute) ─────────────────
-  echo "[$(date +%H:%M:%S)] Running Claude fix (step 1: opinion)..."
   FIX_FILE="$LOG_DIR/fix-${i}.md"
   OPINION_FILE="$LOG_DIR/opinion-${i}.md"
-  FIX_SESSION_ID=$(_gen_uuid)
 
-  export REVIEW_JSON
-  FIX_PROMPT=$(envsubst '$CURRENT_BRANCH $TARGET_BRANCH $REVIEW_JSON' < "$PROMPTS_DIR/claude-fix.prompt.md")
-
-  # Step 1: Ask Claude's opinion (read-only, no edit tools)
-  if ! printf '%s' "$FIX_PROMPT" | claude -p - \
-    --session-id "$FIX_SESSION_ID" \
-    --allowedTools "Read,Glob,Grep" \
-    > "$OPINION_FILE" 2>&1; then
-    echo "  Error: Claude opinion failed (iteration $i). See $OPINION_FILE for details."
+  if ! _claude_two_step_fix "$REVIEW_JSON" "$OPINION_FILE" "$FIX_FILE" "fix"; then
     FINAL_STATUS="claude_error"
     rm -f "$PRE_FIX_STATE"
     _cleanup_stash
     break
   fi
-  echo "  Opinion saved to $OPINION_FILE"
-
-  # Step 2: Tell Claude to fix based on its own analysis
-  echo "[$(date +%H:%M:%S)] Running Claude fix (step 2: execute)..."
-  FIX_EXEC_PROMPT=$(cat "$PROMPTS_DIR/claude-fix-execute.prompt.md")
-
-  if ! printf '%s' "$FIX_EXEC_PROMPT" | claude -p - \
-    --resume "$FIX_SESSION_ID" \
-    --allowedTools "Edit,Read,Glob,Grep,Bash" \
-    > "$FIX_FILE" 2>&1; then
-    echo "  Error: Claude fix-execute failed (iteration $i). See $FIX_FILE for details."
-    FINAL_STATUS="claude_error"
-    rm -f "$PRE_FIX_STATE"
-    _cleanup_stash
-    break
-  fi
-
-  echo "  Fix log saved to $FIX_FILE"
 
   # ── g2. Claude self-review sub-loop ─────────────────────────────
   SELF_REVIEW_SUMMARY=""
@@ -412,29 +559,8 @@ EOF
   if [[ "$MAX_SUBLOOP" -gt 0 ]]; then
     for (( j=1; j<=MAX_SUBLOOP; j++ )); do
       # Check if Claude's fix produced any changes vs pre-fix snapshot
-      _fix_dirty=$(mktemp)
-      { git diff -z --name-only; git diff -z --cached --name-only; git ls-files -z --others --exclude-standard; } | perl -0 -e 'my %seen; while (defined(my $l = <>)) { chomp $l; print "$l\0" unless $seen{$l}++ }' > "$_fix_dirty"
-      _fix_files_tmp=$(mktemp)
-      while IFS= read -r -d '' _f; do
-        [[ -n "$_f" ]] || continue
-        [[ "$_f" == .review-loop/logs/* ]] && continue
-        if [[ -f "$_f" ]]; then
-          _cur_hash=$(git hash-object "$_f" 2>/dev/null || echo UNHASHABLE)
-          if [[ -x "$_f" ]]; then _cur_mode="100755"; else _cur_mode="100644"; fi
-        else
-          _cur_hash="DELETED"
-          _cur_mode="000000"
-        fi
-        _pre_hash=$(awk -F'\t' -v f="$_f" '$3 == f { print $1; exit }' "$PRE_FIX_STATE")
-        _pre_mode=$(awk -F'\t' -v f="$_f" '$3 == f { print $2; exit }' "$PRE_FIX_STATE")
-        if [[ -z "$_pre_hash" ]] || [[ "$_cur_hash" != "$_pre_hash" ]] || [[ "$_cur_mode" != "$_pre_mode" ]]; then
-          printf '%s\0' "$_f"
-        fi
-      done < "$_fix_dirty" > "$_fix_files_tmp"
-      rm -f "$_fix_dirty"
-      if [[ ! -s "$_fix_files_tmp" ]]; then
+      if ! _fix_files_tmp=$(_changed_files_since_snapshot "$PRE_FIX_STATE"); then
         echo "  No working tree changes from fix — skipping self-review."
-        rm -f "$_fix_files_tmp"
         break
       fi
 
@@ -464,22 +590,12 @@ EOF
       fi
 
       # JSON parsing (same logic as codex review)
-      SELF_REVIEW_JSON=""
       if [[ ! -s "$SELF_REVIEW_FILE" ]]; then
         echo "  Warning: self-review produced empty output (sub-iteration $j). Continuing with current fixes."
         SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: empty output\n"
         break
       fi
-      if jq empty "$SELF_REVIEW_FILE" 2>/dev/null; then
-        SELF_REVIEW_JSON=$(cat "$SELF_REVIEW_FILE")
-      else
-        SELF_REVIEW_JSON=$(sed -n '/^```[a-zA-Z]*$/,/^```$/{ /^```/d; p; }' "$SELF_REVIEW_FILE")
-        if [[ -z "$SELF_REVIEW_JSON" ]] || ! printf '%s' "$SELF_REVIEW_JSON" | jq empty 2>/dev/null; then
-          SELF_REVIEW_JSON=$(perl -0777 -ne 'print $1 if /(\{.*\})/s' "$SELF_REVIEW_FILE" 2>/dev/null || true)
-        fi
-      fi
-
-      if [[ -z "$SELF_REVIEW_JSON" ]] || ! printf '%s' "$SELF_REVIEW_JSON" | jq empty 2>/dev/null; then
+      if ! SELF_REVIEW_JSON=$(_extract_json_from_file "$SELF_REVIEW_FILE"); then
         echo "  Warning: could not parse self-review output. Continuing."
         SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: parse error\n"
         break
@@ -496,38 +612,14 @@ EOF
       fi
 
       # Claude re-fix (two-step: opinion → execute)
-      echo "[$(date +%H:%M:%S)] Running Claude re-fix (sub-iteration $j/$MAX_SUBLOOP, step 1: opinion)..."
       REFIX_FILE="$LOG_DIR/refix-${i}-${j}.md"
       REFIX_OPINION_FILE="$LOG_DIR/refix-opinion-${i}-${j}.md"
-      REFIX_SESSION_ID=$(_gen_uuid)
 
-      export REVIEW_JSON="$SELF_REVIEW_JSON"
-      REFIX_PROMPT=$(envsubst '$CURRENT_BRANCH $TARGET_BRANCH $REVIEW_JSON' < "$PROMPTS_DIR/claude-fix.prompt.md")
-
-      # Step 1: opinion
-      if ! printf '%s' "$REFIX_PROMPT" | claude -p - \
-        --session-id "$REFIX_SESSION_ID" \
-        --allowedTools "Read,Glob,Grep" \
-        > "$REFIX_OPINION_FILE" 2>&1; then
-        echo "  Warning: re-fix opinion failed (sub-iteration $j). Continuing with current state."
-        SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: $SR_FINDINGS findings — re-fix failed\n"
-        break
-      fi
-
-      # Step 2: execute
-      echo "[$(date +%H:%M:%S)] Running Claude re-fix (sub-iteration $j/$MAX_SUBLOOP, step 2: execute)..."
-      REFIX_EXEC_PROMPT=$(cat "$PROMPTS_DIR/claude-fix-execute.prompt.md")
-
-      if ! printf '%s' "$REFIX_EXEC_PROMPT" | claude -p - \
-        --resume "$REFIX_SESSION_ID" \
-        --allowedTools "Edit,Read,Glob,Grep,Bash" \
-        > "$REFIX_FILE" 2>&1; then
-        echo "  Warning: re-fix execute failed (sub-iteration $j). Continuing with current state."
+      if ! _claude_two_step_fix "$SELF_REVIEW_JSON" "$REFIX_OPINION_FILE" "$REFIX_FILE" "re-fix"; then
         SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: $SR_FINDINGS findings — re-fix failed\n"
         break
       fi
       SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: $SR_FINDINGS findings — re-fixed\n"
-      echo "  Re-fix log saved to $REFIX_FILE"
     done
   fi
   export REVIEW_JSON="$ORIGINAL_REVIEW_JSON"
@@ -537,29 +629,8 @@ EOF
     # Select files changed by Claude (compare against pre-fix snapshot).
     # Only files that are newly dirty or have different content are committed,
     # so pre-existing changes (e.g. installer's .gitignore) are never swept in.
-    FIX_FILES_NUL_FILE=$(mktemp)
-    _post_dirty=$(mktemp)
-    { git diff -z --name-only; git diff -z --cached --name-only; git ls-files -z --others --exclude-standard; } | perl -0 -e 'my %seen; while (defined(my $l = <>)) { chomp $l; print "$l\0" unless $seen{$l}++ }' > "$_post_dirty"
-    while IFS= read -r -d '' _f; do
-      [[ -n "$_f" ]] || continue
-      [[ "$_f" == .review-loop/logs/* ]] && continue
-      if [[ -f "$_f" ]]; then
-        _cur_hash=$(git hash-object "$_f" 2>/dev/null || echo UNHASHABLE)
-        if [[ -x "$_f" ]]; then _cur_mode="100755"; else _cur_mode="100644"; fi
-      else
-        _cur_hash="DELETED"
-        _cur_mode="000000"
-      fi
-      _pre_hash=$(awk -F'\t' -v f="$_f" '$3 == f { print $1; exit }' "$PRE_FIX_STATE")
-      _pre_mode=$(awk -F'\t' -v f="$_f" '$3 == f { print $2; exit }' "$PRE_FIX_STATE")
-      if [[ -z "$_pre_hash" ]] || [[ "$_cur_hash" != "$_pre_hash" ]] || [[ "$_cur_mode" != "$_pre_mode" ]]; then
-        printf '%s\0' "$_f"
-      fi
-    done < "$_post_dirty" > "$FIX_FILES_NUL_FILE"
-    rm -f "$_post_dirty"
-    if [[ ! -s "$FIX_FILES_NUL_FILE" ]]; then
+    if ! FIX_FILES_NUL_FILE=$(_changed_files_since_snapshot "$PRE_FIX_STATE"); then
       echo "  No file changes after fix — nothing to commit."
-      rm -f "$FIX_FILES_NUL_FILE"
     else
       echo "[$(date +%H:%M:%S)] Committing fixes..."
       git reset --quiet --pathspec-from-file="$FIX_FILES_NUL_FILE" --pathspec-file-nul HEAD 2>/dev/null || true
@@ -598,98 +669,13 @@ Self-review: $(printf '%b' "$SELF_REVIEW_SUMMARY" | tr '\n' '; ' | sed 's/; $//'
   fi
 
   # ── i. Post iteration summary as PR comment ─────────────────────
-  if [[ -n "$PR_NUMBER" ]]; then
-    echo "[$(date +%H:%M:%S)] Posting PR comment..."
-
-    # Build findings table
-    FINDINGS_TABLE=$(printf '%s' "$REVIEW_JSON" | jq -r '
-      .findings[] |
-      "| \(.title) | \(.confidence_score) | `\(.code_location.absolute_file_path):\(.code_location.line_range.start)` |"
-    ')
-
-    # Read fix summary (extract the ## Fix Summary section)
-    FIX_SUMMARY=""
-    if [[ -f "$FIX_FILE" ]]; then
-      FIX_SUMMARY=$(sed -n '/^## Fix Summary/,/^## /{ /^## Fix Summary/d; /^## /d; p; }' "$FIX_FILE")
-      # If no second ## header, get everything after Fix Summary
-      if [[ -z "$FIX_SUMMARY" ]]; then
-        FIX_SUMMARY=$(sed -n '/^## Fix Summary/,${ /^## Fix Summary/d; p; }' "$FIX_FILE")
-      fi
-    fi
-
-    # Build comment body in a temp file to avoid heredoc delimiter
-    # collisions and ARG_MAX limits with --body.
-    COMMENT_BODY_FILE=$(mktemp)
-
-    printf '### AI Review — Iteration %d / %d\n\n' "$i" "$MAX_LOOP" > "$COMMENT_BODY_FILE"
-    printf '**Overall**: %s (%s findings)\n\n' "$OVERALL" "$FINDINGS_COUNT" >> "$COMMENT_BODY_FILE"
-
-    # Findings table
-    printf '<details>\n<summary>Review Findings</summary>\n\n' >> "$COMMENT_BODY_FILE"
-    printf '| Finding | Confidence | Location |\n' >> "$COMMENT_BODY_FILE"
-    printf '|---------|-----------|----------|\n' >> "$COMMENT_BODY_FILE"
-    printf '%s\n' "$FINDINGS_TABLE" >> "$COMMENT_BODY_FILE"
-    printf '\n</details>\n\n' >> "$COMMENT_BODY_FILE"
-
-    # Fix summary
-    printf '<details>\n<summary>Fix Actions</summary>\n\n' >> "$COMMENT_BODY_FILE"
-    printf '%s\n' "$FIX_SUMMARY" >> "$COMMENT_BODY_FILE"
-    printf '\n</details>\n' >> "$COMMENT_BODY_FILE"
-
-    # Opinion section (conditional)
-    if [[ -f "$OPINION_FILE" ]] && [[ -s "$OPINION_FILE" ]]; then
-      printf '\n<details>\n<summary>Claude Opinion</summary>\n\n' >> "$COMMENT_BODY_FILE"
-      head -c 2000 "$OPINION_FILE" >> "$COMMENT_BODY_FILE"
-      printf '\n\n</details>\n' >> "$COMMENT_BODY_FILE"
-    fi
-
-    # Self-review section (conditional)
-    if [[ -n "$SELF_REVIEW_SUMMARY" ]]; then
-      printf '\n<details>\n<summary>Self-Review (%d max sub-iterations)</summary>\n\n' "$MAX_SUBLOOP" >> "$COMMENT_BODY_FILE"
-      printf '%b\n' "$SELF_REVIEW_SUMMARY" >> "$COMMENT_BODY_FILE"
-      printf '</details>\n' >> "$COMMENT_BODY_FILE"
-    fi
-
-    if gh pr comment "$PR_NUMBER" --body-file "$COMMENT_BODY_FILE"; then
-      echo "  PR comment posted."
-    else
-      echo "  Warning: failed to post PR comment (non-fatal)."
-    fi
-    rm -f "$COMMENT_BODY_FILE"
-  fi
+  _post_pr_comment
 
   echo ""
 done
 
 # ── Summary ───────────────────────────────────────────────────────────
-SUMMARY_FILE="$LOG_DIR/summary.md"
-
-{
-  echo "# Review Loop Summary"
-  echo ""
-  echo "- **Branch**: $CURRENT_BRANCH → $TARGET_BRANCH"
-  echo "- **Max iterations**: $MAX_LOOP"
-  echo "- **Final status**: $FINAL_STATUS"
-  echo "- **Timestamp**: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  echo ""
-  echo "## Iteration Logs"
-  echo ""
-  for f in "$LOG_DIR"/review-*.json; do
-    [[ -e "$f" ]] || continue
-    iter=$(basename "$f" | sed 's/review-//;s/.json//')
-    count=$(jq '.findings | length' "$f" 2>/dev/null || echo "?")
-    verdict=$(jq -r '.overall_correctness' "$f" 2>/dev/null || echo "?")
-    echo "- **Iteration $iter**: $count findings, verdict: $verdict"
-    # Include self-review sub-iteration info
-    for sf in "$LOG_DIR"/self-review-"${iter}"-*.json; do
-      [[ -e "$sf" ]] || continue
-      sub_iter=$(basename "$sf" | sed "s/self-review-${iter}-//;s/.json//")
-      sr_count=$(jq '.findings | length' "$sf" 2>/dev/null || echo "?")
-      sr_verdict=$(jq -r '.overall_correctness' "$sf" 2>/dev/null || echo "?")
-      echo "  - Sub-iteration $sub_iter: $sr_count findings, verdict: $sr_verdict"
-    done
-  done
-} > "$SUMMARY_FILE"
+SUMMARY_FILE=$(_generate_summary)
 
 echo ""
 echo "═══════════════════════════════════════════════════════"
