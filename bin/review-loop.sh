@@ -230,7 +230,11 @@ fi
 # user-local .gitignore/.reviewlooprc edits are never stranded.
 _cleanup_stash() {
   if [[ "${_allowed_dirty_stashed:-false}" == true ]]; then
-    git stash pop --quiet 2>/dev/null || true
+    if ! git stash pop --index --quiet 2>/dev/null; then
+      if ! git stash pop --quiet 2>/dev/null; then
+        echo "  Warning: failed to restore stashed .gitignore/.reviewlooprc edits. Check 'git stash list'." >&2
+      fi
+    fi
     _allowed_dirty_stashed=false
   fi
 }
@@ -377,8 +381,7 @@ EOF
     echo "  Error: Claude opinion failed (iteration $i). See $OPINION_FILE for details."
     FINAL_STATUS="claude_error"
     rm -f "$PRE_FIX_STATE"
-    [[ "$_allowed_dirty_stashed" == true ]] && git stash pop --quiet 2>/dev/null || true
-    _allowed_dirty_stashed=false
+    _cleanup_stash
     break
   fi
   echo "  Opinion saved to $OPINION_FILE"
@@ -394,8 +397,7 @@ EOF
     echo "  Error: Claude fix-execute failed (iteration $i). See $FIX_FILE for details."
     FINAL_STATUS="claude_error"
     rm -f "$PRE_FIX_STATE"
-    [[ "$_allowed_dirty_stashed" == true ]] && git stash pop --quiet 2>/dev/null || true
-    _allowed_dirty_stashed=false
+    _cleanup_stash
     break
   fi
 
@@ -583,8 +585,7 @@ Self-review: $(printf '%b' "$SELF_REVIEW_SUMMARY" | tr '\n' '; ' | sed 's/; $//'
     echo "  AUTO_COMMIT is disabled — skipping commit and push."
   fi
   rm -f "$PRE_FIX_STATE"
-  [[ "$_allowed_dirty_stashed" == true ]] && git stash pop --quiet 2>/dev/null || true
-  _allowed_dirty_stashed=false
+  _cleanup_stash
 
   # Stop after first iteration when auto-commit is off (fixes applied but not committed)
   if [[ "$AUTO_COMMIT" != true ]]; then
