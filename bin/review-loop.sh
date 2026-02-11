@@ -267,12 +267,12 @@ for (( i=1; i<=MAX_LOOP; i++ )); do
     # Extract JSON from markdown fences or mixed text
     REVIEW_JSON=$(sed -n '/^```json$/,/^```$/{ /^```/d; p; }' "$REVIEW_FILE")
     # Fallback: find first { ... } block
-    if ! echo "$REVIEW_JSON" | jq empty 2>/dev/null; then
+    if [[ -z "$REVIEW_JSON" ]] || ! printf '%s' "$REVIEW_JSON" | jq empty 2>/dev/null; then
       REVIEW_JSON=$(perl -0777 -ne 'print $1 if /(\{.*\})/s' "$REVIEW_FILE" 2>/dev/null || true)
     fi
   fi
 
-  if ! echo "$REVIEW_JSON" | jq empty 2>/dev/null; then
+  if [[ -z "$REVIEW_JSON" ]] || ! printf '%s' "$REVIEW_JSON" | jq empty 2>/dev/null; then
     echo "Warning: could not parse review output as JSON. Saving raw output."
     echo "  See $REVIEW_FILE for details."
     FINAL_STATUS="parse_error"
@@ -280,8 +280,8 @@ for (( i=1; i<=MAX_LOOP; i++ )); do
   fi
 
   # ── e. Check findings ────────────────────────────────────────────
-  FINDINGS_COUNT=$(echo "$REVIEW_JSON" | jq '.findings | length')
-  OVERALL=$(echo "$REVIEW_JSON" | jq -r '.overall_correctness')
+  FINDINGS_COUNT=$(printf '%s' "$REVIEW_JSON" | jq '.findings | length')
+  OVERALL=$(printf '%s' "$REVIEW_JSON" | jq -r '.overall_correctness')
 
   echo "  Findings: $FINDINGS_COUNT | Overall: $OVERALL"
 
@@ -431,19 +431,19 @@ EOF
         SELF_REVIEW_JSON=$(cat "$SELF_REVIEW_FILE")
       else
         SELF_REVIEW_JSON=$(sed -n '/^```[a-zA-Z]*$/,/^```$/{ /^```/d; p; }' "$SELF_REVIEW_FILE")
-        if ! echo "$SELF_REVIEW_JSON" | jq empty 2>/dev/null; then
+        if [[ -z "$SELF_REVIEW_JSON" ]] || ! printf '%s' "$SELF_REVIEW_JSON" | jq empty 2>/dev/null; then
           SELF_REVIEW_JSON=$(perl -0777 -ne 'print $1 if /(\{.*\})/s' "$SELF_REVIEW_FILE" 2>/dev/null || true)
         fi
       fi
 
-      if ! echo "$SELF_REVIEW_JSON" | jq empty 2>/dev/null; then
+      if [[ -z "$SELF_REVIEW_JSON" ]] || ! printf '%s' "$SELF_REVIEW_JSON" | jq empty 2>/dev/null; then
         echo "  Warning: could not parse self-review output. Continuing."
         SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: parse error\n"
         break
       fi
 
-      SR_FINDINGS=$(echo "$SELF_REVIEW_JSON" | jq '.findings | length')
-      SR_OVERALL=$(echo "$SELF_REVIEW_JSON" | jq -r '.overall_correctness')
+      SR_FINDINGS=$(printf '%s' "$SELF_REVIEW_JSON" | jq '.findings | length')
+      SR_OVERALL=$(printf '%s' "$SELF_REVIEW_JSON" | jq -r '.overall_correctness')
       echo "  Self-review: $SR_FINDINGS findings | $SR_OVERALL"
 
       if [[ "$SR_FINDINGS" -eq 0 ]] && [[ "$SR_OVERALL" == "patch is correct" ]]; then
@@ -557,7 +557,7 @@ Self-review: $(printf '%b' "$SELF_REVIEW_SUMMARY" | tr '\n' '; ' | sed 's/; $//'
     echo "[$(date +%H:%M:%S)] Posting PR comment..."
 
     # Build findings table
-    FINDINGS_TABLE=$(echo "$REVIEW_JSON" | jq -r '
+    FINDINGS_TABLE=$(printf '%s' "$REVIEW_JSON" | jq -r '
       .findings[] |
       "| \(.title) | \(.confidence_score) | `\(.code_location.absolute_file_path):\(.code_location.line_range.start)` |"
     ')
