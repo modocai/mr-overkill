@@ -215,11 +215,9 @@ _snapshot_worktree() {
 # Prints temp file (NUL-separated changed file list) path to stdout.
 # Returns 1 if no changes detected (temp file is removed in that case).
 _changed_files_since_snapshot() {
-  local _snap="$1" _dirty _out _f _cur_hash _cur_mode _pre_hash _pre_mode
-  _dirty=$(mktemp)
-  _git_all_dirty_nul > "$_dirty"
+  local _snap="$1" _out _f _cur_hash _cur_mode _pre_hash _pre_mode
   _out=$(mktemp)
-  while IFS= read -r -d '' _f; do
+  _git_all_dirty_nul | while IFS= read -r -d '' _f; do
     [[ -n "$_f" ]] || continue
     [[ "$_f" == .review-loop/logs/* ]] && continue
     if [[ -f "$_f" ]]; then
@@ -234,8 +232,7 @@ _changed_files_since_snapshot() {
     if [[ -z "$_pre_hash" ]] || [[ "$_cur_hash" != "$_pre_hash" ]] || [[ "$_cur_mode" != "$_pre_mode" ]]; then
       printf '%s\0' "$_f"
     fi
-  done < "$_dirty" > "$_out"
-  rm -f "$_dirty"
+  done > "$_out"
   if [[ ! -s "$_out" ]]; then
     rm -f "$_out"
     return 1
@@ -602,8 +599,15 @@ EOF
         SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: empty output\n"
         break
       fi
-      if ! SELF_REVIEW_JSON=$(_extract_json_from_file "$SELF_REVIEW_FILE"); then
-        echo "  Warning: could not parse self-review output. Continuing."
+      _rc=0
+      SELF_REVIEW_JSON=$(_extract_json_from_file "$SELF_REVIEW_FILE") || _rc=$?
+      if [[ $_rc -ne 0 ]]; then
+        if [[ $_rc -eq 2 ]]; then
+          echo "  Warning: self-review output file not found ($SELF_REVIEW_FILE)."
+        else
+          echo "  Warning: could not parse self-review output."
+        fi
+        echo "  Continuing with current fixes."
         SELF_REVIEW_SUMMARY="${SELF_REVIEW_SUMMARY}Sub-iteration $j: parse error\n"
         break
       fi
