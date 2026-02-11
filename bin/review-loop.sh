@@ -371,6 +371,8 @@ if ! git rev-parse --is-inside-work-tree &>/dev/null; then
   exit 1
 fi
 
+cd "$(git rev-parse --show-toplevel)"
+
 if ! git rev-parse --verify "$TARGET_BRANCH" &>/dev/null; then
   echo "Error: target branch '$TARGET_BRANCH' does not exist."
   exit 1
