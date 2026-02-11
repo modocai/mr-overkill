@@ -225,6 +225,17 @@ if [[ "$MAX_SUBLOOP" -gt 0 ]] && [[ ! -f "$PROMPTS_DIR/claude-self-review.prompt
   MAX_SUBLOOP=0
 fi
 
+# ── Cleanup trap ──────────────────────────────────────────────────────
+# Restore allowlisted stash on any exit (set -e, signals, etc.) so that
+# user-local .gitignore/.reviewlooprc edits are never stranded.
+_cleanup_stash() {
+  if [[ "${_allowed_dirty_stashed:-false}" == true ]]; then
+    git stash pop --quiet 2>/dev/null || true
+    _allowed_dirty_stashed=false
+  fi
+}
+trap _cleanup_stash EXIT
+
 # ── Loop ──────────────────────────────────────────────────────────────
 FINAL_STATUS="max_iterations_reached"
 
@@ -367,6 +378,7 @@ EOF
     FINAL_STATUS="claude_error"
     rm -f "$PRE_FIX_STATE"
     [[ "$_allowed_dirty_stashed" == true ]] && git stash pop --quiet 2>/dev/null || true
+    _allowed_dirty_stashed=false
     break
   fi
   echo "  Opinion saved to $OPINION_FILE"
@@ -383,6 +395,7 @@ EOF
     FINAL_STATUS="claude_error"
     rm -f "$PRE_FIX_STATE"
     [[ "$_allowed_dirty_stashed" == true ]] && git stash pop --quiet 2>/dev/null || true
+    _allowed_dirty_stashed=false
     break
   fi
 
@@ -571,6 +584,7 @@ Self-review: $(printf '%b' "$SELF_REVIEW_SUMMARY" | tr '\n' '; ' | sed 's/; $//'
   fi
   rm -f "$PRE_FIX_STATE"
   [[ "$_allowed_dirty_stashed" == true ]] && git stash pop --quiet 2>/dev/null || true
+  _allowed_dirty_stashed=false
 
   # Stop after first iteration when auto-commit is off (fixes applied but not committed)
   if [[ "$AUTO_COMMIT" != true ]]; then
