@@ -402,7 +402,7 @@ unset _dirty_non_gitignore _staged_non_gitignore _untracked_non_gitignore
 LOG_DIR="$SCRIPT_DIR/../logs"
 mkdir -p "$LOG_DIR"
 # Remove stale logs from previous runs so the summary only reflects this execution
-rm -f "$LOG_DIR"/review-*.json "$LOG_DIR"/fix-*.md "$LOG_DIR"/opinion-*.md "$LOG_DIR"/self-review-*.json "$LOG_DIR"/refix-*.md "$LOG_DIR"/refix-opinion-*.md "$LOG_DIR"/summary.md
+rm -f "$LOG_DIR"/review-*.json "$LOG_DIR"/fix-*.md "$LOG_DIR"/opinion-*.md "$LOG_DIR"/self-review-*.json "$LOG_DIR"/refix-*.md "$LOG_DIR"/refix-opinion-*.md "$LOG_DIR"/summary.md "$LOG_DIR"/diff-*.diff
 
 export CURRENT_BRANCH TARGET_BRANCH
 
@@ -438,11 +438,9 @@ fi
 # user-local .gitignore/.reviewlooprc edits are never stranded.
 _cleanup_stash() {
   if [[ "${_allowed_dirty_stashed:-false}" == true ]]; then
-    if ! git stash pop --index --quiet 2>/dev/null; then
-      if ! git stash pop --quiet 2>/dev/null; then
-        echo "  Error: failed to restore stashed .gitignore/.reviewlooprc edits. Check 'git stash list'." >&2
-        FINAL_STATUS="stash_conflict"
-      fi
+    if ! git stash pop --quiet 2>/dev/null; then
+      echo "  Error: failed to restore stashed .gitignore/.reviewlooprc edits. Check 'git stash list'." >&2
+      FINAL_STATUS="stash_conflict"
     fi
     _allowed_dirty_stashed=false
   fi
