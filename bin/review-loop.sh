@@ -182,7 +182,7 @@ _extract_json_from_file() {
     cat "$_file"
     return 0
   fi
-  _json=$(sed -n '/^```[a-zA-Z]*$/,/^```$/{ /^```/d; p; }' "$_file")
+  _json=$(sed -n '/^```\(json\)\{0,1\}$/,/^```$/{ /^```/d; p; }' "$_file")
   if [[ -z "$_json" ]] || ! printf '%s' "$_json" | jq empty 2>/dev/null; then
     _json=$(perl -0777 -ne 'print $1 if /(\{.*\})/s' "$_file" 2>/dev/null || true)
   fi
