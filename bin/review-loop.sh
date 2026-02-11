@@ -438,7 +438,7 @@ fi
 # user-local .gitignore/.reviewlooprc edits are never stranded.
 _cleanup_stash() {
   if [[ "${_allowed_dirty_stashed:-false}" == true ]]; then
-    if ! git stash pop --quiet 2>/dev/null; then
+    if ! git stash pop --index --quiet 2>/dev/null; then
       echo "  Error: failed to restore stashed .gitignore/.reviewlooprc edits. Check 'git stash list'." >&2
       FINAL_STATUS="stash_conflict"
     fi
