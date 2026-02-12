@@ -287,7 +287,7 @@ _post_pr_comment() {
 
   FINDINGS_TABLE=$(printf '%s' "$REVIEW_JSON" | jq -r '
     .findings[] |
-    "| \(.title) | \(.confidence_score) | `\(.code_location.absolute_file_path):\(.code_location.line_range.start)` |"
+    "| \(.title) | \(.confidence_score) | `\(.code_location.file_path):\(.code_location.line_range.start)` |"
   ')
 
   FIX_SUMMARY=""
@@ -493,6 +493,16 @@ for (( i=1; i<=MAX_LOOP; i++ )); do
     FINAL_STATUS="parse_error"
     break
   fi
+
+  # Normalize absolute paths to repo-relative
+  REVIEW_JSON=$(printf '%s' "$REVIEW_JSON" | jq --arg root "$(git rev-parse --show-toplevel)/" '
+    if .findings then
+      .findings |= map(
+        .code_location.file_path = (.code_location.file_path // .code_location.absolute_file_path | ltrimstr($root))
+        | del(.code_location.absolute_file_path)
+      )
+    else . end
+  ')
 
   # ── e. Check findings ────────────────────────────────────────────
   FINDINGS_COUNT=$(printf '%s' "$REVIEW_JSON" | jq '.findings | length')

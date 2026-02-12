@@ -52,7 +52,7 @@ Output **only** valid JSON matching this schema exactly. Do NOT wrap in markdown
       "confidence_score": <float 0.0-1.0>,
       "priority": <int 0-3>,
       "code_location": {
-        "absolute_file_path": "<file path>",
+        "file_path": "<repo-relative file path, e.g. src/main.ts>",
         "line_range": {"start": <int>, "end": <int>}
       }
     }
