@@ -8,8 +8,8 @@
 # Maximum review-fix iterations (default: unset, required via CLI)
 # MAX_LOOP=5
 
-# Maximum self-review sub-iterations per fix (default: 2, set 0 to disable)
-# MAX_SUBLOOP=2
+# Maximum self-review sub-iterations per fix (default: 4, set 0 to disable)
+# MAX_SUBLOOP=4
 
 # Run review only, do not fix (default: false)
 # DRY_RUN=false

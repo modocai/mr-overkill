@@ -9,7 +9,7 @@ PROMPTS_DIR="$SCRIPT_DIR/../prompts/active"
 # ── Defaults ──────────────────────────────────────────────────────────
 TARGET_BRANCH="develop"
 MAX_LOOP=""
-MAX_SUBLOOP=2
+MAX_SUBLOOP=4
 DRY_RUN=false
 AUTO_COMMIT=true
 
@@ -58,7 +58,7 @@ Usage: review-loop.sh [OPTIONS]
 Options:
   -t, --target <branch>    Target branch to diff against (default: develop)
   -n, --max-loop <N>       Maximum review-fix iterations (required)
-  --max-subloop <N>        Maximum self-review sub-iterations per fix (default: 2)
+  --max-subloop <N>        Maximum self-review sub-iterations per fix (default: 4)
   --no-self-review         Disable self-review (equivalent to --max-subloop 0)
   --dry-run                Run review only, do not fix
   --no-dry-run             Force fixes even if .reviewlooprc sets DRY_RUN=true

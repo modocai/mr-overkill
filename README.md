@@ -76,7 +76,7 @@ review-loop.sh [OPTIONS]
 Options:
   -t, --target <branch>    Target branch to diff against (default: develop)
   -n, --max-loop <N>       Maximum review-fix iterations (required)
-  --max-subloop <N>        Maximum self-review sub-iterations per fix (default: 2)
+  --max-subloop <N>        Maximum self-review sub-iterations per fix (default: 4)
   --no-self-review         Disable self-review (equivalent to --max-subloop 0)
   --dry-run                Run review only, do not fix
   --no-auto-commit         Fix but do not commit/push (single iteration)
@@ -99,7 +99,7 @@ Create a `.reviewlooprc` file in your project root to set defaults. CLI argument
 # .reviewlooprc
 TARGET_BRANCH="main"
 MAX_LOOP=5
-MAX_SUBLOOP=2
+MAX_SUBLOOP=4
 AUTO_COMMIT=true
 PROMPTS_DIR="./custom-prompts"
 ```
