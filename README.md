@@ -1,12 +1,24 @@
-# Mr. Overkill
+# :tophat: Mr. Overkill
 
-> Struggling to hit 100% on your Claude Code and Codex usage this month? We got you covered.
+> **"Refactoring is not a task. It's a lifestyle."**
 
-Two AI agents walk into a code review. **Codex** nitpicks every line. **Claude** fixes everything and then reviews its own fixes. Then Codex reviews the fixes again. This continues until the code is perfect — or they hit the iteration limit, whichever comes first.
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT) [![Token Cost](https://img.shields.io/badge/Token%20Cost-Bankrupt-red)](#) [![Efficiency](https://img.shields.io/badge/Efficiency-0%25-orange)](#) [![Over-Engineering](https://img.shields.io/badge/Over--Engineering-Max-blueviolet)](#)
 
-Nobody asked for this. But if you're obsessive enough to have both an OpenAI and an Anthropic subscription, you might as well put them to work... *on each other.*
+**Mr. Overkill** is an automated loop that forces **Codex** (the pedantic reviewer) and **Claude** (the tired developer) into a locked room. They will not stop refactoring your code until it is "perfectly over-engineered" or your API credit runs out.
 
-## Quick Install
+## :warning: WARNING: FINANCIAL HAZARD
+
+**Do not run this script if you value your money.**
+
+This tool is designed to:
+
+1. :fire: **Burn Tokens:** It ignores "good enough" and strives for "unnecessarily complex."
+2. :money_with_wings: **Drain Wallets:** Requires OpenAI (Paid) AND Anthropic (Pro/Max) simultaneously.
+3. :infinity: **Loop Forever:** It might turn your "Hello World" into a Microservices Architecture.
+
+---
+
+## Quick Install (If you dare)
 
 ```bash
 # Install into your project
@@ -22,16 +34,19 @@ git clone https://github.com/modocai/mr-overkill.git
 ./mr-overkill/install.sh /path/to/your-project
 ```
 
-## Prerequisites
+## :hammer_and_wrench: Prerequisites (The "Rich Dev" Starter Pack)
+
+You need these to participate in the madness:
 
 **Accounts** (yes, you need both — that's the point):
 
-- [OpenAI](https://platform.openai.com/) account (paid plan) — Codex won't review for free
-- [Anthropic](https://console.anthropic.com/) account (Pro/Max plan or API credits) — Claude won't fix for free either
+- [OpenAI](https://platform.openai.com/) account (paid plan) — because free tier is for weak code
+- [Anthropic](https://console.anthropic.com/) account (Pro/Max plan or API credits) — because Claude needs to think *deeply* about your variable names
 
 **Runtime**:
 
-- [Node.js](https://nodejs.org/) v18+ — required to run Codex and Claude Code CLI
+- [Node.js](https://nodejs.org/) v18+ — to run the chaos
+- A fast credit card — essential
 
 **CLI Tools**:
 
