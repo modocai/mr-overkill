@@ -45,7 +45,7 @@ You need these to participate in the madness:
 
 **Runtime**:
 
-- [Node.js](https://nodejs.org/) v18+ — to run the chaos
+- [Node.js](https://nodejs.org/) v18+ — Codex and Claude Code CLI are npm packages, so yes, you need this
 - A fast credit card — essential
 
 **CLI Tools**:
