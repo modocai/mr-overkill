@@ -1,6 +1,10 @@
 # Mr. Overkill
 
-> Codex(reviewer) × Claude(developer) — AI agents collaborate through an iterative review-fix loop to automatically improve your code. Yes, it's overkill. That's the point.
+> Struggling to hit 100% on your Claude Code and Codex usage this month? We got you covered.
+
+Two AI agents walk into a code review. **Codex** nitpicks every line. **Claude** fixes everything and then reviews its own fixes. Then Codex reviews the fixes again. This continues until the code is perfect — or they hit the iteration limit, whichever comes first.
+
+Nobody asked for this. But if you're obsessive enough to have both an OpenAI and an Anthropic subscription, you might as well put them to work... *on each other.*
 
 ## Quick Install
 
@@ -20,10 +24,10 @@ git clone https://github.com/modocai/mr-overkill.git
 
 ## Prerequisites
 
-**Accounts**:
+**Accounts** (yes, you need both — that's the point):
 
-- [OpenAI](https://platform.openai.com/) account (paid plan) — required for Codex CLI
-- [Anthropic](https://console.anthropic.com/) account (Pro/Max plan or API credits) — required for Claude Code CLI
+- [OpenAI](https://platform.openai.com/) account (paid plan) — Codex won't review for free
+- [Anthropic](https://console.anthropic.com/) account (Pro/Max plan or API credits) — Claude won't fix for free either
 
 **Runtime**:
 
