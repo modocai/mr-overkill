@@ -1,33 +1,33 @@
-# Codex-Claude Review-Fix Loop
+# Mr. Overkill
 
-Codex(reviewer) and Claude(developer) collaborate to automatically improve code quality through an iterative review-fix loop.
+> Codex(reviewer) × Claude(developer) — AI agents collaborate through an iterative review-fix loop to automatically improve your code. Yes, it's overkill. That's the point.
 
 ## Quick Install
 
 ```bash
 # Install into your project
-git clone --depth 1 https://github.com/modocai/review_collaboration.git /tmp/review_collaboration \
-  && /tmp/review_collaboration/install.sh /path/to/your-project \
-  && rm -rf /tmp/review_collaboration
+git clone --depth 1 https://github.com/modocai/mr-overkill.git /tmp/mr-overkill \
+  && /tmp/mr-overkill/install.sh /path/to/your-project \
+  && rm -rf /tmp/mr-overkill
 ```
 
 Or clone and install manually:
 
 ```bash
-git clone https://github.com/modocai/review_collaboration.git
-./review_collaboration/install.sh /path/to/your-project
+git clone https://github.com/modocai/mr-overkill.git
+./mr-overkill/install.sh /path/to/your-project
 ```
 
 ## Prerequisites
 
 **Accounts**:
 
-- [OpenAI](https://platform.openai.com/) account (paid plan) — Codex CLI 사용에 필요
-- [Anthropic](https://console.anthropic.com/) account (Pro/Max plan 또는 API credits) — Claude Code CLI 사용에 필요
+- [OpenAI](https://platform.openai.com/) account (paid plan) — required for Codex CLI
+- [Anthropic](https://console.anthropic.com/) account (Pro/Max plan or API credits) — required for Claude Code CLI
 
 **Runtime**:
 
-- [Node.js](https://nodejs.org/) v18+ — Codex, Claude Code CLI 실행에 필요
+- [Node.js](https://nodejs.org/) v18+ — required to run Codex and Claude Code CLI
 
 **CLI Tools**:
 
