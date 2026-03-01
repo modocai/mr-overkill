@@ -6,5 +6,10 @@
 # review-loop self-hosted install
 .review-loop/
 
+# Python
+__pycache__/
+*.pyc
+.venv/
+
 # Test artifacts
 test/tmp/
