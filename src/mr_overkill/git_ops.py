@@ -1,0 +1,216 @@
+"""Git operations for the review/refactor loop.
+
+Ports git-related functions from ``common.sh``: sha256, diff_hash, gen_uuid,
+git_all_dirty, snapshot_worktree, changed_files_since_snapshot,
+stash_allowlisted, unstash_allowlisted, commit_and_push.
+
+Key improvement: ``changed_files_since_snapshot`` uses a dict for O(1) lookups
+instead of the O(n²) awk scan in the bash version.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+import subprocess
+import uuid
+from pathlib import Path
+
+from mr_overkill.models import WorktreeSnapshot
+
+logger = logging.getLogger(__name__)
+
+
+def _run(
+    cmd: list[str],
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run a subprocess with common defaults."""
+    return subprocess.run(
+        cmd,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def sha256(data: str | bytes) -> str:
+    """Compute SHA-256 hex digest of *data*."""
+    if isinstance(data, str):
+        data = data.encode()
+    return hashlib.sha256(data).hexdigest()
+
+
+def diff_hash(target_branch: str, current_branch: str, cwd: Path | None = None) -> str:
+    """SHA-256 of the diff between *target_branch* and *current_branch*."""
+    result = _run(["git", "diff", f"{target_branch}...{current_branch}"], cwd=cwd)
+    return sha256(result.stdout)
+
+
+def gen_uuid() -> str:
+    """Generate a lowercase UUID v4."""
+    return str(uuid.uuid4())
+
+
+def git_all_dirty(cwd: Path | None = None) -> list[str]:
+    """List all dirty/untracked files (unique, deduplicated)."""
+    files: set[str] = set()
+
+    for cmd in [
+        ["git", "diff", "--name-only"],
+        ["git", "diff", "--cached", "--name-only"],
+        ["git", "ls-files", "--others", "--exclude-standard"],
+    ]:
+        result = _run(cmd, cwd=cwd)
+        for f in result.stdout.splitlines():
+            f = f.strip()
+            if f:
+                files.add(f)
+
+    return sorted(files)
+
+
+def snapshot_worktree(cwd: Path | None = None) -> list[WorktreeSnapshot]:
+    """Snapshot every dirty/untracked file's hash + mode.
+
+    Returns a list of :class:`WorktreeSnapshot` entries.
+    """
+    entries: list[WorktreeSnapshot] = []
+    base = Path(cwd) if cwd else Path.cwd()
+
+    for f in git_all_dirty(cwd):
+        fpath = base / f
+        if fpath.is_file():
+            result = _run(["git", "hash-object", f], cwd=cwd)
+            file_hash = result.stdout.strip() or "UNHASHABLE"
+            import os
+
+            mode = "100755" if os.access(fpath, os.X_OK) else "100644"
+            entries.append(WorktreeSnapshot(file_hash=file_hash, mode=mode, path=f))
+        else:
+            entries.append(WorktreeSnapshot(file_hash="DELETED", mode="000000", path=f))
+
+    return entries
+
+
+def changed_files_since_snapshot(
+    snapshot: list[WorktreeSnapshot],
+    cwd: Path | None = None,
+    exclude_prefix: str | None = None,
+) -> list[str]:
+    """Compare current dirty files against a snapshot.
+
+    Returns list of file paths that changed (new, modified, or deleted).
+    Uses a dict for O(1) lookups (vs O(n²) awk in bash).
+    """
+    snap_map: dict[str, tuple[str, str]] = {
+        s.path: (s.file_hash, s.mode) for s in snapshot
+    }
+    base = Path(cwd) if cwd else Path.cwd()
+    changed: list[str] = []
+
+    for f in git_all_dirty(cwd):
+        if exclude_prefix and f.startswith(exclude_prefix):
+            continue
+
+        fpath = base / f
+        if fpath.is_file():
+            result = _run(["git", "hash-object", f], cwd=cwd)
+            cur_hash = result.stdout.strip() or "UNHASHABLE"
+            import os
+
+            cur_mode = "100755" if os.access(fpath, os.X_OK) else "100644"
+        else:
+            cur_hash = "DELETED"
+            cur_mode = "000000"
+
+        prev = snap_map.get(f)
+        if prev is None or cur_hash != prev[0] or cur_mode != prev[1]:
+            changed.append(f)
+
+    return changed
+
+
+def stash_allowlisted(files: list[str], cwd: Path | None = None) -> bool:
+    """Stash specific allowlisted files if dirty.
+
+    Returns ``True`` if files were stashed, ``False`` if nothing to stash.
+    Raises ``RuntimeError`` on stash failure.
+    """
+    dirty = set(git_all_dirty(cwd))
+    to_stash = [f for f in files if f in dirty]
+
+    if not to_stash:
+        return False
+
+    result = _run(
+        ["git", "stash", "push", "--quiet", "--include-untracked", "--", *to_stash],
+        cwd=cwd,
+    )
+    if result.returncode != 0:
+        msg = "Failed to stash allowlisted files"
+        raise RuntimeError(msg)
+    return True
+
+
+def unstash_allowlisted(cwd: Path | None = None) -> bool:
+    """Pop the most recent stash entry.
+
+    Returns ``True`` on success, ``False`` on failure.
+    """
+    result = _run(["git", "stash", "pop", "--index", "--quiet"], cwd=cwd)
+    if result.returncode == 0:
+        return True
+
+    result = _run(["git", "stash", "pop", "--quiet"], cwd=cwd)
+    return result.returncode == 0
+
+
+def commit_and_push(
+    snapshot: list[WorktreeSnapshot],
+    message: str,
+    branch: str = "",
+    cwd: Path | None = None,
+) -> bool:
+    """Commit files changed since snapshot and push if upstream exists.
+
+    Returns ``True`` if a commit was made, ``False`` if nothing to commit.
+    """
+    changed = changed_files_since_snapshot(snapshot, cwd=cwd)
+    if not changed:
+        logger.info("No file changes after fix — nothing to commit.")
+        return False
+
+    # Stage changed files
+    _run(["git", "add", "--", *changed], cwd=cwd)
+
+    # Commit
+    result = _run(["git", "commit", "-m", message, "--", *changed], cwd=cwd)
+    if result.returncode != 0:
+        logger.warning("git commit failed: %s", result.stderr.strip())
+        return False
+
+    logger.info("Committed.")
+
+    # Push if upstream exists
+    upstream_check = _run(
+        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        cwd=cwd,
+    )
+    if upstream_check.returncode == 0:
+        _run(["git", "push"], cwd=cwd)
+        logger.info("Pushed.")
+    elif branch:
+        remote_check = _run(["git", "remote"], cwd=cwd)
+        remotes = remote_check.stdout.strip().splitlines()
+        remote = "origin" if "origin" in remotes else (remotes[0] if remotes else "")
+        if remote:
+            _run(["git", "push", "-u", remote, branch], cwd=cwd)
+            logger.info("Pushed (upstream set).")
+        else:
+            logger.info("No upstream/remote set — skipping push.")
+    else:
+        logger.info("No upstream set — skipping push.")
+
+    return True
