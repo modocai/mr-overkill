@@ -16,7 +16,7 @@ from pathlib import Path
 from mr_overkill.budget import budget_sufficient
 from mr_overkill.budget.claude import check_token_budget as claude_budget
 from mr_overkill.budget.codex import check_token_budget as codex_budget
-from mr_overkill.git_ops import stash_allowlisted, unstash_allowlisted
+from mr_overkill.git_ops import git_all_dirty, stash_allowlisted, unstash_allowlisted
 from mr_overkill.loop_engine import ReviewerFn, review_fix_loop
 from mr_overkill.models import (
     BudgetScope,
@@ -149,6 +149,20 @@ def create_refactor_branch(
 # ── Draft PR creation ────────────────────────────────────────────────
 
 
+def _detect_push_remote() -> str | None:
+    """Return ``origin`` if available, otherwise the first configured remote."""
+    result = subprocess.run(
+        ["git", "remote"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    remotes = result.stdout.strip().splitlines()
+    if "origin" in remotes:
+        return "origin"
+    return remotes[0] if remotes else None
+
+
 def create_draft_pr(
     scope: str,
     target_branch: str,
@@ -182,8 +196,12 @@ def create_draft_pr(
         check=False,
     )
     if upstream.returncode != 0:
+        remote = _detect_push_remote()
+        if remote is None:
+            logger.warning("No remote configured — skipping push and PR creation.")
+            return False
         subprocess.run(
-            ["git", "push", "-u", "origin", current_branch],
+            ["git", "push", "-u", remote, current_branch],
             capture_output=True,
             check=False,
         )
@@ -387,6 +405,18 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
             logger.error(
                 "Non-dry-run resume requires a refactor/* branch, got '%s'.",
                 config.current_branch,
+            )
+            return 1
+
+    # Reject non-allowlisted dirty files before creating a branch
+    if not config.dry_run and not config.resume:
+        allowlisted = set(_ALLOWLISTED_FILES)
+        non_allowed = [f for f in git_all_dirty(None) if f not in allowlisted]
+        if non_allowed:
+            logger.error(
+                "Working tree is not clean. Commit or stash your changes "
+                "before running refactor-suggest.\n  Dirty files: %s",
+                ", ".join(non_allowed),
             )
             return 1
 
