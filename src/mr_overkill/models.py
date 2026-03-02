@@ -145,6 +145,7 @@ class LoopConfig:
     dry_run: bool = False
     auto_commit: bool = True
     resume: bool = False
+    auto_approve: bool = False
 
     # Retry / budget
     retry_max_wait: int = 7200

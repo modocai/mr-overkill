@@ -170,7 +170,7 @@ def parse_review_loop_args(
 
     # Resolve values with precedence: CLI > rc file > defaults
     target = args.target or rc.get("TARGET_BRANCH", "develop")
-    max_loop = args.max_loop or int(rc.get("MAX_LOOP", "0")) or None
+    max_loop = args.max_loop if args.max_loop is not None else (int(rc.get("MAX_LOOP", "0")) or None)
 
     if not args.resume and max_loop is None:
         parser.error("-n / --max-loop is required")
@@ -315,6 +315,11 @@ def parse_refactor_suggest_args(
         help="Resume from a previously interrupted run",
     )
     parser.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="Skip interactive confirmation for layer/full scope",
+    )
+    parser.add_argument(
         "--diagnostic-log",
         action="store_true",
         help="Save full event stream to sidecar files",
@@ -362,6 +367,9 @@ def parse_refactor_suggest_args(
     create_pr = _resolve_bool(
         args.create_pr, False, rc.get("CREATE_PR"), False
     )
+    auto_approve = args.auto_approve or rc.get(
+        "AUTO_APPROVE", "false"
+    ) == "true"
     diagnostic_log = args.diagnostic_log or rc.get(
         "DIAGNOSTIC_LOG", "false"
     ) == "true"
@@ -416,6 +424,7 @@ def parse_refactor_suggest_args(
         dry_run=dry_run,
         auto_commit=True,
         resume=args.resume,
+        auto_approve=auto_approve,
         retry_max_wait=retry_max_wait,
         retry_initial_wait=retry_initial_wait,
         budget_scope=BudgetScope(budget_scope_str),

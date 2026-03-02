@@ -297,6 +297,46 @@ def _make_refactor_fixer(config: LoopConfig):
     return fixer
 
 
+def _make_plan_confirm(scope: str):
+    """Return a confirmation callback for layer/full refactor plans."""
+    _confirmed = False
+
+    def _confirm(review_data: dict[str, object]) -> bool:
+        nonlocal _confirmed
+        if _confirmed:
+            return True
+
+        plan = review_data.get("refactoring_plan")
+        if isinstance(plan, dict):
+            print()
+            print("  Refactoring plan:")
+            print(f"  Summary: {plan.get('summary', 'N/A')}")
+            print(f"  Blast radius: {plan.get('estimated_blast_radius', 'N/A')}")
+            steps = plan.get("steps", [])
+            if isinstance(steps, list):
+                print("  Steps:")
+                for step in steps:
+                    if isinstance(step, dict):
+                        order = step.get("order", "?")
+                        desc = step.get("description", "")
+                        files = step.get("files", [])
+                        files_str = ", ".join(files) if isinstance(files, list) else ""
+                        print(f"    {order}. {desc} [{files_str}]")
+            print()
+
+        try:
+            answer = input(f"  Apply {scope} refactor? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return False
+
+        if answer != "y":
+            return False
+        _confirmed = True
+        return True
+
+    return _confirm
+
+
 # ── Main entry point ─────────────────────────────────────────────────
 
 
@@ -349,6 +389,12 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     logger.info("Collected %d source files.", count)
 
     refactor_fixer = _make_refactor_fixer(config)
+
+    # Safety confirmation for high-blast-radius scopes
+    confirm_fn = None
+    if scope in ("layer", "full") and not config.auto_approve:
+        confirm_fn = _make_plan_confirm(scope)
+
     loop_result = review_fix_loop(
         config,
         reviewer=_make_refactor_reviewer(config, scope),
@@ -358,6 +404,7 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
             if config.max_subloop > 0
             else None
         ),
+        pre_fix_confirm=confirm_fn,
         commit_pattern=f"refactor(ai-{scope}): apply iteration",
     )
 

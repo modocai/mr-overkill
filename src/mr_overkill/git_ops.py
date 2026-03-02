@@ -132,6 +132,35 @@ def changed_files_since_snapshot(
     return changed
 
 
+def resume_reset_worktree(cwd: Path | None = None) -> None:
+    """Stash uncommitted changes and reset worktree for a clean resume.
+
+    Mirrors ``_resume_reset_working_tree`` from the bash version:
+    safety-stash any dirty state, then ``git reset HEAD`` + ``git checkout``.
+    """
+    dirty = git_all_dirty(cwd)
+    if dirty:
+        logger.info("Stashing uncommitted changes before resume reset...")
+        result = _run(
+            ["git", "stash", "push", "--include-untracked",
+             "-m", "review-loop: pre-resume safety stash"],
+            cwd=cwd,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                "Failed to stash uncommitted changes. "
+                "Aborting resume to prevent data loss."
+            )
+
+    toplevel = _run(["git", "rev-parse", "--show-toplevel"], cwd=cwd)
+    top = toplevel.stdout.strip()
+    logger.info("Resetting partial edits from interrupted run...")
+    _run(["git", "reset", "--quiet", "HEAD"], cwd=cwd)
+    result = _run(["git", "checkout", "--", top], cwd=cwd)
+    if result.returncode != 0:
+        logger.warning("git checkout failed during resume reset.")
+
+
 def stash_allowlisted(files: list[str], cwd: Path | None = None) -> bool:
     """Stash specific allowlisted files if dirty.
 

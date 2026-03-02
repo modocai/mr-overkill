@@ -18,6 +18,7 @@ from typing import Protocol
 from mr_overkill.git_ops import (
     commit_and_push,
     diff_hash,
+    resume_reset_worktree,
     snapshot_worktree,
     stash_allowlisted,
     unstash_allowlisted,
@@ -90,6 +91,15 @@ class SelfReviewFn(Protocol):
     ) -> str: ...
 
 
+class PreFixConfirmFn(Protocol):
+    """Optional confirmation gate called after review parsing, before fixing.
+
+    Returns True to proceed, False to abort the loop.
+    """
+
+    def __call__(self, review_data: dict[str, object]) -> bool: ...
+
+
 # ── Normalize review JSON paths ──────────────────────────────────────
 
 
@@ -120,6 +130,7 @@ def review_fix_loop(
     fixer: FixFn,
     self_reviewer: SelfReviewFn | None = None,
     budget_fn: BudgetCheckFn | None = None,
+    pre_fix_confirm: PreFixConfirmFn | None = None,
     commit_pattern: str = "fix(ai-review): apply iteration",
     cwd: Path | None = None,
 ) -> LoopResult:
@@ -140,6 +151,9 @@ def review_fix_loop(
         Callable that runs self-review sub-loop after fixes.
     budget_fn : BudgetCheckFn, optional
         Callable for pre-flight budget checks.
+    pre_fix_confirm : PreFixConfirmFn, optional
+        Callable invoked after review parsing but before fixing.
+        Receives the parsed review dict; returns False to abort.
     commit_pattern : str
         Git log search pattern for resume detection.
     cwd : Path, optional
@@ -190,6 +204,10 @@ def review_fix_loop(
             resume_from,
             reuse_review,
         )
+
+        # Reset partial edits from interrupted run (non-dry-run only)
+        if not config.dry_run:
+            resume_reset_worktree(cwd=cwd)
     else:
         # Fresh run: clear stale iteration artifacts, then save metadata
         _clean_stale_logs(log_dir)
@@ -289,6 +307,13 @@ def review_fix_loop(
         if config.dry_run:
             logger.info("Dry-run mode — skipping fixes.")
             final_status = FinalStatus.DRY_RUN
+            iterations_run = i
+            break
+
+        # e2. Pre-fix confirmation gate (e.g. layer/full refactor plan)
+        if pre_fix_confirm and not pre_fix_confirm(review_data):
+            logger.info("Aborted by user.")
+            final_status = FinalStatus.USER_ABORTED
             iterations_run = i
             break
 
