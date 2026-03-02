@@ -185,38 +185,42 @@ def _run_claude_once(
     label: str,
 ) -> int:
     """Execute a single Claude CLI invocation. Returns the exit code."""
-    if diagnostic_log and stream_file is not None:
-        stderr_path = output_path.with_suffix(".stderr")
-        with (
-            stream_file.open("w", encoding="utf-8") as sf,
-            stderr_path.open("w", encoding="utf-8") as ef,
-        ):
-            result = subprocess.run(
-                [*cmd_args, "--output-format", "stream-json"],
-                input=stdin,
-                stdout=sf,
-                stderr=ef,
-                text=True,
-                check=False,
-            )
-        if result.returncode == 0:
-            extracted = extract_result_from_stream(stream_file)
-            output_path.write_text(extracted, encoding="utf-8")
-            if not extracted:
-                logger.warning(
-                    "[%s] stream-json result extraction produced empty output.",
-                    label,
+    try:
+        if diagnostic_log and stream_file is not None:
+            stderr_path = output_path.with_suffix(".stderr")
+            with (
+                stream_file.open("w", encoding="utf-8") as sf,
+                stderr_path.open("w", encoding="utf-8") as ef,
+            ):
+                result = subprocess.run(
+                    [*cmd_args, "--output-format", "stream-json"],
+                    input=stdin,
+                    stdout=sf,
+                    stderr=ef,
+                    text=True,
+                    check=False,
                 )
-    else:
-        with output_path.open("w", encoding="utf-8") as of:
-            result = subprocess.run(
-                cmd_args,
-                input=stdin,
-                stdout=of,
-                stderr=subprocess.STDOUT,
-                text=True,
-                check=False,
-            )
+            if result.returncode == 0:
+                extracted = extract_result_from_stream(stream_file)
+                output_path.write_text(extracted, encoding="utf-8")
+                if not extracted:
+                    logger.warning(
+                        "[%s] stream-json result extraction produced empty output.",
+                        label,
+                    )
+        else:
+            with output_path.open("w", encoding="utf-8") as of:
+                result = subprocess.run(
+                    cmd_args,
+                    input=stdin,
+                    stdout=of,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    check=False,
+                )
+    except FileNotFoundError:
+        logger.error("[%s] claude CLI not found on PATH.", label)
+        return 1
 
     return result.returncode
 

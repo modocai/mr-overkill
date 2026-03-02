@@ -184,7 +184,7 @@ def create_draft_pr(
     ahead = int(result.stdout.strip()) if result.returncode == 0 else 0
     if ahead == 0:
         logger.info("No refactoring commits — skipping PR creation.")
-        return False
+        return True
 
     # Ensure branch is pushed
     upstream = subprocess.run(
