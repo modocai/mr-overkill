@@ -167,26 +167,35 @@ def parse_review_loop_args(
         action="store_true",
         help="Disable self-review",
     )
-    parser.add_argument(
+    dry_run_grp = parser.add_mutually_exclusive_group()
+    dry_run_grp.add_argument(
         "--dry-run",
-        action="store_true",
-        default=None,
+        action="store_const",
+        const=True,
+        dest="dry_run",
         help="Run review only, do not fix",
     )
-    parser.add_argument(
+    dry_run_grp.add_argument(
         "--no-dry-run",
-        action="store_true",
+        action="store_const",
+        const=False,
+        dest="dry_run",
         help="Force fixes",
     )
-    parser.add_argument(
-        "--no-auto-commit",
-        action="store_true",
-        help="Fix but do not commit/push",
-    )
-    parser.add_argument(
+    auto_commit_grp = parser.add_mutually_exclusive_group()
+    auto_commit_grp.add_argument(
         "--auto-commit",
-        action="store_true",
+        action="store_const",
+        const=True,
+        dest="auto_commit",
         help="Force commit/push",
+    )
+    auto_commit_grp.add_argument(
+        "--no-auto-commit",
+        action="store_const",
+        const=False,
+        dest="auto_commit",
+        help="Fix but do not commit/push",
     )
     parser.add_argument(
         "--resume",
@@ -223,13 +232,8 @@ def parse_review_loop_args(
         )
     )
 
-    dry_run = _resolve_bool(
-        args.dry_run, args.no_dry_run, rc.get("DRY_RUN"), False
-    )
-    auto_commit = _resolve_bool(
-        args.auto_commit, args.no_auto_commit,
-        rc.get("AUTO_COMMIT"), True
-    )
+    dry_run = _resolve_bool(args.dry_run, rc.get("DRY_RUN"), False)
+    auto_commit = _resolve_bool(args.auto_commit, rc.get("AUTO_COMMIT"), True)
     diagnostic_log = args.diagnostic_log or rc.get(
         "DIAGNOSTIC_LOG", "false"
     ) == "true"
@@ -343,15 +347,19 @@ def parse_refactor_suggest_args(
         action="store_true",
         help="Disable self-review",
     )
-    parser.add_argument(
+    dry_run_grp = parser.add_mutually_exclusive_group()
+    dry_run_grp.add_argument(
         "--dry-run",
-        action="store_true",
-        default=None,
+        action="store_const",
+        const=True,
+        dest="dry_run",
         help="Run analysis only, do not fix",
     )
-    parser.add_argument(
+    dry_run_grp.add_argument(
         "--no-dry-run",
-        action="store_true",
+        action="store_const",
+        const=False,
+        dest="dry_run",
         help="Force fixes",
     )
     parser.add_argument(
@@ -412,12 +420,8 @@ def parse_refactor_suggest_args(
         )
     )
 
-    dry_run = _resolve_bool(
-        args.dry_run, args.no_dry_run, rc.get("DRY_RUN"), False
-    )
-    create_pr = _resolve_bool(
-        args.create_pr, False, rc.get("CREATE_PR"), False
-    )
+    dry_run = _resolve_bool(args.dry_run, rc.get("DRY_RUN"), False)
+    create_pr = _resolve_bool(args.create_pr, rc.get("CREATE_PR"), False)
     auto_approve = args.auto_approve or rc.get(
         "AUTO_APPROVE", "false"
     ) == "true"
@@ -425,9 +429,7 @@ def parse_refactor_suggest_args(
         "DIAGNOSTIC_LOG", "false"
     ) == "true"
 
-    with_review = _resolve_bool(
-        args.with_review, False, rc.get("WITH_REVIEW"), False
-    )
+    with_review = _resolve_bool(args.with_review, rc.get("WITH_REVIEW"), False)
     review_loops = (
         args.with_review_loops
         if args.with_review_loops is not None
@@ -523,16 +525,13 @@ def parse_refactor_suggest_args(
 
 
 def _resolve_bool(
-    flag_true: bool | None,
-    flag_false: bool,
+    flag_value: bool | None,
     rc_value: str | None,
     default: bool,
 ) -> bool:
     """Resolve a boolean flag with CLI > rc > default precedence."""
-    if flag_true:
-        return True
-    if flag_false:
-        return False
+    if flag_value is not None:
+        return flag_value
     if rc_value is not None:
         return rc_value.lower() == "true"
     return default

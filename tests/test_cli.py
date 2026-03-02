@@ -17,18 +17,18 @@ from mr_overkill.cli import (
 
 class TestResolveBool:
     def test_flag_true_wins(self) -> None:
-        assert _resolve_bool(True, False, "false", False) is True
+        assert _resolve_bool(True, "false", False) is True
 
     def test_flag_false_wins(self) -> None:
-        assert _resolve_bool(None, True, "true", True) is False
+        assert _resolve_bool(False, "true", True) is False
 
     def test_rc_value(self) -> None:
-        assert _resolve_bool(None, False, "true", False) is True
-        assert _resolve_bool(None, False, "false", True) is False
+        assert _resolve_bool(None, "true", False) is True
+        assert _resolve_bool(None, "false", True) is False
 
     def test_default(self) -> None:
-        assert _resolve_bool(None, False, None, True) is True
-        assert _resolve_bool(None, False, None, False) is False
+        assert _resolve_bool(None, None, True) is True
+        assert _resolve_bool(None, None, False) is False
 
 
 class TestLoadRcFile:

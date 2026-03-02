@@ -244,13 +244,19 @@ def retry_codex_cmd(
 
     while True:
         with stderr_path.open("w", encoding="utf-8") as ef:
-            result = subprocess.run(
-                cmd_args,
-                stdin=subprocess.DEVNULL,
-                stderr=ef,
-                text=True,
-                check=False,
-            )
+            try:
+                result = subprocess.run(
+                    cmd_args,
+                    stdin=subprocess.DEVNULL,
+                    stderr=ef,
+                    text=True,
+                    check=False,
+                )
+            except FileNotFoundError:
+                logger.error(
+                    "[%s] Command not found: %s", label, cmd_args[0]
+                )
+                return False
 
         if result.returncode == 0:
             return True
