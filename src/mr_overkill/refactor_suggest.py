@@ -302,6 +302,19 @@ def _make_refactor_fixer(config: LoopConfig):
 
 def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     """Run refactor-suggest and return an exit code."""
+    # Restore saved scope on resume
+    if config.resume:
+        saved_scope_file = config.log_dir / "scope.txt"
+        if saved_scope_file.is_file():
+            saved_scope = saved_scope_file.read_text().strip()
+            if scope not in ("auto", saved_scope):
+                logger.error(
+                    "Scope mismatch: --scope '%s' differs from saved scope '%s'.",
+                    scope, saved_scope,
+                )
+                return 1
+            scope = saved_scope
+
     # Resolve auto scope
     if scope == "auto":
         tools = ["codex"] if config.dry_run else ["claude", "codex"]
@@ -311,6 +324,9 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
             return 1
         logger.info("Auto scope resolved to: %s", resolved)
         scope = resolved
+
+    # Persist resolved scope for resume
+    config.scope = scope
 
     # Create refactor branch (unless dry-run or resume)
     if not config.dry_run and not config.resume:

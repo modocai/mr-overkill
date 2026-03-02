@@ -195,6 +195,15 @@ def review_fix_loop(
         _clean_stale_logs(log_dir)
         _save_metadata(config, cwd)
 
+    # ── Validate resume point ────────────────────────────────────────
+    if resume_from > config.max_loop:
+        logger.error(
+            "Resume point (%d) exceeds max_loop (%d). "
+            "Use -n to set a higher max_loop or start a fresh run.",
+            resume_from, config.max_loop,
+        )
+        return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+
     # ── Main loop ────────────────────────────────────────────────────
     final_status = FinalStatus.MAX_ITERATIONS_REACHED
     iterations_run = 0
@@ -411,6 +420,8 @@ def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
     (log_dir / "branch.txt").write_text(config.current_branch)
     (log_dir / "target-branch.txt").write_text(config.target_branch)
     (log_dir / "max-loop.txt").write_text(str(config.max_loop))
+    if config.scope:
+        (log_dir / "scope.txt").write_text(config.scope)
 
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"],

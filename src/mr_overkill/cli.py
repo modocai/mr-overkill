@@ -342,9 +342,9 @@ def parse_refactor_suggest_args(
     target = args.target or rc.get("TARGET_BRANCH", "develop")
     max_loop = (
         args.max_loop if args.max_loop is not None
-        else int(rc.get("MAX_LOOP", "1")) or 1
+        else int(rc.get("MAX_LOOP", "0")) or None
     )
-    if max_loop < 1:
+    if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")
 
     max_subloop = (
@@ -402,10 +402,16 @@ def parse_refactor_suggest_args(
     )
     log_dir = git_root / "logs" / "refactor"
 
+    # Restore saved max_loop on resume when -n is not given
+    if args.resume and max_loop is None:
+        saved = log_dir / "max-loop.txt"
+        if saved.is_file():
+            max_loop = int(saved.read_text().strip())
+
     config = LoopConfig(
         current_branch=current_branch,
         target_branch=target,
-        max_loop=max_loop,
+        max_loop=max_loop or 1,
         max_subloop=max_subloop,
         dry_run=dry_run,
         auto_commit=True,
