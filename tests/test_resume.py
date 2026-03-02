@@ -56,7 +56,8 @@ class TestDetectState:
         review = {"findings": [], "overall_correctness": "patch is correct"}
         (log_dir / "review-2.json").write_text(json.dumps(review))
         # No commit exists → reuse_review=True
-        state = detect_state(log_dir, "fix(ai-review): apply iteration", cwd=tmp_git_repo)
+        pattern = "fix(ai-review): apply iteration"
+        state = detect_state(log_dir, pattern, cwd=tmp_git_repo)
         assert state.status == "resumable"
         assert state.resume_from == 2
         assert state.reuse_review is True
@@ -65,7 +66,8 @@ class TestDetectState:
         log_dir = tmp_git_repo / "logs"
         log_dir.mkdir()
         (log_dir / "review-3.json").write_text("not valid json!!!")
-        state = detect_state(log_dir, "fix(ai-review): apply iteration", cwd=tmp_git_repo)
+        pattern = "fix(ai-review): apply iteration"
+        state = detect_state(log_dir, pattern, cwd=tmp_git_repo)
         assert state.status == "resumable"
         assert state.resume_from == 3
         assert state.reuse_review is False
@@ -152,5 +154,6 @@ class TestDetectState:
         (log_dir / "review-1.json").write_text('{"findings":[]}')
         (log_dir / "review-5.json").write_text('{"findings":[]}')
         (log_dir / "review-3.json").write_text('{"findings":[]}')
-        state = detect_state(log_dir, "fix(ai-review): apply iteration", cwd=tmp_git_repo)
+        pattern = "fix(ai-review): apply iteration"
+        state = detect_state(log_dir, pattern, cwd=tmp_git_repo)
         assert state.resume_from == 5  # highest

@@ -1,0 +1,404 @@
+"""Unified review-fix loop engine.
+
+Consolidates the common loop pattern from review-loop.sh,
+refactor-suggest.sh, and self-review.sh into a single reusable engine.
+
+Uses Protocol-based DI for external operations (fix, review, budget)
+and imports Wave 1 modules directly for JSON parsing, git ops, and reporting.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import subprocess
+from pathlib import Path
+from typing import Protocol
+
+from mr_overkill.git_ops import (
+    commit_and_push,
+    diff_hash,
+    snapshot_worktree,
+    stash_allowlisted,
+    unstash_allowlisted,
+)
+from mr_overkill.json_extract import parse_review_json
+from mr_overkill.models import (
+    BudgetCheckFn,
+    FinalStatus,
+    FixFn,
+    LoopConfig,
+    LoopResult,
+)
+from mr_overkill.reporting import generate_summary, post_pr_comment
+from mr_overkill.resume import detect_state
+
+logger = logging.getLogger(__name__)
+
+
+# ── Additional Protocol for the review step ──────────────────────────
+
+
+class ReviewerFn(Protocol):
+    """Contract for running a code review (e.g. Codex review).
+
+    Parameters
+    ----------
+    output_path : Path
+        File to write review output to.
+    iteration : int
+        Current loop iteration number.
+
+    Returns
+    -------
+    bool
+        True on success, False on failure.
+    """
+
+    def __call__(self, output_path: Path, iteration: int) -> bool: ...
+
+
+class SelfReviewFn(Protocol):
+    """Contract for the self-review sub-loop.
+
+    Parameters
+    ----------
+    pre_fix_snapshot : list
+        Worktree snapshot from before fixes were applied.
+    max_subloop : int
+        Maximum sub-iterations.
+    log_dir : Path
+        Directory for log files.
+    iteration : int
+        Outer iteration number.
+    review_json_str : str
+        Original review findings as JSON string.
+
+    Returns
+    -------
+    str
+        Summary string of self-review sub-iterations.
+    """
+
+    def __call__(
+        self,
+        pre_fix_snapshot: object,
+        max_subloop: int,
+        log_dir: Path,
+        iteration: int,
+        review_json_str: str,
+    ) -> str: ...
+
+
+# ── Normalize review JSON paths ──────────────────────────────────────
+
+
+def _normalize_paths(review: dict[str, object], cwd: Path | None) -> dict[str, object]:
+    """Normalize absolute paths in review JSON to repo-relative."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return review
+
+    from mr_overkill.json_extract import normalize_paths
+
+    return normalize_paths(review, result.stdout.strip())
+
+
+# ── Main loop engine ─────────────────────────────────────────────────
+
+
+def review_fix_loop(
+    config: LoopConfig,
+    *,
+    reviewer: ReviewerFn,
+    fixer: FixFn,
+    self_reviewer: SelfReviewFn | None = None,
+    budget_fn: BudgetCheckFn | None = None,
+    commit_pattern: str = "fix(ai-review): apply iteration",
+    cwd: Path | None = None,
+) -> LoopResult:
+    """Run the review-fix loop.
+
+    Orchestrates: resume detection → review → parse → fix → self-review →
+    commit → PR comment → summary generation.
+
+    Parameters
+    ----------
+    config : LoopConfig
+        Full loop configuration.
+    reviewer : ReviewerFn
+        Callable that runs the code review step.
+    fixer : FixFn
+        Callable that applies fixes based on review findings.
+    self_reviewer : SelfReviewFn, optional
+        Callable that runs self-review sub-loop after fixes.
+    budget_fn : BudgetCheckFn, optional
+        Callable for pre-flight budget checks.
+    commit_pattern : str
+        Git log search pattern for resume detection.
+    cwd : Path, optional
+        Working directory for git operations.
+    """
+    log_dir = config.log_dir
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Resume detection ─────────────────────────────────────────────
+    resume_from = 1
+    reuse_review = False
+
+    if config.resume:
+        state = detect_state(log_dir, commit_pattern, cwd=cwd)
+        if state.status == "completed":
+            return LoopResult(
+                final_status=FinalStatus(state.prev_status or "max_iterations_reached"),
+                iterations_run=0,
+                summary_path=_generate_summary_safe(config),
+            )
+        if state.status == "no_logs":
+            logger.error("No previous logs found in %s. Nothing to resume.", log_dir)
+            return LoopResult(
+                final_status=FinalStatus.REVIEW_FAILED,
+                iterations_run=0,
+            )
+        resume_from = state.resume_from
+        reuse_review = state.reuse_review
+        logger.info(
+            "Resuming from iteration %d (reuse_review=%s)",
+            resume_from,
+            reuse_review,
+        )
+    else:
+        # Fresh run: save metadata
+        _save_metadata(config, cwd)
+
+    # ── Main loop ────────────────────────────────────────────────────
+    final_status = FinalStatus.MAX_ITERATIONS_REACHED
+    iterations_run = 0
+    allowed_stashed = False
+
+    for i in range(1, config.max_loop + 1):
+        logger.info("── Iteration %d / %d ──", i, config.max_loop)
+
+        # Skip completed iterations on resume
+        if i < resume_from:
+            logger.info("[resume] Skipping iteration %d (already completed).", i)
+            continue
+
+        # a. Check diff
+        if _no_diff(config.target_branch, config.current_branch, cwd):
+            logger.info(
+                "No diff between %s and %s.",
+                config.target_branch,
+                config.current_branch,
+            )
+            final_status = FinalStatus.NO_DIFF
+            break
+
+        # b. Run review
+        review_file = log_dir / f"review-{i}.json"
+
+        # Check if we can reuse a saved review
+        can_reuse = (
+            config.resume
+            and reuse_review
+            and i == resume_from
+            and review_file.is_file()
+        )
+
+        if can_reuse:
+            # Invalidate if diff changed
+            saved_hash_file = log_dir / f"diff-hash-{i}.txt"
+            if saved_hash_file.is_file():
+                saved = saved_hash_file.read_text().strip()
+                current = diff_hash(
+                    config.target_branch, config.current_branch, cwd=cwd
+                )
+                if saved != current:
+                    logger.info("[resume] Diff changed; re-running review.")
+                    can_reuse = False
+            else:
+                can_reuse = False
+
+        if can_reuse:
+            logger.info("[resume] Reusing saved review: %s", review_file)
+        else:
+            if not reviewer(review_file, i):
+                final_status = FinalStatus.CODEX_ERROR
+                break
+
+            # Save diff hash
+            current_hash = diff_hash(
+                config.target_branch, config.current_branch, cwd=cwd
+            )
+            (log_dir / f"diff-hash-{i}.txt").write_text(current_hash)
+
+        # c. Parse review JSON
+        review_data, _rc = parse_review_json(review_file, "review")
+        if review_data is None:
+            final_status = FinalStatus.PARSE_ERROR
+            break
+
+        review_data = _normalize_paths(review_data, cwd)
+
+        findings = review_data.get("findings", [])
+        findings_count = len(findings) if isinstance(findings, list) else 0
+        overall = review_data.get("overall_correctness", "?")
+        logger.info("Findings: %d | Overall: %s", findings_count, overall)
+
+        # d. All clear?
+        if findings_count == 0 and overall == "patch is correct":
+            logger.info("All clear — no issues found.")
+            final_status = FinalStatus.ALL_CLEAR
+            iterations_run = i
+            break
+
+        # e. Dry-run check
+        if config.dry_run:
+            logger.info("Dry-run mode — skipping fixes.")
+            final_status = FinalStatus.DRY_RUN
+            iterations_run = i
+            break
+
+        # f. Stash allowlisted files
+        try:
+            allowed_stashed = stash_allowlisted(
+                [".gitignore", ".reviewlooprc", ".refactorsuggestrc"],
+                cwd=cwd,
+            )
+        except RuntimeError:
+            final_status = FinalStatus.STASH_ERROR
+            break
+
+        # g. Snapshot worktree
+        pre_fix_snapshot = snapshot_worktree(cwd=cwd)
+
+        # h. Fix
+        review_json_str = json.dumps(review_data)
+        if not fixer(review_json_str, f"fix-{i}"):
+            final_status = FinalStatus.CLAUDE_ERROR
+            _unstash_safe(allowed_stashed, cwd)
+            allowed_stashed = False
+            break
+
+        # i. Self-review sub-loop
+        self_review_summary = ""
+        if self_reviewer and config.max_subloop > 0:
+            self_review_summary = self_reviewer(
+                pre_fix_snapshot,
+                config.max_subloop,
+                log_dir,
+                i,
+                review_json_str,
+            )
+
+        # j. Commit & push
+        if config.auto_commit:
+            commit_msg = (
+                f"{commit_pattern} {i} fixes\n\n"
+                f"Auto-generated by review loop (iteration {i}/{config.max_loop})"
+            )
+            if self_review_summary:
+                summary_oneline = self_review_summary.replace("\n", "; ").rstrip("; ")
+                commit_msg += f"\nSelf-review: {summary_oneline}"
+            commit_and_push(
+                pre_fix_snapshot, commit_msg, config.current_branch, cwd=cwd
+            )
+        else:
+            logger.info("AUTO_COMMIT is disabled — skipping commit and push.")
+
+        # Unstash
+        _unstash_safe(allowed_stashed, cwd)
+        allowed_stashed = False
+
+        # Stop after first iteration when auto-commit is off
+        if not config.auto_commit:
+            final_status = FinalStatus.AUTO_COMMIT_DISABLED
+            iterations_run = i
+            break
+
+        # k. Post PR comment
+        if config.pr_number:
+            post_pr_comment(
+                pr_number=config.pr_number,
+                iteration=i,
+                max_loop=config.max_loop,
+                review_json=review_data,
+            )
+
+        iterations_run = i
+
+    # Ensure unstash on any exit path
+    _unstash_safe(allowed_stashed, cwd)
+
+    # ── Summary ──────────────────────────────────────────────────────
+    summary_path = _generate_summary_safe(config, final_status)
+
+    return LoopResult(
+        final_status=final_status,
+        iterations_run=iterations_run,
+        summary_path=summary_path,
+    )
+
+
+# ── Private helpers ──────────────────────────────────────────────────
+
+
+def _no_diff(target: str, current: str, cwd: Path | None) -> bool:
+    """Check if there's any diff between target and current branch."""
+    result = subprocess.run(
+        ["git", "diff", "--quiet", f"{target}...{current}"],
+        cwd=cwd,
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
+    """Save run metadata for resume support."""
+    log_dir = config.log_dir
+    (log_dir / "branch.txt").write_text(config.current_branch)
+    (log_dir / "target-branch.txt").write_text(config.target_branch)
+    (log_dir / "max-loop.txt").write_text(str(config.max_loop))
+
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if head.returncode == 0:
+        (log_dir / "start-commit.txt").write_text(head.stdout.strip())
+
+
+def _generate_summary_safe(
+    config: LoopConfig,
+    final_status: FinalStatus | None = None,
+) -> Path | None:
+    """Generate summary, returning None on failure."""
+    try:
+        status = final_status or FinalStatus.MAX_ITERATIONS_REACHED
+        return generate_summary(
+            title="Review Loop Summary",
+            log_dir=config.log_dir,
+            current_branch=config.current_branch,
+            target_branch=config.target_branch,
+            max_loop=config.max_loop,
+            final_status=status,
+        )
+    except Exception:
+        logger.warning("Failed to generate summary.", exc_info=True)
+        return None
+
+
+def _unstash_safe(stashed: bool, cwd: Path | None) -> None:
+    """Pop stash if needed, logging failures."""
+    if stashed and not unstash_allowlisted(cwd=cwd):
+        logger.warning("Failed to restore stashed files. Check 'git stash list'.")
