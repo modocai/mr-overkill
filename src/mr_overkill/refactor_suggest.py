@@ -181,7 +181,10 @@ def create_draft_pr(
         text=True,
         check=False,
     )
-    ahead = int(result.stdout.strip()) if result.returncode == 0 else 0
+    if result.returncode != 0:
+        logger.error("Failed to count commits ahead of %s", target_branch)
+        return False
+    ahead = int(result.stdout.strip())
     if ahead == 0:
         logger.info("No refactoring commits — skipping PR creation.")
         return True
@@ -200,11 +203,14 @@ def create_draft_pr(
         if remote is None:
             logger.warning("No remote configured — skipping push and PR creation.")
             return False
-        subprocess.run(
+        push_result = subprocess.run(
             ["git", "push", "-u", remote, current_branch],
             capture_output=True,
             check=False,
         )
+        if push_result.returncode != 0:
+            logger.error("Failed to push branch %s to %s", current_branch, remote)
+            return False
 
     body = (
         f"## Refactoring: {scope} scope\n\n"

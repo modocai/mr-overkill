@@ -272,7 +272,10 @@ def parse_review_loop_args(
         if args.max_loop is None:
             saved = log_dir / "max-loop.txt"
             if saved.is_file():
-                max_loop = int(saved.read_text().strip())
+                try:
+                    max_loop = int(saved.read_text().strip())
+                except ValueError:
+                    parser.error(f"malformed max-loop value in {saved}")
 
     if args.resume and max_loop is None:
         parser.error(
@@ -482,7 +485,10 @@ def parse_refactor_suggest_args(
         if args.max_loop is None:
             saved = log_dir / "max-loop.txt"
             if saved.is_file():
-                max_loop = int(saved.read_text().strip())
+                try:
+                    max_loop = int(saved.read_text().strip())
+                except ValueError:
+                    parser.error(f"malformed max-loop value in {saved}")
         if args.scope is None:
             saved = log_dir / "scope.txt"
             if saved.is_file():
