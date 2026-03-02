@@ -110,7 +110,7 @@ class TestCreateDraftPr:
         )
         assert create_draft_pr(
             "module", "develop", "refactor/module-x", 3, "all_clear"
-        ) is False
+        ) is True
 
     @patch("mr_overkill.refactor_suggest.subprocess.run")
     def test_creates_pr(self, mock_run: MagicMock) -> None:

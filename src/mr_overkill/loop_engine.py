@@ -26,7 +26,6 @@ from mr_overkill.git_ops import (
 )
 from mr_overkill.json_extract import parse_review_json
 from mr_overkill.models import (
-    BudgetCheckFn,
     FinalStatus,
     FixFn,
     LoopConfig,
@@ -130,7 +129,6 @@ def review_fix_loop(
     reviewer: ReviewerFn,
     fixer: FixFn,
     self_reviewer: SelfReviewFn | None = None,
-    budget_fn: BudgetCheckFn | None = None,
     pre_fix_confirm: PreFixConfirmFn | None = None,
     commit_pattern: str = "fix(ai-review): apply iteration",
     cwd: Path | None = None,
@@ -150,8 +148,6 @@ def review_fix_loop(
         Callable that applies fixes based on review findings.
     self_reviewer : SelfReviewFn, optional
         Callable that runs self-review sub-loop after fixes.
-    budget_fn : BudgetCheckFn, optional
-        Callable for pre-flight budget checks.
     pre_fix_confirm : PreFixConfirmFn, optional
         Callable invoked after review parsing but before fixing.
         Receives the parsed review dict; returns False to abort.

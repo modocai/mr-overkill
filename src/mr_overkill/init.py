@@ -3,30 +3,38 @@
 from __future__ import annotations
 
 import shutil
+from contextlib import contextmanager
 from importlib.resources import as_file, files
 from pathlib import Path
+from typing import Iterator
 
 _REVIEW_LOOP_DIR = ".review-loop"
 
 
-def _data_root() -> Path:
+@contextmanager
+def _data_root() -> Iterator[Path]:
     """Resolve the package data directory.
 
     When installed from a wheel, ``importlib.resources`` finds files that
     hatch ``force-include`` placed inside the package.  During development
     (editable install), those files don't exist under ``src/`` — fall back
     to the repository root.
+
+    Yields the path inside the ``as_file`` context so that any temporary
+    extraction directory stays alive while the caller uses it.
     """
     pkg = files("mr_overkill.data")
     with as_file(pkg) as data_dir:
         candidate = data_dir / "prompts" / "active"
         if candidate.is_dir():
-            return Path(data_dir)
+            yield Path(data_dir)
+            return
 
     # Development fallback: walk up from this file to the repo root.
     repo = Path(__file__).resolve().parent.parent.parent
     if (repo / "prompts" / "active").is_dir():
-        return repo
+        yield repo
+        return
     msg = "Cannot locate bundled data (prompts/active not found)"
     raise FileNotFoundError(msg)
 
@@ -96,15 +104,15 @@ def init_project(target_dir: Path) -> None:
     Idempotent: safe to re-run.  Prompt templates are always refreshed.
     RC config files are only created if missing (preserving user edits).
     """
-    data = _data_root()
-    dest = target_dir / _REVIEW_LOOP_DIR
-    dest.mkdir(parents=True, exist_ok=True)
+    with _data_root() as data:
+        dest = target_dir / _REVIEW_LOOP_DIR
+        dest.mkdir(parents=True, exist_ok=True)
 
-    # 1. Copy prompt templates (always overwrite — tool-owned)
-    manifest = _copy_prompts(data, dest)
+        # 1. Copy prompt templates (always overwrite — tool-owned)
+        manifest = _copy_prompts(data, dest)
 
-    # 2. Copy RC files (only if missing — user-editable)
-    manifest.extend(_copy_rc_files(data, dest))
+        # 2. Copy RC files (only if missing — user-editable)
+        manifest.extend(_copy_rc_files(data, dest))
 
     # 3. Create log directories
     (dest / "logs").mkdir(exist_ok=True)
