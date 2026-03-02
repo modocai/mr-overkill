@@ -48,6 +48,7 @@ class FinalStatus(StrEnum):
     STASH_ERROR = "stash_error"
     STASH_CONFLICT = "stash_conflict"
     REVIEW_FAILED = "review_failed"
+    COMMIT_PUSH_ERROR = "commit_push_error"
 
 
 # ── Dataclasses ──────────────────────────────────────────────────────

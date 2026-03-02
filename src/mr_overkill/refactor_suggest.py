@@ -255,7 +255,8 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     """Run refactor-suggest and return an exit code."""
     # Resolve auto scope
     if scope == "auto":
-        resolved = resolve_auto_scope()
+        tools = ["codex"] if config.dry_run else ["claude", "codex"]
+        resolved = resolve_auto_scope(tools=tools)
         if resolved is None:
             logger.error("Budget too low for any refactor scope.")
             return 1

@@ -176,6 +176,7 @@ def commit_and_push(
     """Commit files changed since snapshot and push if upstream exists.
 
     Returns ``True`` if a commit was made, ``False`` if nothing to commit.
+    Raises ``RuntimeError`` if ``git commit`` or ``git push`` fails.
     """
     changed = changed_files_since_snapshot(snapshot, cwd=cwd)
     if not changed:
@@ -188,8 +189,7 @@ def commit_and_push(
     # Commit
     result = _run(["git", "commit", "-m", message, "--", *changed], cwd=cwd)
     if result.returncode != 0:
-        logger.warning("git commit failed: %s", result.stderr.strip())
-        return False
+        raise RuntimeError(f"git commit failed: {result.stderr.strip()}")
 
     logger.info("Committed.")
 
@@ -199,14 +199,18 @@ def commit_and_push(
         cwd=cwd,
     )
     if upstream_check.returncode == 0:
-        _run(["git", "push"], cwd=cwd)
+        push_result = _run(["git", "push"], cwd=cwd)
+        if push_result.returncode != 0:
+            raise RuntimeError(f"git push failed: {push_result.stderr.strip()}")
         logger.info("Pushed.")
     elif branch:
         remote_check = _run(["git", "remote"], cwd=cwd)
         remotes = remote_check.stdout.strip().splitlines()
         remote = "origin" if "origin" in remotes else (remotes[0] if remotes else "")
         if remote:
-            _run(["git", "push", "-u", remote, branch], cwd=cwd)
+            push_result = _run(["git", "push", "-u", remote, branch], cwd=cwd)
+            if push_result.returncode != 0:
+                raise RuntimeError(f"git push failed: {push_result.stderr.strip()}")
             logger.info("Pushed (upstream set).")
         else:
             logger.info("No upstream/remote set — skipping push.")

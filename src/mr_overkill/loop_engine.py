@@ -155,10 +155,11 @@ def review_fix_loop(
     if config.resume:
         state = detect_state(log_dir, commit_pattern, cwd=cwd)
         if state.status == "completed":
+            resolved_status = FinalStatus(state.prev_status or "max_iterations_reached")
             return LoopResult(
-                final_status=FinalStatus(state.prev_status or "max_iterations_reached"),
+                final_status=resolved_status,
                 iterations_run=0,
-                summary_path=_generate_summary_safe(config),
+                summary_path=_generate_summary_safe(config, resolved_status),
             )
         if state.status == "no_logs":
             logger.error("No previous logs found in %s. Nothing to resume.", log_dir)
@@ -306,9 +307,15 @@ def review_fix_loop(
             if self_review_summary:
                 summary_oneline = self_review_summary.replace("\n", "; ").rstrip("; ")
                 commit_msg += f"\nSelf-review: {summary_oneline}"
-            commit_and_push(
-                pre_fix_snapshot, commit_msg, config.current_branch, cwd=cwd
-            )
+            try:
+                commit_and_push(
+                    pre_fix_snapshot, commit_msg, config.current_branch, cwd=cwd
+                )
+            except RuntimeError as e:
+                logger.error("commit_and_push failed — aborting loop: %s", e)
+                final_status = FinalStatus.COMMIT_PUSH_ERROR
+                iterations_run = i
+                break
         else:
             logger.info("AUTO_COMMIT is disabled — skipping commit and push.")
 

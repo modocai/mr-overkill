@@ -28,12 +28,15 @@ def _detect_current_branch() -> str:
 
 def _detect_pr_number(branch: str) -> str | None:
     """Detect open PR number for the given branch."""
-    result = subprocess.run(
-        ["gh", "pr", "view", branch, "--json", "number", "-q", ".number"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "view", branch, "--json", "number", "-q", ".number"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
     if result.returncode == 0 and result.stdout.strip():
         return result.stdout.strip()
     return None
@@ -171,6 +174,9 @@ def parse_review_loop_args(
 
     if not args.resume and max_loop is None:
         parser.error("-n / --max-loop is required")
+
+    if max_loop is not None and max_loop < 1:
+        parser.error("--max-loop must be a positive integer")
 
     max_subloop = (
         0 if args.no_self_review
