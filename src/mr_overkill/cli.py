@@ -101,6 +101,20 @@ def _resolve_prompts_dir(prompts_dir: str) -> Path:
     return p
 
 
+def _int_from_rc(
+    rc: dict[str, str],
+    key: str,
+    default: str,
+    parser: argparse.ArgumentParser,
+) -> int:
+    """Parse an integer from rc file, raising a clean CLI error on bad values."""
+    raw = rc.get(key, default)
+    try:
+        return int(raw)
+    except ValueError:
+        parser.error(f"invalid integer for {key} in rc file: {raw!r}")
+
+
 def parse_review_loop_args(
     argv: list[str] | None = None,
 ) -> LoopConfig:
@@ -170,7 +184,7 @@ def parse_review_loop_args(
 
     # Resolve values with precedence: CLI > rc file > defaults
     target = args.target or rc.get("TARGET_BRANCH", "develop")
-    max_loop = args.max_loop if args.max_loop is not None else (int(rc.get("MAX_LOOP", "0")) or None)
+    max_loop = args.max_loop if args.max_loop is not None else (_int_from_rc(rc, "MAX_LOOP", "0", parser) or None)
 
     if not args.resume and max_loop is None:
         parser.error("-n / --max-loop is required")
@@ -183,7 +197,7 @@ def parse_review_loop_args(
         else (
             args.max_subloop
             if args.max_subloop is not None
-            else int(rc.get("MAX_SUBLOOP", "4"))
+            else _int_from_rc(rc, "MAX_SUBLOOP", "4", parser)
         )
     )
 
@@ -198,8 +212,8 @@ def parse_review_loop_args(
         "DIAGNOSTIC_LOG", "false"
     ) == "true"
 
-    retry_max_wait = int(rc.get("RETRY_MAX_WAIT", "7200"))
-    retry_initial_wait = int(rc.get("RETRY_INITIAL_WAIT", "30"))
+    retry_max_wait = _int_from_rc(rc, "RETRY_MAX_WAIT", "7200", parser)
+    retry_initial_wait = _int_from_rc(rc, "RETRY_INITIAL_WAIT", "30", parser)
     budget_scope_str = rc.get("BUDGET_SCOPE", "module")
 
     prompts_dir = _resolve_prompts_dir(
@@ -219,11 +233,16 @@ def parse_review_loop_args(
     git_root = Path(result.stdout.strip()) if result.returncode == 0 else Path(".")
     log_dir = git_root / "logs"
 
-    # Restore saved max_loop on resume when -n is not given
-    if args.resume and max_loop is None:
-        saved = log_dir / "max-loop.txt"
-        if saved.is_file():
-            max_loop = int(saved.read_text().strip())
+    # Restore saved values on resume when not explicitly given
+    if args.resume:
+        if args.target is None:
+            saved = log_dir / "target-branch.txt"
+            if saved.is_file():
+                target = saved.read_text().strip()
+        if max_loop is None:
+            saved = log_dir / "max-loop.txt"
+            if saved.is_file():
+                max_loop = int(saved.read_text().strip())
 
     return LoopConfig(
         current_branch=current_branch,
@@ -347,7 +366,7 @@ def parse_refactor_suggest_args(
     target = args.target or rc.get("TARGET_BRANCH", "develop")
     max_loop = (
         args.max_loop if args.max_loop is not None
-        else int(rc.get("MAX_LOOP", "0")) or None
+        else _int_from_rc(rc, "MAX_LOOP", "0", parser) or None
     )
     if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")
@@ -357,7 +376,7 @@ def parse_refactor_suggest_args(
         else (
             args.max_subloop
             if args.max_subloop is not None
-            else int(rc.get("MAX_SUBLOOP", "4"))
+            else _int_from_rc(rc, "MAX_SUBLOOP", "4", parser)
         )
     )
 
@@ -380,15 +399,17 @@ def parse_refactor_suggest_args(
     review_loops = (
         args.with_review_loops
         if args.with_review_loops is not None
-        else int(rc.get("REVIEW_LOOPS", "4"))
+        else _int_from_rc(rc, "REVIEW_LOOPS", "4", parser)
     )
+    if review_loops < 1:
+        parser.error("--with-review-loops must be a positive integer")
     if args.with_review_loops is not None:
         with_review = True
     if with_review:
         create_pr = True
 
-    retry_max_wait = int(rc.get("RETRY_MAX_WAIT", "7200"))
-    retry_initial_wait = int(rc.get("RETRY_INITIAL_WAIT", "30"))
+    retry_max_wait = _int_from_rc(rc, "RETRY_MAX_WAIT", "7200", parser)
+    retry_initial_wait = _int_from_rc(rc, "RETRY_INITIAL_WAIT", "30", parser)
     budget_scope_str = rc.get("BUDGET_SCOPE", "module")
 
     prompts_dir = _resolve_prompts_dir(
@@ -410,11 +431,16 @@ def parse_refactor_suggest_args(
     )
     log_dir = git_root / "logs" / "refactor"
 
-    # Restore saved max_loop on resume when -n is not given
-    if args.resume and max_loop is None:
-        saved = log_dir / "max-loop.txt"
-        if saved.is_file():
-            max_loop = int(saved.read_text().strip())
+    # Restore saved values on resume when not explicitly given
+    if args.resume:
+        if args.target is None:
+            saved = log_dir / "target-branch.txt"
+            if saved.is_file():
+                target = saved.read_text().strip()
+        if max_loop is None:
+            saved = log_dir / "max-loop.txt"
+            if saved.is_file():
+                max_loop = int(saved.read_text().strip())
 
     config = LoopConfig(
         current_branch=current_branch,
