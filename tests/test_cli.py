@@ -44,7 +44,8 @@ class TestLoadRcFile:
         mock_run.return_value = MagicMock(
             returncode=0, stdout=str(tmp_path)
         )
-        rc = tmp_path / ".reviewlooprc"
+        (tmp_path / ".review-loop").mkdir()
+        rc = tmp_path / ".review-loop" / ".reviewlooprc"
         rc.write_text(
             "# comment\n"
             "TARGET_BRANCH=main\n"

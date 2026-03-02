@@ -18,6 +18,7 @@ def main() -> None:
         print(
             "Usage: python -m mr_overkill <command>\n\n"
             "Commands:\n"
+            "  init              Initialize .review-loop/ in a project\n"
             "  review-loop       Run AI review-fix loop\n"
             "  refactor-suggest  Run AI refactoring suggestions",
             file=sys.stderr,
@@ -27,7 +28,15 @@ def main() -> None:
     command = sys.argv[1]
     sys.argv = sys.argv[1:]  # Shift so argparse sees correct prog name
 
-    if command == "review-loop":
+    if command == "init":
+        from pathlib import Path
+
+        from mr_overkill.init import init_project
+
+        target = sys.argv[1] if len(sys.argv) > 1 else "."
+        init_project(Path(target).resolve())
+        sys.exit(0)
+    elif command == "review-loop":
         from mr_overkill.cli import parse_review_loop_args
         from mr_overkill.review_loop import run
 

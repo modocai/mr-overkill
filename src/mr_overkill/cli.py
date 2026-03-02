@@ -57,7 +57,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
     if result.returncode != 0:
         return {}
 
-    rc_path = Path(result.stdout.strip()) / rc_name
+    rc_path = Path(result.stdout.strip()) / ".review-loop" / rc_name
     if not rc_path.is_file():
         return {}
 
@@ -247,7 +247,7 @@ def parse_review_loop_args(
     budget_scope_str = rc.get("BUDGET_SCOPE", "module")
 
     prompts_dir = _resolve_prompts_dir(
-        rc.get("PROMPTS_DIR", "prompts/active")
+        rc.get("PROMPTS_DIR", ".review-loop/prompts/active")
     )
 
     current_branch = _detect_current_branch()
@@ -261,7 +261,7 @@ def parse_review_loop_args(
         check=False,
     )
     git_root = Path(result.stdout.strip()) if result.returncode == 0 else Path(".")
-    log_dir = git_root / "logs"
+    log_dir = git_root / ".review-loop" / "logs"
 
     # Restore saved values on resume when not explicitly given
     if args.resume:
@@ -458,7 +458,7 @@ def parse_refactor_suggest_args(
     budget_scope_str = rc.get("BUDGET_SCOPE", "module")
 
     prompts_dir = _resolve_prompts_dir(
-        rc.get("PROMPTS_DIR", "prompts/active")
+        rc.get("PROMPTS_DIR", ".review-loop/prompts/active")
     )
 
     current_branch = _detect_current_branch()
@@ -474,7 +474,7 @@ def parse_refactor_suggest_args(
         Path(result.stdout.strip()) if result.returncode == 0
         else Path(".")
     )
-    log_dir = git_root / "logs" / "refactor"
+    log_dir = git_root / ".review-loop" / "logs" / "refactor"
 
     # Restore saved values on resume when not explicitly given
     if args.resume:
