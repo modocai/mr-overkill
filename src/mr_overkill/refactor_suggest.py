@@ -16,6 +16,7 @@ from pathlib import Path
 from mr_overkill.budget import budget_sufficient
 from mr_overkill.budget.claude import check_token_budget as claude_budget
 from mr_overkill.budget.codex import check_token_budget as codex_budget
+from mr_overkill.git_ops import stash_allowlisted, unstash_allowlisted
 from mr_overkill.loop_engine import ReviewerFn, review_fix_loop
 from mr_overkill.models import (
     BudgetScope,
@@ -105,6 +106,9 @@ def _get_budget_status(tool: str) -> BudgetStatus:
 # ── Branch management ────────────────────────────────────────────────
 
 
+_ALLOWLISTED_FILES = [".gitignore", ".reviewlooprc", ".refactorsuggestrc"]
+
+
 def create_refactor_branch(
     scope: str,
     target_branch: str,
@@ -116,6 +120,13 @@ def create_refactor_branch(
     ts = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
     branch = f"refactor/{scope}-{ts}"
 
+    stashed = False
+    try:
+        stashed = stash_allowlisted(_ALLOWLISTED_FILES)
+    except RuntimeError:
+        logger.error("Failed to stash allowlisted files before branch creation.")
+        return None
+
     result = subprocess.run(
         ["git", "checkout", "-b", branch, target_branch],
         capture_output=True,
@@ -124,7 +135,12 @@ def create_refactor_branch(
     )
     if result.returncode != 0:
         logger.error("Failed to create branch %s: %s", branch, result.stderr)
+        if stashed:
+            unstash_allowlisted()
         return None
+
+    if stashed and not unstash_allowlisted():
+        logger.warning("Failed to restore stashed files. Check 'git stash list'.")
 
     logger.info("Created branch: %s (from %s)", branch, target_branch)
     return branch
@@ -368,12 +384,23 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     # Persist resolved scope for resume
     config.scope = scope
 
+    # Guard: non-dry-run resume requires a refactor/* branch
+    if config.resume and not config.dry_run:
+        if not config.current_branch.startswith("refactor/"):
+            logger.error(
+                "Non-dry-run resume requires a refactor/* branch, got '%s'.",
+                config.current_branch,
+            )
+            return 1
+
     # Create refactor branch (unless dry-run or resume)
     if not config.dry_run and not config.resume:
         branch = create_refactor_branch(scope, config.target_branch)
         if branch is None:
             return 1
         config.current_branch = branch
+        config.skip_initial_no_diff = True
+    elif config.dry_run and not config.resume:
         config.skip_initial_no_diff = True
 
     # Collect source files
