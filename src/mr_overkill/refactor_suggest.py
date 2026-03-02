@@ -469,13 +469,15 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
         FinalStatus.MAX_ITERATIONS_REACHED,
         FinalStatus.ALL_CLEAR,
     }:
-        create_draft_pr(
+        if not create_draft_pr(
             scope=scope,
             target_branch=config.target_branch,
             current_branch=config.current_branch,
             max_loop=config.max_loop,
             final_status=loop_result.final_status,
-        )
+        ):
+            logger.error("Draft PR creation failed")
+            return 1
 
     logger.info("Done. Status: %s", loop_result.final_status)
 
