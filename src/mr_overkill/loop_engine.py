@@ -153,6 +153,22 @@ def review_fix_loop(
     reuse_review = False
 
     if config.resume:
+        # Validate that saved metadata matches the current run
+        saved_branch = (log_dir / "branch.txt").read_text().strip() if (log_dir / "branch.txt").is_file() else None
+        saved_target = (log_dir / "target-branch.txt").read_text().strip() if (log_dir / "target-branch.txt").is_file() else None
+        if saved_branch and saved_branch != config.current_branch:
+            logger.error(
+                "Resume branch mismatch: logs are from '%s' but current branch is '%s'.",
+                saved_branch, config.current_branch,
+            )
+            return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+        if saved_target and saved_target != config.target_branch:
+            logger.error(
+                "Resume target mismatch: logs target '%s' but current target is '%s'.",
+                saved_target, config.target_branch,
+            )
+            return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+
         state = detect_state(log_dir, commit_pattern, cwd=cwd)
         if state.status == "completed":
             resolved_status = FinalStatus(state.prev_status or "max_iterations_reached")
@@ -175,7 +191,8 @@ def review_fix_loop(
             reuse_review,
         )
     else:
-        # Fresh run: save metadata
+        # Fresh run: clear stale iteration artifacts, then save metadata
+        _clean_stale_logs(log_dir)
         _save_metadata(config, cwd)
 
     # ── Main loop ────────────────────────────────────────────────────
@@ -365,6 +382,27 @@ def _no_diff(target: str, current: str, cwd: Path | None) -> bool:
         check=False,
     )
     return result.returncode == 0
+
+
+def _clean_stale_logs(log_dir: Path) -> None:
+    """Remove iteration artifacts from prior runs.
+
+    Mirrors the cleanup in ``bin/review-loop.sh`` so that fresh runs
+    do not mix stale review/fix/summary files into new results.
+    """
+    patterns = [
+        "review-*.json",
+        "fix-*.md",
+        "opinion-*.md",
+        "self-review-*.json",
+        "refix-*.md",
+        "refix-opinion-*.md",
+        "summary.md",
+        "*.stream.jsonl",
+    ]
+    for pat in patterns:
+        for f in log_dir.glob(pat):
+            f.unlink()
 
 
 def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:

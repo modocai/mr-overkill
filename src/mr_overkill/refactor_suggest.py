@@ -23,12 +23,12 @@ from mr_overkill.models import (
     FinalStatus,
     LoopConfig,
 )
-from mr_overkill.retry import retry_codex_cmd
+from mr_overkill.retry import retry_claude_cmd, retry_codex_cmd
 from mr_overkill.review_loop import (
-    _make_fixer,
     _make_self_reviewer,
     _wait_budget,
 )
+from mr_overkill.two_step_fix import claude_two_step_fix
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +248,45 @@ def _make_refactor_reviewer(
     return reviewer
 
 
+# ── Refactor-specific fixer ──────────────────────────────────────────
+
+
+def _make_refactor_fixer(config: LoopConfig):
+    """Create a fixer that uses refactor-specific fix prompts."""
+
+    def _retry_fn(output_path, label, cmd_args, **kw):
+        return retry_claude_cmd(
+            output_path, label, cmd_args,
+            stdin=kw.get("stdin"),
+            max_wait=config.retry_max_wait,
+            initial_wait=config.retry_initial_wait,
+            diagnostic_log=config.diagnostic_log,
+        )
+
+    def _budget_fn(tool, scope, max_wait):
+        return _wait_budget(tool, scope, max_wait, config.retry_max_wait)
+
+    def fixer(review_json, label, **kw):
+        log_dir = config.log_dir
+        return claude_two_step_fix(
+            review_json=review_json,
+            opinion_file=log_dir / f"opinion-{label}.md",
+            fix_file=log_dir / f"fix-{label}.md",
+            label=label,
+            retry_fn=_retry_fn,
+            budget_fn=_budget_fn,
+            prompts_dir=config.prompts_dir,
+            current_branch=config.current_branch,
+            target_branch=config.target_branch,
+            budget_scope=config.budget_scope,
+            budget_max_wait=config.retry_max_wait,
+            opinion_prompt="claude-refactor-fix.prompt.md",
+            execute_prompt="claude-refactor-fix-execute.prompt.md",
+        )
+
+    return fixer
+
+
 # ── Main entry point ─────────────────────────────────────────────────
 
 
@@ -286,7 +325,7 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     loop_result = review_fix_loop(
         config,
         reviewer=_make_refactor_reviewer(config, scope),
-        fixer=_make_fixer(config),
+        fixer=_make_refactor_fixer(config),
         self_reviewer=(
             _make_self_reviewer(config)
             if config.max_subloop > 0
