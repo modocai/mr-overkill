@@ -210,6 +210,16 @@ def _make_refactor_reviewer(
     """Create a reviewer that uses scope-specific Codex prompt."""
 
     def reviewer(output_path: Path, iteration: int) -> bool:
+        # Refresh source file list each iteration
+        source_files_path = config.log_dir / "source-files.txt"
+        result = subprocess.run(
+            ["git", "ls-files"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        source_files_path.write_text(result.stdout)
+
         prompt_file = config.prompts_dir / f"codex-refactor-{scope}.prompt.md"
         if not prompt_file.is_file():
             logger.error("Prompt not found: %s", prompt_file)
@@ -322,12 +332,13 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     count = len(result.stdout.strip().splitlines())
     logger.info("Collected %d source files.", count)
 
+    refactor_fixer = _make_refactor_fixer(config)
     loop_result = review_fix_loop(
         config,
         reviewer=_make_refactor_reviewer(config, scope),
-        fixer=_make_refactor_fixer(config),
+        fixer=refactor_fixer,
         self_reviewer=(
-            _make_self_reviewer(config)
+            _make_self_reviewer(config, fixer=refactor_fixer)
             if config.max_subloop > 0
             else None
         ),

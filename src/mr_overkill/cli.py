@@ -340,7 +340,12 @@ def parse_refactor_suggest_args(
     # Resolve values: CLI > rc > defaults
     scope = args.scope or rc.get("SCOPE", "auto")
     target = args.target or rc.get("TARGET_BRANCH", "develop")
-    max_loop = args.max_loop or int(rc.get("MAX_LOOP", "1")) or 1
+    max_loop = (
+        args.max_loop if args.max_loop is not None
+        else int(rc.get("MAX_LOOP", "1")) or 1
+    )
+    if max_loop < 1:
+        parser.error("--max-loop must be a positive integer")
 
     max_subloop = (
         0 if args.no_self_review

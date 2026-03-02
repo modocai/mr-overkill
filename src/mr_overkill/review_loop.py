@@ -163,6 +163,7 @@ def _make_fixer(
 
 def _make_self_reviewer(
     config: LoopConfig,
+    fixer: Callable[..., bool] | None = None,
 ) -> Callable[..., str]:
     """Create a SelfReviewFn wrapping self_review_subloop."""
     retry_fn = _make_retry_fn(config)
@@ -172,7 +173,8 @@ def _make_self_reviewer(
     ) -> bool:
         return _wait_budget(tool, scope, max_wait, config.retry_max_wait)
 
-    fixer = _make_fixer(config)
+    if fixer is None:
+        fixer = _make_fixer(config)
 
     def self_reviewer(
         pre_fix_snapshot: list[WorktreeSnapshot],

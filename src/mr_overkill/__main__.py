@@ -41,7 +41,7 @@ def main() -> None:
         exit_code = refactor_run(
             config, config.scope or "auto", create_pr=extra.create_pr,
         )
-        if extra.with_review and exit_code == 0:
+        if extra.with_review and exit_code == 0 and not config.dry_run:
             from mr_overkill.cli import parse_review_loop_args
             from mr_overkill.review_loop import run as review_run
 
