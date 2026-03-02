@@ -18,6 +18,7 @@ from typing import Protocol
 from mr_overkill.git_ops import (
     commit_and_push,
     diff_hash,
+    git_all_dirty,
     resume_reset_worktree,
     snapshot_worktree,
     stash_allowlisted,
@@ -222,6 +223,26 @@ def review_fix_loop(
         )
         return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
 
+    # ── Validate target branch ────────────────────────────────────
+    if not _validate_target_branch(config.target_branch, cwd):
+        logger.error("Target branch '%s' does not exist.", config.target_branch)
+        return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+
+    # ── Clean working tree check ────────────────────────────────────
+    # Reject non-allowlisted dirty files in non-dry-run mode to prevent
+    # user WIP from being mixed into AI auto-fix commits.
+    if not config.dry_run:
+        non_allowed = _reject_dirty_worktree(cwd)
+        if non_allowed:
+            logger.error(
+                "Working tree is not clean. Commit or stash your changes "
+                "before running review-loop.\n  Dirty files: %s",
+                ", ".join(non_allowed),
+            )
+            return LoopResult(
+                final_status=FinalStatus.REVIEW_FAILED, iterations_run=0,
+            )
+
     # ── Main loop ────────────────────────────────────────────────────
     final_status = FinalStatus.MAX_ITERATIONS_REACHED
     iterations_run = 0
@@ -408,6 +429,23 @@ def review_fix_loop(
 
 
 # ── Private helpers ──────────────────────────────────────────────────
+
+
+def _validate_target_branch(target: str, cwd: Path | None) -> bool:
+    """Return True if *target* is a valid git ref."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", target],
+        cwd=cwd,
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _reject_dirty_worktree(cwd: Path | None) -> list[str]:
+    """Return non-allowlisted dirty files, or empty list if clean."""
+    allowlisted = {".gitignore", ".reviewlooprc", ".refactorsuggestrc"}
+    return [f for f in git_all_dirty(cwd) if f not in allowlisted]
 
 
 def _no_diff(target: str, current: str, cwd: Path | None) -> bool:

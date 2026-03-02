@@ -27,12 +27,16 @@ def _mock_reviewer(reviews: list[dict[str, object]]) -> MagicMock:
 
 
 class TestLoopEngineAllClear:
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
     @patch("mr_overkill.loop_engine._no_diff", return_value=False)
     @patch("mr_overkill.loop_engine._save_metadata")
     def test_all_clear_first_iteration(
         self,
         mock_save: MagicMock,
         mock_diff: MagicMock,
+        mock_validate: MagicMock,
+        mock_dirty: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
@@ -52,12 +56,14 @@ class TestLoopEngineAllClear:
 
 
 class TestLoopEngineDryRun:
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
     @patch("mr_overkill.loop_engine._no_diff", return_value=False)
     @patch("mr_overkill.loop_engine._save_metadata")
     def test_dry_run_skips_fixes(
         self,
         mock_save: MagicMock,
         mock_diff: MagicMock,
+        mock_validate: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
@@ -76,12 +82,16 @@ class TestLoopEngineDryRun:
 
 
 class TestLoopEngineNoDiff:
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
     @patch("mr_overkill.loop_engine._no_diff", return_value=True)
     @patch("mr_overkill.loop_engine._save_metadata")
     def test_no_diff_exits(
         self,
         mock_save: MagicMock,
         mock_diff: MagicMock,
+        mock_validate: MagicMock,
+        mock_dirty: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
@@ -96,12 +106,16 @@ class TestLoopEngineNoDiff:
 
 
 class TestLoopEngineReviewFailure:
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
     @patch("mr_overkill.loop_engine._no_diff", return_value=False)
     @patch("mr_overkill.loop_engine._save_metadata")
     def test_reviewer_failure(
         self,
         mock_save: MagicMock,
         mock_diff: MagicMock,
+        mock_validate: MagicMock,
+        mock_dirty: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
@@ -115,6 +129,8 @@ class TestLoopEngineReviewFailure:
 
 
 class TestLoopEngineFixFlow:
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
     @patch("mr_overkill.loop_engine.commit_and_push", return_value=True)
     @patch("mr_overkill.loop_engine.unstash_allowlisted", return_value=True)
     @patch("mr_overkill.loop_engine.stash_allowlisted", return_value=False)
@@ -129,6 +145,8 @@ class TestLoopEngineFixFlow:
         mock_stash: MagicMock,
         mock_unstash: MagicMock,
         mock_commit: MagicMock,
+        mock_validate: MagicMock,
+        mock_dirty: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
@@ -154,6 +172,8 @@ class TestLoopEngineFixFlow:
         assert fixer.call_count == 1
         mock_commit.assert_called_once()
 
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
     @patch("mr_overkill.loop_engine.unstash_allowlisted", return_value=True)
     @patch("mr_overkill.loop_engine.stash_allowlisted", return_value=False)
     @patch("mr_overkill.loop_engine.snapshot_worktree", return_value=[])
@@ -166,6 +186,8 @@ class TestLoopEngineFixFlow:
         mock_snap: MagicMock,
         mock_stash: MagicMock,
         mock_unstash: MagicMock,
+        mock_validate: MagicMock,
+        mock_dirty: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
@@ -183,6 +205,8 @@ class TestLoopEngineFixFlow:
 
 
 class TestLoopEngineMaxIterations:
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
     @patch("mr_overkill.loop_engine.commit_and_push", return_value=True)
     @patch("mr_overkill.loop_engine.unstash_allowlisted", return_value=True)
     @patch("mr_overkill.loop_engine.stash_allowlisted", return_value=False)
@@ -197,6 +221,8 @@ class TestLoopEngineMaxIterations:
         mock_stash: MagicMock,
         mock_unstash: MagicMock,
         mock_commit: MagicMock,
+        mock_validate: MagicMock,
+        mock_dirty: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
@@ -216,6 +242,8 @@ class TestLoopEngineMaxIterations:
 
 
 class TestLoopEngineAutoCommitDisabled:
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
     @patch("mr_overkill.loop_engine.unstash_allowlisted", return_value=True)
     @patch("mr_overkill.loop_engine.stash_allowlisted", return_value=False)
     @patch("mr_overkill.loop_engine.snapshot_worktree", return_value=[])
@@ -228,6 +256,8 @@ class TestLoopEngineAutoCommitDisabled:
         mock_snap: MagicMock,
         mock_stash: MagicMock,
         mock_unstash: MagicMock,
+        mock_validate: MagicMock,
+        mock_dirty: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
@@ -290,6 +320,8 @@ class TestLoopEngineResume:
 
 
 class TestLoopEngineSelfReview:
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
     @patch("mr_overkill.loop_engine.commit_and_push", return_value=True)
     @patch("mr_overkill.loop_engine.unstash_allowlisted", return_value=True)
     @patch("mr_overkill.loop_engine.stash_allowlisted", return_value=False)
@@ -304,6 +336,8 @@ class TestLoopEngineSelfReview:
         mock_stash: MagicMock,
         mock_unstash: MagicMock,
         mock_commit: MagicMock,
+        mock_validate: MagicMock,
+        mock_dirty: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
@@ -337,12 +371,14 @@ class TestLoopEngineSelfReview:
 
 
 class TestLoopEngineSummary:
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
     @patch("mr_overkill.loop_engine._no_diff", return_value=False)
     @patch("mr_overkill.loop_engine._save_metadata")
     def test_summary_generated(
         self,
         mock_save: MagicMock,
         mock_diff: MagicMock,
+        mock_validate: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:

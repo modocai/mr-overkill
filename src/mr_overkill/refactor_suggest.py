@@ -196,18 +196,23 @@ def create_draft_pr(
         f"- **Final status**: {final_status}"
     )
 
-    result = subprocess.run(
-        [
-            "gh", "pr", "create", "--draft",
-            "--title",
-            f"refactor({scope}): AI-suggested {scope}-level improvements",
-            "--body", body,
-            "--base", target_branch,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "gh", "pr", "create", "--draft",
+                "--title",
+                f"refactor({scope}): AI-suggested {scope}-level improvements",
+                "--body", body,
+                "--base", target_branch,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        logger.warning("gh CLI not found — skipping draft PR creation.")
+        return False
+
     if result.returncode == 0:
         logger.info("Draft PR created.")
         return True
