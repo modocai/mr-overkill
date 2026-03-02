@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from mr_overkill.models import BudgetScope, LoopConfig
@@ -228,6 +229,186 @@ def parse_review_loop_args(
         prompts_dir=prompts_dir,
         pr_number=pr_number,
     )
+
+
+def parse_refactor_suggest_args(
+    argv: list[str] | None = None,
+) -> tuple[LoopConfig, _RefactorExtra]:
+    """Parse refactor-suggest CLI arguments.
+
+    Returns a (LoopConfig, _RefactorExtra) tuple.  The extra struct
+    carries refactor-specific flags that don't belong in LoopConfig.
+    """
+    parser = argparse.ArgumentParser(
+        prog="refactor-suggest",
+        description="AI-powered refactoring suggestions",
+    )
+    parser.add_argument(
+        "--scope",
+        default=None,
+        choices=["auto", "micro", "module", "layer", "full"],
+        help="Refactoring scope (default: auto)",
+    )
+    parser.add_argument(
+        "-t", "--target",
+        default=None,
+        help="Target branch (default: develop)",
+    )
+    parser.add_argument(
+        "-n", "--max-loop",
+        type=int,
+        default=None,
+        help="Maximum analysis-fix iterations (default: 1)",
+    )
+    parser.add_argument(
+        "--max-subloop",
+        type=int,
+        default=None,
+        help="Maximum self-review sub-iterations (default: 4)",
+    )
+    parser.add_argument(
+        "--no-self-review",
+        action="store_true",
+        help="Disable self-review",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=None,
+        help="Run analysis only, do not fix",
+    )
+    parser.add_argument(
+        "--no-dry-run",
+        action="store_true",
+        help="Force fixes",
+    )
+    parser.add_argument(
+        "--create-pr",
+        action="store_true",
+        default=None,
+        help="Create a draft PR after completing iterations",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from a previously interrupted run",
+    )
+    parser.add_argument(
+        "--diagnostic-log",
+        action="store_true",
+        help="Save full event stream to sidecar files",
+    )
+    parser.add_argument(
+        "--with-review",
+        action="store_true",
+        default=None,
+        help="Run review-loop after PR creation",
+    )
+    parser.add_argument(
+        "--with-review-loops",
+        type=int,
+        default=None,
+        help="Review-loop iterations (implies --with-review)",
+    )
+
+    args = parser.parse_args(argv)
+
+    # Load rc file defaults
+    rc = _load_rc_file(".refactorsuggestrc")
+
+    # Resolve values: CLI > rc > defaults
+    scope = args.scope or rc.get("SCOPE", "auto")
+    target = args.target or rc.get("TARGET_BRANCH", "develop")
+    max_loop = args.max_loop or int(rc.get("MAX_LOOP", "1")) or 1
+
+    max_subloop = (
+        0 if args.no_self_review
+        else (
+            args.max_subloop
+            if args.max_subloop is not None
+            else int(rc.get("MAX_SUBLOOP", "4"))
+        )
+    )
+
+    dry_run = _resolve_bool(
+        args.dry_run, args.no_dry_run, rc.get("DRY_RUN"), False
+    )
+    create_pr = _resolve_bool(
+        args.create_pr, False, rc.get("CREATE_PR"), False
+    )
+    diagnostic_log = args.diagnostic_log or rc.get(
+        "DIAGNOSTIC_LOG", "false"
+    ) == "true"
+
+    with_review = _resolve_bool(
+        args.with_review, False, rc.get("WITH_REVIEW"), False
+    )
+    review_loops = (
+        args.with_review_loops
+        if args.with_review_loops is not None
+        else int(rc.get("REVIEW_LOOPS", "4"))
+    )
+    if args.with_review_loops is not None:
+        with_review = True
+    if with_review:
+        create_pr = True
+
+    retry_max_wait = int(rc.get("RETRY_MAX_WAIT", "7200"))
+    retry_initial_wait = int(rc.get("RETRY_INITIAL_WAIT", "30"))
+    budget_scope_str = rc.get("BUDGET_SCOPE", "module")
+
+    prompts_dir = _resolve_prompts_dir(
+        rc.get("PROMPTS_DIR", "prompts/active")
+    )
+
+    current_branch = _detect_current_branch()
+
+    # Log directory
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    git_root = (
+        Path(result.stdout.strip()) if result.returncode == 0
+        else Path(".")
+    )
+    log_dir = git_root / "logs" / "refactor"
+
+    config = LoopConfig(
+        current_branch=current_branch,
+        target_branch=target,
+        max_loop=max_loop,
+        max_subloop=max_subloop,
+        dry_run=dry_run,
+        auto_commit=True,
+        resume=args.resume,
+        retry_max_wait=retry_max_wait,
+        retry_initial_wait=retry_initial_wait,
+        budget_scope=BudgetScope(budget_scope_str),
+        diagnostic_log=diagnostic_log,
+        log_dir=log_dir,
+        prompts_dir=prompts_dir,
+        scope=scope,
+    )
+
+    extra = _RefactorExtra(
+        create_pr=create_pr,
+        with_review=with_review,
+        review_loops=review_loops,
+    )
+
+    return config, extra
+
+
+@dataclass
+class _RefactorExtra:
+    """Refactor-suggest flags outside LoopConfig."""
+
+    create_pr: bool = False
+    with_review: bool = False
+    review_loops: int = 4
 
 
 def _resolve_bool(

@@ -10,6 +10,7 @@ import pytest
 from mr_overkill.cli import (
     _load_rc_file,
     _resolve_bool,
+    parse_refactor_suggest_args,
     parse_review_loop_args,
 )
 
@@ -193,3 +194,132 @@ class TestParseReviewLoopArgs:
         )
         config = parse_review_loop_args(["-n", "1", "--no-dry-run"])
         assert config.dry_run is False
+
+
+class TestParseRefactorSuggestArgs:
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_defaults(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config, extra = parse_refactor_suggest_args([])
+        assert config.scope == "auto"
+        assert config.target_branch == "develop"
+        assert config.max_loop == 1
+        assert extra.create_pr is False
+        assert extra.with_review is False
+
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_scope_and_loops(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config, _extra = parse_refactor_suggest_args([
+            "--scope", "module", "-n", "3", "-t", "main",
+        ])
+        assert config.scope == "module"
+        assert config.max_loop == 3
+        assert config.target_branch == "main"
+
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_with_review_implies_create_pr(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        _config, extra = parse_refactor_suggest_args(["--with-review"])
+        assert extra.with_review is True
+        assert extra.create_pr is True
+
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_with_review_loops(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        _config, extra = parse_refactor_suggest_args([
+            "--with-review-loops", "6",
+        ])
+        assert extra.with_review is True
+        assert extra.review_loops == 6
+
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_dry_run_and_create_pr(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config, extra = parse_refactor_suggest_args([
+            "--dry-run", "--create-pr",
+        ])
+        assert config.dry_run is True
+        assert extra.create_pr is True
+
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch(
+        "mr_overkill.cli._load_rc_file",
+        return_value={"SCOPE": "micro", "CREATE_PR": "true"},
+    )
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_rc_file_defaults(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config, extra = parse_refactor_suggest_args([])
+        assert config.scope == "micro"
+        assert extra.create_pr is True
+
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch(
+        "mr_overkill.cli._load_rc_file",
+        return_value={"SCOPE": "micro"},
+    )
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_cli_overrides_rc(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config, _extra = parse_refactor_suggest_args(["--scope", "module"])
+        assert config.scope == "module"

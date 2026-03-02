@@ -27,8 +27,13 @@ def main() -> None:
         config = parse_review_loop_args()
         sys.exit(run(config))
     elif command == "refactor-suggest":
-        print("refactor-suggest: not yet implemented", file=sys.stderr)
-        sys.exit(1)
+        from mr_overkill.cli import parse_refactor_suggest_args
+        from mr_overkill.refactor_suggest import run as refactor_run
+
+        config, extra = parse_refactor_suggest_args()
+        sys.exit(refactor_run(
+            config, config.scope or "auto", create_pr=extra.create_pr,
+        ))
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
         sys.exit(1)

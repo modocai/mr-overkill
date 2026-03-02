@@ -8,7 +8,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mr-overkill = "mr_overkill.cli:main"
+mr-overkill = "mr_overkill.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
