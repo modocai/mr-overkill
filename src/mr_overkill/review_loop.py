@@ -6,6 +6,7 @@ delegating the actual loop to :func:`loop_engine.review_fix_loop`.
 
 from __future__ import annotations
 
+import json
 import logging
 import string
 from collections.abc import Callable
@@ -201,6 +202,7 @@ def _make_self_reviewer(
             current_branch=config.current_branch,
             target_branch=config.target_branch,
             budget_scope=config.budget_scope,
+            original_review_json=json.loads(review_json_str),
         )
 
     return self_reviewer

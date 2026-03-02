@@ -320,13 +320,8 @@ def _make_refactor_fixer(config: LoopConfig):
 
 def _make_plan_confirm(scope: str):
     """Return a confirmation callback for layer/full refactor plans."""
-    _confirmed = False
 
     def _confirm(review_data: dict[str, object]) -> bool:
-        nonlocal _confirmed
-        if _confirmed:
-            return True
-
         plan = review_data.get("refactoring_plan")
         if isinstance(plan, dict):
             print()
@@ -350,10 +345,7 @@ def _make_plan_confirm(scope: str):
         except (EOFError, KeyboardInterrupt):
             return False
 
-        if answer != "y":
-            return False
-        _confirmed = True
-        return True
+        return answer == "y"
 
     return _confirm
 
