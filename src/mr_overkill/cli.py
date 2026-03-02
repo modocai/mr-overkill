@@ -252,6 +252,12 @@ def parse_review_loop_args(
             if saved.is_file():
                 max_loop = int(saved.read_text().strip())
 
+    if args.resume and max_loop is None:
+        parser.error(
+            "Cannot determine max_loop for resume: logs/max-loop.txt is missing. "
+            "Please provide -n / --max-loop explicitly."
+        )
+
     return LoopConfig(
         current_branch=current_branch,
         target_branch=target,
@@ -453,6 +459,12 @@ def parse_refactor_suggest_args(
             saved = log_dir / "scope.txt"
             if saved.is_file():
                 scope = saved.read_text().strip()
+
+    if args.resume and max_loop is None:
+        parser.error(
+            "Cannot determine max_loop for resume: logs/max-loop.txt is missing. "
+            "Please provide -n / --max-loop explicitly."
+        )
 
     config = LoopConfig(
         current_branch=current_branch,

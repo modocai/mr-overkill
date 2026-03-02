@@ -404,9 +404,10 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
         if branch is None:
             return 1
         config.current_branch = branch
-        config.skip_initial_no_diff = True
-    elif config.dry_run and not config.resume:
-        config.skip_initial_no_diff = True
+
+    # First iteration may have no diff (branch just created, or resume before
+    # first commit).  Skip the no-diff early-exit in that case.
+    config.skip_initial_no_diff = True
 
     # Collect source files
     config.log_dir.mkdir(parents=True, exist_ok=True)

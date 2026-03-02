@@ -356,7 +356,12 @@ def review_fix_loop(
 
         # h. Fix
         review_json_str = json.dumps(review_data)
-        if not fixer(review_json_str, f"fix-{i}"):
+        try:
+            fix_ok = fixer(review_json_str, f"fix-{i}")
+        except Exception:
+            logger.exception("Fixer raised an unexpected exception.")
+            fix_ok = False
+        if not fix_ok:
             final_status = FinalStatus.CLAUDE_ERROR
             _unstash_safe(allowed_stashed, cwd)
             allowed_stashed = False
