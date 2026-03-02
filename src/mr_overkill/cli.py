@@ -123,6 +123,20 @@ def _int_from_rc(
         parser.error(f"invalid integer for {key} in rc file: {raw!r}")
 
 
+def _parse_budget_scope(
+    raw: str,
+    parser: argparse.ArgumentParser,
+) -> BudgetScope:
+    """Convert a string to BudgetScope, raising a clean CLI error on bad values."""
+    try:
+        return BudgetScope(raw)
+    except ValueError:
+        parser.error(
+            f"BUDGET_SCOPE must be one of: "
+            f"{', '.join(e.value for e in BudgetScope)}. Got {raw!r}"
+        )
+
+
 def parse_review_loop_args(
     argv: list[str] | None = None,
 ) -> LoopConfig:
@@ -222,6 +236,10 @@ def parse_review_loop_args(
 
     retry_max_wait = _int_from_rc(rc, "RETRY_MAX_WAIT", "7200", parser)
     retry_initial_wait = _int_from_rc(rc, "RETRY_INITIAL_WAIT", "30", parser)
+    if retry_max_wait < 1:
+        parser.error("RETRY_MAX_WAIT must be a positive integer")
+    if retry_initial_wait < 1:
+        parser.error("RETRY_INITIAL_WAIT must be a positive integer")
     budget_scope_str = rc.get("BUDGET_SCOPE", "module")
 
     prompts_dir = _resolve_prompts_dir(
@@ -268,7 +286,7 @@ def parse_review_loop_args(
         resume=args.resume,
         retry_max_wait=retry_max_wait,
         retry_initial_wait=retry_initial_wait,
-        budget_scope=BudgetScope(budget_scope_str),
+        budget_scope=_parse_budget_scope(budget_scope_str, parser),
         diagnostic_log=diagnostic_log,
         log_dir=log_dir,
         prompts_dir=prompts_dir,
@@ -424,6 +442,10 @@ def parse_refactor_suggest_args(
 
     retry_max_wait = _int_from_rc(rc, "RETRY_MAX_WAIT", "7200", parser)
     retry_initial_wait = _int_from_rc(rc, "RETRY_INITIAL_WAIT", "30", parser)
+    if retry_max_wait < 1:
+        parser.error("RETRY_MAX_WAIT must be a positive integer")
+    if retry_initial_wait < 1:
+        parser.error("RETRY_INITIAL_WAIT must be a positive integer")
     budget_scope_str = rc.get("BUDGET_SCOPE", "module")
 
     prompts_dir = _resolve_prompts_dir(
@@ -466,6 +488,13 @@ def parse_refactor_suggest_args(
             "Please provide -n / --max-loop explicitly."
         )
 
+    _valid_scopes = {"auto", "micro", "module", "layer", "full"}
+    if scope not in _valid_scopes:
+        parser.error(
+            f"SCOPE must be one of: {', '.join(sorted(_valid_scopes))}. "
+            f"Got {scope!r}"
+        )
+
     config = LoopConfig(
         current_branch=current_branch,
         target_branch=target,
@@ -477,7 +506,7 @@ def parse_refactor_suggest_args(
         auto_approve=auto_approve,
         retry_max_wait=retry_max_wait,
         retry_initial_wait=retry_initial_wait,
-        budget_scope=BudgetScope(budget_scope_str),
+        budget_scope=_parse_budget_scope(budget_scope_str, parser),
         diagnostic_log=diagnostic_log,
         log_dir=log_dir,
         prompts_dir=prompts_dir,
