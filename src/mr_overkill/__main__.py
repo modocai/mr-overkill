@@ -31,9 +31,12 @@ def main() -> None:
         from mr_overkill.refactor_suggest import run as refactor_run
 
         config, extra = parse_refactor_suggest_args()
-        sys.exit(refactor_run(
+        exit_code = refactor_run(
             config, config.scope or "auto", create_pr=extra.create_pr,
-        ))
+        )
+        # TODO: wire extra.with_review / extra.review_loops to chain
+        # a review-loop run after PR creation (needs review_loop.run).
+        sys.exit(exit_code)
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
         sys.exit(1)

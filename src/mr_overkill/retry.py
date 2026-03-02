@@ -232,7 +232,10 @@ def retry_codex_cmd(
 ) -> bool:
     """Retry a Codex CLI command with exponential backoff.
 
-    Codex takes prompt as argument (no stdin). Captures stderr only.
+    Codex writes its primary output via the ``-o <file>`` flag, so stdout
+    is intentionally not captured here.  Only stderr is saved for error
+    classification and retry decisions.
+
     Returns True on success, False on permanent/unknown error or timeout.
     """
     wait = initial_wait

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
+from mr_overkill.models import LoopConfig
 
 
 @pytest.fixture()
@@ -50,6 +53,37 @@ def tmp_git_repo(tmp_path: Path) -> Path:
         capture_output=True,
     )
     return tmp_path
+
+
+@pytest.fixture()
+def make_loop_config(
+    tmp_path: Path,
+) -> Callable[..., LoopConfig]:
+    """Factory fixture that creates a LoopConfig with sensible test defaults.
+
+    Usage::
+
+        def test_something(make_loop_config):
+            config = make_loop_config(max_loop=3)
+    """
+
+    def _factory(**overrides: object) -> LoopConfig:
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(exist_ok=True)
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir(exist_ok=True)
+        defaults: dict[str, object] = {
+            "current_branch": "feat/test",
+            "target_branch": "develop",
+            "max_loop": 1,
+            "max_subloop": 0,
+            "log_dir": log_dir,
+            "prompts_dir": prompts_dir,
+        }
+        defaults.update(overrides)
+        return LoopConfig(**defaults)  # type: ignore[arg-type]
+
+    return _factory
 
 
 @pytest.fixture()

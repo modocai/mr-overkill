@@ -3,25 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from mr_overkill.loop_engine import review_fix_loop
 from mr_overkill.models import FinalStatus, LoopConfig
-
-
-def _make_config(tmp_path: Path, **overrides: object) -> LoopConfig:
-    """Create a LoopConfig with sensible test defaults."""
-    log_dir = tmp_path / "logs"
-    log_dir.mkdir(exist_ok=True)
-    defaults = {
-        "current_branch": "feat/test",
-        "target_branch": "develop",
-        "max_loop": 3,
-        "log_dir": log_dir,
-    }
-    defaults.update(overrides)
-    return LoopConfig(**defaults)  # type: ignore[arg-type]
 
 
 def _mock_reviewer(reviews: list[dict[str, object]]) -> MagicMock:
@@ -43,9 +30,13 @@ class TestLoopEngineAllClear:
     @patch("mr_overkill.loop_engine._no_diff", return_value=False)
     @patch("mr_overkill.loop_engine._save_metadata")
     def test_all_clear_first_iteration(
-        self, mock_save: MagicMock, mock_diff: MagicMock, tmp_path: Path
+        self,
+        mock_save: MagicMock,
+        mock_diff: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
-        config = _make_config(tmp_path)
+        config = make_loop_config()
         review = {
             "findings": [],
             "overall_correctness": "patch is correct",
@@ -64,9 +55,13 @@ class TestLoopEngineDryRun:
     @patch("mr_overkill.loop_engine._no_diff", return_value=False)
     @patch("mr_overkill.loop_engine._save_metadata")
     def test_dry_run_skips_fixes(
-        self, mock_save: MagicMock, mock_diff: MagicMock, tmp_path: Path
+        self,
+        mock_save: MagicMock,
+        mock_diff: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
-        config = _make_config(tmp_path, dry_run=True)
+        config = make_loop_config(dry_run=True)
         review = {
             "findings": [{"title": "Bug"}],
             "overall_correctness": "patch is incorrect",
@@ -84,9 +79,13 @@ class TestLoopEngineNoDiff:
     @patch("mr_overkill.loop_engine._no_diff", return_value=True)
     @patch("mr_overkill.loop_engine._save_metadata")
     def test_no_diff_exits(
-        self, mock_save: MagicMock, mock_diff: MagicMock, tmp_path: Path
+        self,
+        mock_save: MagicMock,
+        mock_diff: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
-        config = _make_config(tmp_path)
+        config = make_loop_config()
         reviewer = MagicMock()
         fixer = MagicMock()
 
@@ -100,9 +99,13 @@ class TestLoopEngineReviewFailure:
     @patch("mr_overkill.loop_engine._no_diff", return_value=False)
     @patch("mr_overkill.loop_engine._save_metadata")
     def test_reviewer_failure(
-        self, mock_save: MagicMock, mock_diff: MagicMock, tmp_path: Path
+        self,
+        mock_save: MagicMock,
+        mock_diff: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
-        config = _make_config(tmp_path)
+        config = make_loop_config()
         reviewer = MagicMock(return_value=False)
         fixer = MagicMock()
 
@@ -127,9 +130,10 @@ class TestLoopEngineFixFlow:
         mock_unstash: MagicMock,
         mock_commit: MagicMock,
         tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         """Iteration 1: findings + fix, Iteration 2: all clear."""
-        config = _make_config(tmp_path)
+        config = make_loop_config(max_loop=3)
 
         reviews = [
             {
@@ -163,8 +167,9 @@ class TestLoopEngineFixFlow:
         mock_stash: MagicMock,
         mock_unstash: MagicMock,
         tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
-        config = _make_config(tmp_path)
+        config = make_loop_config()
         review = {
             "findings": [{"title": "Bug"}],
             "overall_correctness": "patch is incorrect",
@@ -193,8 +198,9 @@ class TestLoopEngineMaxIterations:
         mock_unstash: MagicMock,
         mock_commit: MagicMock,
         tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
-        config = _make_config(tmp_path, max_loop=2)
+        config = make_loop_config(max_loop=2)
         review = {
             "findings": [{"title": "Bug"}],
             "overall_correctness": "patch is incorrect",
@@ -223,8 +229,9 @@ class TestLoopEngineAutoCommitDisabled:
         mock_stash: MagicMock,
         mock_unstash: MagicMock,
         tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
-        config = _make_config(tmp_path, auto_commit=False, max_loop=3)
+        config = make_loop_config(auto_commit=False, max_loop=3)
         review = {
             "findings": [{"title": "Bug"}],
             "overall_correctness": "patch is incorrect",
@@ -240,8 +247,13 @@ class TestLoopEngineAutoCommitDisabled:
 
 class TestLoopEngineResume:
     @patch("mr_overkill.loop_engine._no_diff", return_value=False)
-    def test_resume_completed(self, mock_diff: MagicMock, tmp_path: Path) -> None:
-        config = _make_config(tmp_path, resume=True)
+    def test_resume_completed(
+        self,
+        mock_diff: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        config = make_loop_config(resume=True)
         log_dir = config.log_dir
 
         # Write summary indicating completed run
@@ -259,8 +271,13 @@ class TestLoopEngineResume:
         reviewer.assert_not_called()
 
     @patch("mr_overkill.loop_engine._no_diff", return_value=False)
-    def test_resume_no_logs(self, mock_diff: MagicMock, tmp_path: Path) -> None:
-        config = _make_config(tmp_path, resume=True)
+    def test_resume_no_logs(
+        self,
+        mock_diff: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        config = make_loop_config(resume=True)
         # Log dir exists but no review files
 
         reviewer = MagicMock()
@@ -288,10 +305,11 @@ class TestLoopEngineSelfReview:
         mock_unstash: MagicMock,
         mock_commit: MagicMock,
         tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         # First iteration: findings, second: all clear
         mock_diff.side_effect = [False, False]
-        config = _make_config(tmp_path, max_subloop=4)
+        config = make_loop_config(max_loop=3, max_subloop=4)
         reviews = [
             {
                 "findings": [{"title": "Bug"}],
@@ -322,9 +340,13 @@ class TestLoopEngineSummary:
     @patch("mr_overkill.loop_engine._no_diff", return_value=False)
     @patch("mr_overkill.loop_engine._save_metadata")
     def test_summary_generated(
-        self, mock_save: MagicMock, mock_diff: MagicMock, tmp_path: Path
+        self,
+        mock_save: MagicMock,
+        mock_diff: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
-        config = _make_config(tmp_path, dry_run=True)
+        config = make_loop_config(dry_run=True)
         review = {
             "findings": [{"title": "Bug"}],
             "overall_correctness": "patch is incorrect",
@@ -344,12 +366,16 @@ class TestLoopEngineMetadata:
     @patch("mr_overkill.loop_engine._no_diff", return_value=True)
     @patch("mr_overkill.loop_engine.subprocess.run")
     def test_metadata_saved(
-        self, mock_run: MagicMock, mock_diff: MagicMock, tmp_path: Path
+        self,
+        mock_run: MagicMock,
+        mock_diff: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         mock_run.return_value = MagicMock(
             returncode=0, stdout="abc123\n", stderr=""
         )
-        config = _make_config(tmp_path)
+        config = make_loop_config(max_loop=3)
         reviewer = MagicMock()
         fixer = MagicMock()
 

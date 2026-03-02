@@ -16,13 +16,14 @@ from pathlib import Path
 from mr_overkill.budget import budget_sufficient
 from mr_overkill.budget.claude import check_token_budget as claude_budget
 from mr_overkill.budget.codex import check_token_budget as codex_budget
-from mr_overkill.loop_engine import review_fix_loop
+from mr_overkill.loop_engine import ReviewerFn, review_fix_loop
 from mr_overkill.models import (
     BudgetScope,
     BudgetStatus,
     FinalStatus,
     LoopConfig,
 )
+from mr_overkill.retry import retry_codex_cmd
 from mr_overkill.review_loop import (
     _make_fixer,
     _make_self_reviewer,
@@ -205,7 +206,7 @@ def create_draft_pr(
 def _make_refactor_reviewer(
     config: LoopConfig,
     scope: str,
-) -> object:
+) -> ReviewerFn:
     """Create a reviewer that uses scope-specific Codex prompt."""
 
     def reviewer(output_path: Path, iteration: int) -> bool:
@@ -231,8 +232,6 @@ def _make_refactor_reviewer(
                 "Codex budget timeout (iteration %d).", iteration
             )
             return False
-
-        from mr_overkill.retry import retry_codex_cmd
 
         stderr_path = output_path.with_suffix(".stderr")
         return retry_codex_cmd(
@@ -268,7 +267,7 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
 
     loop_result = review_fix_loop(
         config,
-        reviewer=_make_refactor_reviewer(config, scope),  # type: ignore[arg-type]
+        reviewer=_make_refactor_reviewer(config, scope),
         fixer=_make_fixer(config),
         self_reviewer=(
             _make_self_reviewer(config)

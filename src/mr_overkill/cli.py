@@ -231,6 +231,15 @@ def parse_review_loop_args(
     )
 
 
+@dataclass
+class _RefactorExtra:
+    """Refactor-suggest flags outside LoopConfig."""
+
+    create_pr: bool = False
+    with_review: bool = False
+    review_loops: int = 4
+
+
 def parse_refactor_suggest_args(
     argv: list[str] | None = None,
 ) -> tuple[LoopConfig, _RefactorExtra]:
@@ -400,15 +409,6 @@ def parse_refactor_suggest_args(
     )
 
     return config, extra
-
-
-@dataclass
-class _RefactorExtra:
-    """Refactor-suggest flags outside LoopConfig."""
-
-    create_pr: bool = False
-    with_review: bool = False
-    review_loops: int = 4
 
 
 def _resolve_bool(

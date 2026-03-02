@@ -3,9 +3,7 @@ name = "mr-overkill"
 version = "0.1.0"
 description = "AI-powered code review loop — Python core"
 requires-python = ">=3.12"
-dependencies = [
-    "click>=8.1",
-]
+dependencies = []
 
 [project.scripts]
 mr-overkill = "mr_overkill.__main__:main"

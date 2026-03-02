@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
 from mr_overkill.models import (
@@ -20,20 +20,6 @@ from mr_overkill.refactor_suggest import (
 )
 
 # ── Helpers ─────────────────────────────────────────────────────────
-
-
-def _make_config(tmp_path: Path, **overrides: object) -> LoopConfig:
-    log_dir = tmp_path / "logs"
-    log_dir.mkdir(exist_ok=True)
-    defaults = {
-        "current_branch": "refactor/module-20260301",
-        "target_branch": "develop",
-        "max_loop": 1,
-        "log_dir": log_dir,
-        "prompts_dir": tmp_path / "prompts",
-    }
-    defaults.update(overrides)
-    return LoopConfig(**defaults)  # type: ignore[arg-type]
 
 
 def _budget(pct5: int, pct7: int | None = 0) -> BudgetStatus:
@@ -150,7 +136,7 @@ class TestRun:
         self,
         mock_run: MagicMock,
         mock_loop: MagicMock,
-        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         mock_run.return_value = MagicMock(
             returncode=0, stdout="src/a.py\nsrc/b.py\n"
@@ -159,7 +145,7 @@ class TestRun:
             final_status=FinalStatus.ALL_CLEAR,
             iterations_run=1,
         )
-        config = _make_config(tmp_path)
+        config = make_loop_config(current_branch="refactor/module-20260301")
         assert run(config, "module") == 0
 
     @patch("mr_overkill.refactor_suggest.review_fix_loop")
@@ -168,7 +154,7 @@ class TestRun:
         self,
         mock_run: MagicMock,
         mock_loop: MagicMock,
-        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         mock_run.return_value = MagicMock(
             returncode=0, stdout="src/a.py\n"
@@ -177,7 +163,7 @@ class TestRun:
             final_status=FinalStatus.CODEX_ERROR,
             iterations_run=0,
         )
-        config = _make_config(tmp_path)
+        config = make_loop_config(current_branch="refactor/module-20260301")
         assert run(config, "module") == 1
 
     @patch("mr_overkill.refactor_suggest.create_draft_pr")
@@ -188,7 +174,7 @@ class TestRun:
         mock_run: MagicMock,
         mock_loop: MagicMock,
         mock_pr: MagicMock,
-        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         mock_run.return_value = MagicMock(
             returncode=0, stdout="src/a.py\n"
@@ -197,7 +183,7 @@ class TestRun:
             final_status=FinalStatus.ALL_CLEAR,
             iterations_run=1,
         )
-        config = _make_config(tmp_path)
+        config = make_loop_config(current_branch="refactor/module-20260301")
         run(config, "module", create_pr=True)
         mock_pr.assert_called_once()
 
@@ -209,7 +195,7 @@ class TestRun:
         mock_run: MagicMock,
         mock_loop: MagicMock,
         mock_pr: MagicMock,
-        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         mock_run.return_value = MagicMock(
             returncode=0, stdout="src/a.py\n"
@@ -218,6 +204,8 @@ class TestRun:
             final_status=FinalStatus.ALL_CLEAR,
             iterations_run=1,
         )
-        config = _make_config(tmp_path, dry_run=True)
+        config = make_loop_config(
+            current_branch="refactor/module-20260301", dry_run=True,
+        )
         run(config, "module", create_pr=True)
         mock_pr.assert_not_called()

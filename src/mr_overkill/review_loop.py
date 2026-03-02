@@ -14,7 +14,7 @@ from typing import Any
 
 from mr_overkill.budget.claude import claude_budget_sufficient
 from mr_overkill.budget.codex import codex_budget_sufficient
-from mr_overkill.loop_engine import review_fix_loop
+from mr_overkill.loop_engine import ReviewerFn, review_fix_loop
 from mr_overkill.models import (
     BudgetScope,
     FinalStatus,
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # ── Budget helper ────────────────────────────────────────────────────
 
 
-def _budget_check(tool: str, scope: BudgetScope, _max_wait: int) -> bool:
+def _budget_check(tool: str, scope: BudgetScope, max_wait: int) -> bool:
     """Direct budget check without waiting (for wait_for_budget's inner fn)."""
     if tool == "claude":
         return claude_budget_sufficient(scope)
@@ -50,7 +50,7 @@ def _wait_budget(
     """Wait for budget using the polling loop."""
     actual = max_wait if max_wait > 0 else default_wait
     return wait_for_budget(
-        _budget_check, tool, scope, actual  # type: ignore[arg-type]
+        _budget_check, tool, scope, actual
     )
 
 
@@ -86,7 +86,7 @@ def _make_retry_fn(
 
 def _make_reviewer(
     config: LoopConfig,
-) -> Callable[[Path, int], bool]:
+) -> ReviewerFn:
     """Create a ReviewerFn that runs Codex review."""
 
     def reviewer(output_path: Path, iteration: int) -> bool:
@@ -135,9 +135,9 @@ def _make_fixer(
     retry_fn = _make_retry_fn(config)
 
     def budget_fn(
-        tool: str, scope: BudgetScope, max_w: int
+        tool: str, scope: BudgetScope, max_wait: int
     ) -> bool:
-        return _wait_budget(tool, scope, max_w, config.retry_max_wait)
+        return _wait_budget(tool, scope, max_wait, config.retry_max_wait)
 
     def fixer(review_json: str, label: str, **kw: Any) -> bool:
         log_dir = config.log_dir
@@ -150,7 +150,7 @@ def _make_fixer(
             fix_file=fix_file,
             label=label,
             retry_fn=retry_fn,
-            budget_fn=budget_fn,  # type: ignore[arg-type]
+            budget_fn=budget_fn,
             prompts_dir=config.prompts_dir,
             current_branch=config.current_branch,
             target_branch=config.target_branch,
@@ -168,9 +168,9 @@ def _make_self_reviewer(
     retry_fn = _make_retry_fn(config)
 
     def budget_fn(
-        tool: str, scope: BudgetScope, max_w: int
+        tool: str, scope: BudgetScope, max_wait: int
     ) -> bool:
-        return _wait_budget(tool, scope, max_w, config.retry_max_wait)
+        return _wait_budget(tool, scope, max_wait, config.retry_max_wait)
 
     fixer = _make_fixer(config)
 
@@ -193,7 +193,7 @@ def _make_self_reviewer(
             iteration=iteration,
             review_json_str=review_json_str,
             retry_fn=retry_fn,
-            budget_fn=budget_fn,  # type: ignore[arg-type]
+            budget_fn=budget_fn,
             fix_fn=fix_fn,
             prompts_dir=config.prompts_dir,
             current_branch=config.current_branch,
@@ -210,7 +210,7 @@ def run(config: LoopConfig) -> int:
     """Run the review loop and return an exit code (0 = success)."""
     result = review_fix_loop(
         config,
-        reviewer=_make_reviewer(config),  # type: ignore[arg-type]
+        reviewer=_make_reviewer(config),
         fixer=_make_fixer(config),
         self_reviewer=(
             _make_self_reviewer(config)

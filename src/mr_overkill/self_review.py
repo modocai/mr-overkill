@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import string
 import subprocess
 from pathlib import Path
 
@@ -120,8 +121,6 @@ def self_review_subloop(
                 "Self-review prompt not found: %s", sr_prompt_file
             )
             break
-
-        import string
 
         prompt_vars = {
             "CURRENT_BRANCH": current_branch,
