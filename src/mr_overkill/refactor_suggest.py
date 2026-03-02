@@ -374,6 +374,7 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
         if branch is None:
             return 1
         config.current_branch = branch
+        config.skip_initial_no_diff = True
 
     # Collect source files
     config.log_dir.mkdir(parents=True, exist_ok=True)

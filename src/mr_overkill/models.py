@@ -162,6 +162,7 @@ class LoopConfig:
 
     # Refactor-specific
     scope: str | None = None  # micro | module | layer | full
+    skip_initial_no_diff: bool = False  # refactor: 1st iteration has no diff
 
 
 @dataclass(frozen=True)

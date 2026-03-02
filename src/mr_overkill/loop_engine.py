@@ -235,15 +235,18 @@ def review_fix_loop(
             logger.info("[resume] Skipping iteration %d (already completed).", i)
             continue
 
-        # a. Check diff
+        # a. Check diff (skip on first iteration for refactor-created branches)
         if _no_diff(config.target_branch, config.current_branch, cwd):
-            logger.info(
-                "No diff between %s and %s.",
-                config.target_branch,
-                config.current_branch,
-            )
-            final_status = FinalStatus.NO_DIFF
-            break
+            if i == 1 and config.skip_initial_no_diff:
+                logger.info("No diff on iteration 1 (expected for refactor branch).")
+            else:
+                logger.info(
+                    "No diff between %s and %s.",
+                    config.target_branch,
+                    config.current_branch,
+                )
+                final_status = FinalStatus.NO_DIFF
+                break
 
         # b. Run review
         review_file = log_dir / f"review-{i}.json"
@@ -415,6 +418,11 @@ def _no_diff(target: str, current: str, cwd: Path | None) -> bool:
         capture_output=True,
         check=False,
     )
+    if result.returncode > 1:
+        stderr = result.stderr.decode() if result.stderr else ""
+        raise RuntimeError(
+            f"git diff failed (exit {result.returncode}): {stderr}"
+        )
     return result.returncode == 0
 
 

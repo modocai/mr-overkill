@@ -200,6 +200,7 @@ def _make_self_reviewer(
             prompts_dir=config.prompts_dir,
             current_branch=config.current_branch,
             target_branch=config.target_branch,
+            budget_scope=config.budget_scope,
         )
 
     return self_reviewer
