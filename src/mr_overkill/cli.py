@@ -247,7 +247,7 @@ def parse_review_loop_args(
             saved = log_dir / "target-branch.txt"
             if saved.is_file():
                 target = saved.read_text().strip()
-        if max_loop is None:
+        if args.max_loop is None:
             saved = log_dir / "max-loop.txt"
             if saved.is_file():
                 max_loop = int(saved.read_text().strip())
@@ -445,10 +445,14 @@ def parse_refactor_suggest_args(
             saved = log_dir / "target-branch.txt"
             if saved.is_file():
                 target = saved.read_text().strip()
-        if max_loop is None:
+        if args.max_loop is None:
             saved = log_dir / "max-loop.txt"
             if saved.is_file():
                 max_loop = int(saved.read_text().strip())
+        if args.scope is None:
+            saved = log_dir / "scope.txt"
+            if saved.is_file():
+                scope = saved.read_text().strip()
 
     config = LoopConfig(
         current_branch=current_branch,
