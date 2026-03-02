@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 
 
 def main() -> None:
     """Dispatch subcommands."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     if len(sys.argv) < 2:
         print(
             "Usage: python -m mr_overkill <command>\n\n"
@@ -34,8 +41,15 @@ def main() -> None:
         exit_code = refactor_run(
             config, config.scope or "auto", create_pr=extra.create_pr,
         )
-        # TODO: wire extra.with_review / extra.review_loops to chain
-        # a review-loop run after PR creation (needs review_loop.run).
+        if extra.with_review and exit_code == 0:
+            from mr_overkill.cli import parse_review_loop_args
+            from mr_overkill.review_loop import run as review_run
+
+            review_config = parse_review_loop_args([
+                "-t", config.target_branch,
+                "-n", str(extra.review_loops),
+            ])
+            exit_code = review_run(review_config)
         sys.exit(exit_code)
     else:
         print(f"Unknown command: {command}", file=sys.stderr)

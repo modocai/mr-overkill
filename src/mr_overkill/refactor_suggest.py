@@ -253,7 +253,24 @@ def _make_refactor_reviewer(
 
 def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     """Run refactor-suggest and return an exit code."""
+    # Resolve auto scope
+    if scope == "auto":
+        resolved = resolve_auto_scope()
+        if resolved is None:
+            logger.error("Budget too low for any refactor scope.")
+            return 1
+        logger.info("Auto scope resolved to: %s", resolved)
+        scope = resolved
+
+    # Create refactor branch (unless dry-run or resume)
+    if not config.dry_run and not config.resume:
+        branch = create_refactor_branch(scope, config.target_branch)
+        if branch is None:
+            return 1
+        config.current_branch = branch
+
     # Collect source files
+    config.log_dir.mkdir(parents=True, exist_ok=True)
     source_files_path = config.log_dir / "source-files.txt"
     result = subprocess.run(
         ["git", "ls-files"],

@@ -213,6 +213,12 @@ def parse_review_loop_args(
     git_root = Path(result.stdout.strip()) if result.returncode == 0 else Path(".")
     log_dir = git_root / "logs"
 
+    # Restore saved max_loop on resume when -n is not given
+    if args.resume and max_loop is None:
+        saved = log_dir / "max-loop.txt"
+        if saved.is_file():
+            max_loop = int(saved.read_text().strip())
+
     return LoopConfig(
         current_branch=current_branch,
         target_branch=target,

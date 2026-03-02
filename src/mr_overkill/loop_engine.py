@@ -252,7 +252,7 @@ def review_fix_loop(
         logger.info("Findings: %d | Overall: %s", findings_count, overall)
 
         # d. All clear?
-        if findings_count == 0 and overall == "patch is correct":
+        if findings_count == 0 and overall in {"patch is correct", "code is clean"}:
             logger.info("All clear — no issues found.")
             final_status = FinalStatus.ALL_CLEAR
             iterations_run = i
