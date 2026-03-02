@@ -140,7 +140,8 @@ def create_refactor_branch(
         return None
 
     if stashed and not unstash_allowlisted():
-        logger.warning("Failed to restore stashed files. Check 'git stash list'.")
+        logger.error("Failed to restore stashed files. Check 'git stash list'.")
+        return None
 
     logger.info("Created branch: %s (from %s)", branch, target_branch)
     return branch
@@ -482,8 +483,7 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
             max_loop=config.max_loop,
             final_status=loop_result.final_status,
         ):
-            logger.error("Draft PR creation failed")
-            return 1
+            logger.warning("Draft PR creation failed — refactor commits were saved successfully")
 
     logger.info("Done. Status: %s", loop_result.final_status)
 

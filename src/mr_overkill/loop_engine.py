@@ -398,8 +398,13 @@ def review_fix_loop(
             else:
                 logger.info("AUTO_COMMIT is disabled — skipping commit and push.")
         finally:
-            _unstash_safe(allowed_stashed, cwd)
+            unstash_ok = _unstash_safe(allowed_stashed, cwd)
             allowed_stashed = False
+
+        if not unstash_ok:
+            final_status = FinalStatus.STASH_ERROR
+            iterations_run = i
+            break
 
         # Stop after first iteration when auto-commit is off
         if not config.auto_commit:
@@ -419,7 +424,8 @@ def review_fix_loop(
         iterations_run = i
 
     # Ensure unstash on any exit path
-    _unstash_safe(allowed_stashed, cwd)
+    if not _unstash_safe(allowed_stashed, cwd):
+        final_status = FinalStatus.STASH_ERROR
 
     # ── Summary ──────────────────────────────────────────────────────
     summary_path = _generate_summary_safe(config, final_status)
@@ -528,7 +534,12 @@ def _generate_summary_safe(
         return None
 
 
-def _unstash_safe(stashed: bool, cwd: Path | None) -> None:
-    """Pop stash if needed, logging failures."""
+def _unstash_safe(stashed: bool, cwd: Path | None) -> bool:
+    """Pop stash if needed, logging failures.
+
+    Returns ``True`` if unstash succeeded or was not needed, ``False`` on failure.
+    """
     if stashed and not unstash_allowlisted(cwd=cwd):
         logger.warning("Failed to restore stashed files. Check 'git stash list'.")
+        return False
+    return True
