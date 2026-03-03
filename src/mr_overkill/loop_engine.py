@@ -258,6 +258,7 @@ def review_fix_loop(
     final_status = FinalStatus.MAX_ITERATIONS_REACHED
     iterations_run = 0
     allowed_stashed = False
+    had_findings = False
 
     for i in range(1, config.max_loop + 1):
         logger.info("── Iteration %d / %d ──", i, config.max_loop)
@@ -278,6 +279,13 @@ def review_fix_loop(
         if no_diff:
             if i == 1 and config.skip_initial_no_diff:
                 logger.info("No diff on iteration 1 (expected for refactor branch).")
+            elif had_findings:
+                logger.error(
+                    "No diff after fix — previous iteration had findings but "
+                    "fixer produced no code changes.",
+                )
+                final_status = FinalStatus.CLAUDE_ERROR
+                break
             else:
                 logger.info(
                     "No diff between %s and %s.",
@@ -343,6 +351,8 @@ def review_fix_loop(
         findings_count = len(findings) if isinstance(findings, list) else 0
         overall = review_data.get("overall_correctness", "?")
         logger.info("Findings: %d | Overall: %s", findings_count, overall)
+        if findings_count > 0:
+            had_findings = True
 
         # d. All clear?
         if findings_count == 0 and overall in {"patch is correct", "code is clean"}:
