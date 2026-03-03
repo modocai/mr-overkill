@@ -259,6 +259,7 @@ def review_fix_loop(
     iterations_run = 0
     allowed_stashed = False
     had_findings = False
+    fix_committed = False
 
     for i in range(1, config.max_loop + 1):
         logger.info("── Iteration %d / %d ──", i, config.max_loop)
@@ -279,12 +280,19 @@ def review_fix_loop(
         if no_diff:
             if i == 1 and config.skip_initial_no_diff:
                 logger.info("No diff on iteration 1 (expected for refactor branch).")
-            elif had_findings:
+            elif had_findings and not fix_committed:
                 logger.error(
                     "No diff after fix — previous iteration had findings but "
                     "fixer produced no code changes.",
                 )
                 final_status = FinalStatus.CLAUDE_ERROR
+                break
+            elif had_findings:
+                logger.warning(
+                    "Branch now matches %s after fix — nothing to merge.",
+                    config.target_branch,
+                )
+                final_status = FinalStatus.NO_DIFF
                 break
             else:
                 logger.info(
@@ -428,7 +436,7 @@ def review_fix_loop(
                     summary_oneline = self_review_summary.replace("\n", "; ").rstrip("; ")
                     commit_msg += f"\nSelf-review: {summary_oneline}"
                 try:
-                    commit_and_push(
+                    fix_committed = commit_and_push(
                         pre_fix_snapshot, commit_msg, config.current_branch, cwd=cwd
                     )
                 except RuntimeError as e:
