@@ -340,6 +340,13 @@ def review_fix_loop(
         # d. All clear?
         if findings_count == 0 and overall in {"patch is correct", "code is clean"}:
             logger.info("All clear — no issues found.")
+            if config.pr_number:
+                post_pr_comment(
+                    pr_number=config.pr_number,
+                    iteration=i,
+                    max_loop=config.max_loop,
+                    review_json=review_data,
+                )
             final_status = FinalStatus.ALL_CLEAR
             iterations_run = i
             break
@@ -436,6 +443,10 @@ def review_fix_loop(
                 iteration=i,
                 max_loop=config.max_loop,
                 review_json=review_data,
+                fix_file=log_dir / f"fix-fix-{i}.md",
+                opinion_file=log_dir / f"opinion-fix-{i}.md",
+                self_review_summary=self_review_summary,
+                max_subloop=config.max_subloop,
             )
 
         iterations_run = i
