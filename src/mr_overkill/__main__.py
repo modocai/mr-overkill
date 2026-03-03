@@ -64,7 +64,12 @@ def main() -> None:
                  f"{config.target_branch}..{config.current_branch}"],
                 capture_output=True, text=True, check=False,
             )
-            if ahead.returncode != 0 or int(ahead.stdout.strip() or "0") == 0:
+            if ahead.returncode != 0:
+                logging.getLogger(__name__).error(
+                    "Failed to count commits: %s", ahead.stderr.strip(),
+                )
+                sys.exit(1)
+            if int(ahead.stdout.strip() or "0") == 0:
                 logging.getLogger(__name__).info(
                     "No refactor commits — skipping chained review-loop.",
                 )

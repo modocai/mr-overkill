@@ -304,6 +304,10 @@ def parse_review_loop_args(
                     max_loop = int(saved.read_text().strip())
                 except ValueError:
                     parser.error(f"malformed max-loop value in {saved}")
+            else:
+                parser.error(
+                    f"--resume requires {saved} or explicit --max-loop"
+                )
 
     if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")

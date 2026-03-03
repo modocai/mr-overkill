@@ -338,6 +338,7 @@ def _make_refactor_fixer(config: LoopConfig):
             budget_max_wait=config.retry_max_wait,
             opinion_prompt="claude-refactor-fix.prompt.md",
             execute_prompt="claude-refactor-fix-execute.prompt.md",
+            fix_history=kw.get("fix_history", ""),
         )
 
     return fixer
