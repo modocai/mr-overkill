@@ -160,33 +160,14 @@ def review_fix_loop(
     log_dir = config.log_dir
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Validate target branch (before any destructive operations) ───
-    if not _validate_target_branch(config.target_branch, cwd):
-        logger.error("Target branch '%s' does not exist.", config.target_branch)
-        return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
-
     # ── Resume detection ─────────────────────────────────────────────
     resume_from = 1
     reuse_review = False
 
     if config.resume:
-        # Validate that saved metadata matches the current run
-        saved_branch = (log_dir / "branch.txt").read_text().strip() if (log_dir / "branch.txt").is_file() else None
-        saved_target = (log_dir / "target-branch.txt").read_text().strip() if (log_dir / "target-branch.txt").is_file() else None
-        if saved_branch and saved_branch != config.current_branch:
-            logger.error(
-                "Resume branch mismatch: logs are from '%s' but current branch is '%s'.",
-                saved_branch, config.current_branch,
-            )
-            return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
-        if saved_target and saved_target != config.target_branch:
-            logger.error(
-                "Resume target mismatch: logs target '%s' but current target is '%s'.",
-                saved_target, config.target_branch,
-            )
-            return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
-
         state = detect_state(log_dir, commit_pattern, cwd=cwd)
+
+        # Already-completed runs can short-circuit without further validation
         if state.status == "completed":
             resolved_status = FinalStatus(state.prev_status or "max_iterations_reached")
             return LoopResult(
@@ -200,6 +181,29 @@ def review_fix_loop(
                 final_status=FinalStatus.REVIEW_FAILED,
                 iterations_run=0,
             )
+
+        # Validate that saved metadata matches the current run
+        saved_branch = (log_dir / "branch.txt").read_text().strip() if (log_dir / "branch.txt").is_file() else None
+        saved_target = (log_dir / "target-branch.txt").read_text().strip() if (log_dir / "target-branch.txt").is_file() else None
+        if not saved_branch:
+            logger.error(
+                "Resume metadata (branch.txt) missing in %s — cannot verify branch safety.",
+                log_dir,
+            )
+            return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+        if saved_branch != config.current_branch:
+            logger.error(
+                "Resume branch mismatch: logs are from '%s' but current branch is '%s'.",
+                saved_branch, config.current_branch,
+            )
+            return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+        if saved_target and saved_target != config.target_branch:
+            logger.error(
+                "Resume target mismatch: logs target '%s' but current target is '%s'.",
+                saved_target, config.target_branch,
+            )
+            return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+
         resume_from = state.resume_from
         reuse_review = state.reuse_review
         logger.info(
@@ -215,6 +219,11 @@ def review_fix_loop(
         # Fresh run: clear stale iteration artifacts, then save metadata
         _clean_stale_logs(log_dir)
         _save_metadata(config, cwd)
+
+    # ── Validate target branch (before any destructive operations) ───
+    if not _validate_target_branch(config.target_branch, cwd):
+        logger.error("Target branch '%s' does not exist.", config.target_branch)
+        return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
 
     # ── Validate resume point ────────────────────────────────────────
     if resume_from > config.max_loop:

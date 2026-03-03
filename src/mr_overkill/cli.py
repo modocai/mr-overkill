@@ -12,6 +12,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from mr_overkill import __version__
 from mr_overkill.models import BudgetScope, LoopConfig
 
 
@@ -156,6 +157,11 @@ def parse_review_loop_args(
     parser = argparse.ArgumentParser(
         prog="review-loop",
         description="AI-powered review-fix loop",
+    )
+    parser.add_argument(
+        "-V", "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "-t", "--target",
