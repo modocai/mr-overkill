@@ -414,11 +414,11 @@ def review_fix_loop(
             else:
                 logger.info("AUTO_COMMIT is disabled — skipping commit and push.")
         finally:
-            _unstash_ok = _unstash_safe(allowed_stashed, cwd)
+            if not _unstash_safe(allowed_stashed, cwd):
+                final_status = FinalStatus.STASH_ERROR
             allowed_stashed = False
 
-        if not _unstash_ok:
-            final_status = FinalStatus.STASH_ERROR
+        if final_status == FinalStatus.STASH_ERROR:
             iterations_run = i
             break
 
