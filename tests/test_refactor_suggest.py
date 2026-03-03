@@ -116,10 +116,11 @@ class TestCreateDraftPr:
     def test_creates_pr(self, mock_run: MagicMock) -> None:
         # rev-list returns ahead count, upstream check fails, push ok, gh ok
         mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="2\n"),   # rev-list
-            MagicMock(returncode=1),                   # upstream check
-            MagicMock(returncode=0),                   # git push
-            MagicMock(returncode=0, stdout="url\n"),   # gh pr create
+            MagicMock(returncode=0, stdout="2\n"),      # rev-list
+            MagicMock(returncode=1),                     # upstream check
+            MagicMock(returncode=0, stdout="origin\n"),  # git remote
+            MagicMock(returncode=0),                     # git push
+            MagicMock(returncode=0, stdout="url\n"),     # gh pr create
         ]
         assert create_draft_pr(
             "module", "develop", "refactor/module-x", 3, "all_clear"

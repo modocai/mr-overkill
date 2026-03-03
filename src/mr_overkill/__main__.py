@@ -14,7 +14,13 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    if len(sys.argv) < 2:
+    if len(sys.argv) >= 2 and sys.argv[1] in ("-V", "--version"):
+        from mr_overkill import __version__
+
+        print(f"overkill {__version__}")
+        sys.exit(0)
+
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print(
             "Usage: overkill <command>\n\n"
             "Commands:\n"
@@ -23,7 +29,7 @@ def main() -> None:
             "  refactor-suggest  Run AI refactoring suggestions",
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(0 if len(sys.argv) >= 2 else 1)
 
     command = sys.argv[1]
     sys.argv = sys.argv[1:]  # Shift so argparse sees correct prog name
