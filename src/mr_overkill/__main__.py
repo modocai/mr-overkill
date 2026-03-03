@@ -29,12 +29,18 @@ def main() -> None:
     sys.argv = sys.argv[1:]  # Shift so argparse sees correct prog name
 
     if command == "init":
+        import argparse
         from pathlib import Path
 
         from mr_overkill.init import init_project
 
-        target = sys.argv[1] if len(sys.argv) > 1 else "."
-        init_project(Path(target).resolve())
+        p = argparse.ArgumentParser(
+            prog="mr-overkill init",
+            description="Initialize .review-loop/ in a project",
+        )
+        p.add_argument("target", nargs="?", default=".", help="Target directory")
+        init_args = p.parse_args()
+        init_project(Path(init_args.target).resolve())
         sys.exit(0)
     elif command == "review-loop":
         from mr_overkill.cli import parse_review_loop_args

@@ -99,7 +99,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
             if key in boolean_keys and val.lower() not in ("true", "false"):
                 msg = f"{rc_path.name}: {key} must be 'true' or 'false', got '{val}'."
                 raise SystemExit(f"Error: {msg}")
-            values[key] = val
+            values[key] = val.lower() if key in boolean_keys else val
 
     return values
 
