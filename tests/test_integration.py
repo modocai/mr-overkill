@@ -145,7 +145,7 @@ class TestCliEntryPoint:
     ) -> None:
         from mr_overkill.__main__ import main
 
-        monkeypatch.setattr("sys.argv", ["mr-overkill", "review-loop"])
+        monkeypatch.setattr("sys.argv", ["overkill", "review-loop"])
         with pytest.raises(SystemExit) as exc_info:
             main()
         assert exc_info.value.code == 0
@@ -169,7 +169,7 @@ class TestCliEntryPoint:
     ) -> None:
         from mr_overkill.__main__ import main
 
-        monkeypatch.setattr("sys.argv", ["mr-overkill", "refactor-suggest"])
+        monkeypatch.setattr("sys.argv", ["overkill", "refactor-suggest"])
         with pytest.raises(SystemExit) as exc_info:
             main()
         assert exc_info.value.code == 0
@@ -179,7 +179,7 @@ class TestCliEntryPoint:
     ) -> None:
         from mr_overkill.__main__ import main
 
-        monkeypatch.setattr("sys.argv", ["mr-overkill", "nonsense"])
+        monkeypatch.setattr("sys.argv", ["overkill", "nonsense"])
         with pytest.raises(SystemExit) as exc_info:
             main()
         assert exc_info.value.code == 1
@@ -189,7 +189,7 @@ class TestCliEntryPoint:
     ) -> None:
         from mr_overkill.__main__ import main
 
-        monkeypatch.setattr("sys.argv", ["mr-overkill"])
+        monkeypatch.setattr("sys.argv", ["overkill"])
         with pytest.raises(SystemExit) as exc_info:
             main()
         assert exc_info.value.code == 1

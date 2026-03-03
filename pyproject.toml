@@ -1,12 +1,12 @@
 [project]
-name = "mr-overkill"
+name = "overkill"
 version = "0.1.0"
 description = "AI-powered code review loop — Python core"
 requires-python = ">=3.12"
 dependencies = []
 
 [project.scripts]
-mr-overkill = "mr_overkill.__main__:main"
+overkill = "mr_overkill.__main__:main"
 
 [build-system]
 requires = ["hatchling"]

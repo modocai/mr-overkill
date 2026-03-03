@@ -1,4 +1,4 @@
-"""``mr-overkill init`` — scaffold ``.review-loop/`` in a target project."""
+"""``overkill init`` — scaffold ``.review-loop/`` in a target project."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ def _ensure_gitignore(project_root: Path) -> None:
     else:
         content = ""
 
-    content += f"# review-loop (added by mr-overkill init)\n{marker}\n"
+    content += f"# review-loop (added by overkill init)\n{marker}\n"
     gitignore.write_text(content, encoding="utf-8")
 
 

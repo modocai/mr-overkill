@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# install.sh — Install mr-overkill and initialize a project.
+# install.sh — Install overkill and initialize a project.
 #
 # Usage:
 #   ./install.sh [TARGET_DIR]     # install from PyPI + init
@@ -22,7 +22,7 @@ fi
 
 # ── Step 1: Install Python package ──────────────────────────────────
 if $DEV_MODE; then
-  echo "Installing mr-overkill (editable, local checkout)..."
+  echo "Installing overkill (editable, local checkout)..."
   SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
   if command -v uv &>/dev/null; then
     uv tool install --reinstall -e "$SCRIPT_DIR"
@@ -32,22 +32,22 @@ if $DEV_MODE; then
     pip install -e "$SCRIPT_DIR"
   fi
 else
-  echo "Installing mr-overkill..."
+  echo "Installing overkill..."
   if command -v uv &>/dev/null; then
-    uv tool install --reinstall mr-overkill
+    uv tool install --reinstall overkill
   elif command -v pipx &>/dev/null; then
-    pipx install --force mr-overkill
+    pipx install --force overkill
   else
-    pip install mr-overkill
+    pip install overkill
   fi
 fi
 
 # ── Step 2: Initialize project ──────────────────────────────────────
-if ! command -v mr-overkill &>/dev/null; then
-  echo "Warning: 'mr-overkill' not found on PATH after installation." >&2
+if ! command -v overkill &>/dev/null; then
+  echo "Warning: 'overkill' not found on PATH after installation." >&2
   echo "You may need to add ~/.local/bin to your PATH, then run:" >&2
-  echo "  mr-overkill init $TARGET_DIR" >&2
+  echo "  overkill init $TARGET_DIR" >&2
   exit 1
 fi
 
-mr-overkill init "$TARGET_DIR"
+overkill init "$TARGET_DIR"

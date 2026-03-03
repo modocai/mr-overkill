@@ -16,7 +16,7 @@ def main() -> None:
 
     if len(sys.argv) < 2:
         print(
-            "Usage: python -m mr_overkill <command>\n\n"
+            "Usage: overkill <command>\n\n"
             "Commands:\n"
             "  init              Initialize .review-loop/ in a project\n"
             "  review-loop       Run AI review-fix loop\n"
@@ -35,7 +35,7 @@ def main() -> None:
         from mr_overkill.init import init_project
 
         p = argparse.ArgumentParser(
-            prog="mr-overkill init",
+            prog="overkill init",
             description="Initialize .review-loop/ in a project",
         )
         p.add_argument("target", nargs="?", default=".", help="Target directory")
