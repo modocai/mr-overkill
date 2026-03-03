@@ -47,7 +47,7 @@ if ! command -v mr-overkill &>/dev/null; then
   echo "Warning: 'mr-overkill' not found on PATH after installation." >&2
   echo "You may need to add ~/.local/bin to your PATH, then run:" >&2
   echo "  mr-overkill init $TARGET_DIR" >&2
-  exit 0
+  exit 1
 fi
 
 mr-overkill init "$TARGET_DIR"

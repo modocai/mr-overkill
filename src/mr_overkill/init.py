@@ -55,17 +55,26 @@ def _copy_prompts(data: Path, dest: Path) -> list[str]:
 
 
 def _copy_rc_files(data: Path, dest: Path) -> list[str]:
-    """Copy RC example files as live configs, preserving user edits."""
+    """Copy RC example files as live configs, preserving user edits.
+
+    If the live config already exists under ``.review-loop/``, it is kept
+    as-is.  Otherwise, a legacy rc at the repo root is migrated first;
+    only when neither exists does the bundled example get copied.
+    """
     manifest: list[str] = []
+    project_root = dest.parent
     rc_pairs = [
         (".reviewlooprc.example", ".reviewlooprc"),
         (".refactorsuggestrc.example", ".refactorsuggestrc"),
     ]
     for example_name, live_name in rc_pairs:
         live_path = dest / live_name
-        src_path = data / example_name
-        if not live_path.exists() and src_path.exists():
-            shutil.copy2(src_path, live_path)
+        if not live_path.exists():
+            legacy = project_root / live_name
+            if legacy.is_file():
+                shutil.copy2(legacy, live_path)
+            elif (src_path := data / example_name).exists():
+                shutil.copy2(src_path, live_path)
         manifest.append(live_name)
     return manifest
 
