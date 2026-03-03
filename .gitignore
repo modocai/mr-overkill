@@ -8,8 +8,28 @@
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
 .venv/
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
 
-# Test artifacts
+# Testing / Coverage
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
 test/tmp/
+
+# mypy / ruff / type checkers
+.mypy_cache/
+.ruff_cache/
+
+# Distribution / packaging
+*.whl

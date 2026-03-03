@@ -1,4 +1,4 @@
-"""Shared data models and Protocol definitions for mr-overkill.
+"""Shared data models and Protocol definitions for overkill.
 
 All modules depend on this file; it depends on nothing else in the package.
 Protocols define DI contracts that enable parallel development of modules
@@ -11,6 +11,13 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
+
+# ── Exceptions ────────────────────────────────────────────────────────
+
+
+class BudgetTimeoutError(Exception):
+    """Raised when a tool budget wait times out."""
+
 
 # ── Enums ────────────────────────────────────────────────────────────
 
@@ -48,6 +55,7 @@ class FinalStatus(StrEnum):
     STASH_ERROR = "stash_error"
     STASH_CONFLICT = "stash_conflict"
     REVIEW_FAILED = "review_failed"
+    COMMIT_PUSH_ERROR = "commit_push_error"
 
 
 # ── Dataclasses ──────────────────────────────────────────────────────
@@ -144,6 +152,7 @@ class LoopConfig:
     dry_run: bool = False
     auto_commit: bool = True
     resume: bool = False
+    auto_approve: bool = False
 
     # Retry / budget
     retry_max_wait: int = 7200
@@ -160,6 +169,7 @@ class LoopConfig:
 
     # Refactor-specific
     scope: str | None = None  # micro | module | layer | full
+    skip_initial_no_diff: bool = False  # refactor: 1st iteration has no diff
 
 
 @dataclass(frozen=True)

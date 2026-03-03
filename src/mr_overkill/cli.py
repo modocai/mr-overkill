@@ -1,0 +1,589 @@
+"""CLI argument parsing for overkill entry points.
+
+Provides shared argument parsing for review-loop and refactor-suggest,
+mirroring the CLI interface of the bash scripts.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+
+from mr_overkill import __version__
+from mr_overkill.models import BudgetScope, LoopConfig
+
+
+def _detect_current_branch() -> str:
+    """Get the current git branch name."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() or "HEAD"
+
+
+def _detect_pr_number(branch: str) -> str | None:
+    """Detect open PR number for the given branch."""
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "view", branch, "--json", "number", "-q", ".number"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return None
+
+
+def _load_rc_file(rc_name: str) -> dict[str, str]:
+    """Load KEY=VALUE pairs from an rc file in the git root.
+
+    Mirrors the safe parsing from review-loop.sh / refactor-suggest.sh.
+    Only whitelisted keys are accepted.
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return {}
+
+    git_root = Path(result.stdout.strip())
+    rc_path = git_root / ".review-loop" / rc_name
+    if not rc_path.is_file():
+        # Fall back to the legacy repo-root location
+        legacy = git_root / rc_name
+        if legacy.is_file():
+            import logging
+            logging.getLogger(__name__).warning(
+                "%s found at repo root (legacy location). "
+                "Please move it to .review-loop/%s",
+                rc_name, rc_name,
+            )
+            rc_path = legacy
+        else:
+            return {}
+
+    allowed_keys = {
+        "TARGET_BRANCH", "MAX_LOOP", "MAX_SUBLOOP", "DRY_RUN",
+        "AUTO_COMMIT", "PROMPTS_DIR", "RETRY_MAX_WAIT",
+        "RETRY_INITIAL_WAIT", "BUDGET_SCOPE", "DIAGNOSTIC_LOG",
+        "SCOPE", "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
+        "REVIEW_LOOPS",
+    }
+    boolean_keys = {
+        "DRY_RUN", "AUTO_COMMIT", "DIAGNOSTIC_LOG",
+        "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
+    }
+    kv_re = re.compile(
+        r"^\s*(\w+)=[\"']?([^\"']*)[\"']?\s*$"
+    )
+    values: dict[str, str] = {}
+
+    for line in rc_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = kv_re.match(line)
+        if m and m.group(1) in allowed_keys:
+            key, val = m.group(1), m.group(2).strip()
+            if key in boolean_keys and val.lower() not in ("true", "false"):
+                msg = f"{rc_path.name}: {key} must be 'true' or 'false', got '{val}'."
+                raise SystemExit(f"Error: {msg}")
+            values[key] = val.lower() if key in boolean_keys else val
+
+    return values
+
+
+def _resolve_prompts_dir(prompts_dir: str) -> Path:
+    """Resolve prompts directory relative to git root."""
+    p = Path(prompts_dir)
+    if p.is_absolute():
+        return p
+
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return Path(result.stdout.strip()) / prompts_dir
+    return p
+
+
+def _int_from_rc(
+    rc: dict[str, str],
+    key: str,
+    default: str,
+    parser: argparse.ArgumentParser,
+) -> int:
+    """Parse an integer from rc file, raising a clean CLI error on bad values."""
+    raw = rc.get(key, default)
+    try:
+        return int(raw)
+    except ValueError:
+        parser.error(f"invalid integer for {key} in rc file: {raw!r}")
+
+
+def _parse_budget_scope(
+    raw: str,
+    parser: argparse.ArgumentParser,
+    allowed: frozenset[BudgetScope] | None = None,
+) -> BudgetScope:
+    """Convert a string to BudgetScope, raising a clean CLI error on bad values."""
+    try:
+        scope = BudgetScope(raw)
+    except ValueError:
+        choices = allowed or frozenset(BudgetScope)
+        parser.error(
+            f"BUDGET_SCOPE must be one of: "
+            f"{', '.join(e.value for e in choices)}. Got {raw!r}"
+        )
+    if allowed and scope not in allowed:
+        parser.error(
+            f"BUDGET_SCOPE must be one of: "
+            f"{', '.join(e.value for e in allowed)}. Got {raw!r}"
+        )
+    return scope
+
+
+def parse_review_loop_args(
+    argv: list[str] | None = None,
+) -> LoopConfig:
+    """Parse review-loop CLI arguments into a LoopConfig."""
+    parser = argparse.ArgumentParser(
+        prog="review-loop",
+        description="AI-powered review-fix loop",
+    )
+    parser.add_argument(
+        "-V", "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+    parser.add_argument(
+        "-t", "--target",
+        default=None,
+        help="Target branch to diff against (default: develop)",
+    )
+    parser.add_argument(
+        "-n", "--max-loop",
+        type=int,
+        default=None,
+        help="Maximum review-fix iterations (required)",
+    )
+    parser.add_argument(
+        "--max-subloop",
+        type=int,
+        default=None,
+        help="Maximum self-review sub-iterations (default: 4)",
+    )
+    parser.add_argument(
+        "--no-self-review",
+        action="store_true",
+        help="Disable self-review",
+    )
+    dry_run_grp = parser.add_mutually_exclusive_group()
+    dry_run_grp.add_argument(
+        "--dry-run",
+        action="store_const",
+        const=True,
+        dest="dry_run",
+        help="Run review only, do not fix",
+    )
+    dry_run_grp.add_argument(
+        "--no-dry-run",
+        action="store_const",
+        const=False,
+        dest="dry_run",
+        help="Force fixes",
+    )
+    auto_commit_grp = parser.add_mutually_exclusive_group()
+    auto_commit_grp.add_argument(
+        "--auto-commit",
+        action="store_const",
+        const=True,
+        dest="auto_commit",
+        help="Force commit/push",
+    )
+    auto_commit_grp.add_argument(
+        "--no-auto-commit",
+        action="store_const",
+        const=False,
+        dest="auto_commit",
+        help="Fix but do not commit/push",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from a previously interrupted run",
+    )
+    parser.add_argument(
+        "--diagnostic-log",
+        action="store_true",
+        help="Save full event stream to sidecar files",
+    )
+
+    args = parser.parse_args(argv)
+
+    # Load rc file defaults
+    rc = _load_rc_file(".reviewlooprc")
+
+    # Resolve values with precedence: CLI > rc file > defaults
+    target = args.target or rc.get("TARGET_BRANCH", "develop")
+    max_loop = args.max_loop if args.max_loop is not None else (_int_from_rc(rc, "MAX_LOOP", "0", parser) or None)
+
+    if not args.resume and max_loop is None:
+        parser.error("-n / --max-loop is required")
+
+    if max_loop is not None and max_loop < 1:
+        parser.error("--max-loop must be a positive integer")
+
+    max_subloop = (
+        0 if args.no_self_review
+        else (
+            args.max_subloop
+            if args.max_subloop is not None
+            else _int_from_rc(rc, "MAX_SUBLOOP", "4", parser)
+        )
+    )
+    if max_subloop < 0:
+        parser.error("--max-subloop must be non-negative")
+
+    dry_run = _resolve_bool(args.dry_run, rc.get("DRY_RUN"), False)
+    auto_commit = _resolve_bool(args.auto_commit, rc.get("AUTO_COMMIT"), True)
+    diagnostic_log = args.diagnostic_log or rc.get(
+        "DIAGNOSTIC_LOG", "false"
+    ) == "true"
+
+    retry_max_wait = _int_from_rc(rc, "RETRY_MAX_WAIT", "7200", parser)
+    retry_initial_wait = _int_from_rc(rc, "RETRY_INITIAL_WAIT", "30", parser)
+    if retry_max_wait < 1:
+        parser.error("RETRY_MAX_WAIT must be a positive integer")
+    if retry_initial_wait < 1:
+        parser.error("RETRY_INITIAL_WAIT must be a positive integer")
+    budget_scope_str = rc.get("BUDGET_SCOPE", "module")
+
+    prompts_dir = _resolve_prompts_dir(
+        rc.get("PROMPTS_DIR", ".review-loop/prompts/active")
+    )
+
+    current_branch = _detect_current_branch()
+    pr_number = _detect_pr_number(current_branch)
+
+    # Log directory
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    git_root = Path(result.stdout.strip()) if result.returncode == 0 else Path(".")
+    log_dir = git_root / ".review-loop" / "logs"
+
+    # Restore saved values on resume when not explicitly given
+    if args.resume:
+        if args.target is None:
+            saved = log_dir / "target-branch.txt"
+            if saved.is_file():
+                target = saved.read_text().strip()
+        if args.max_loop is None:
+            saved = log_dir / "max-loop.txt"
+            if saved.is_file():
+                try:
+                    max_loop = int(saved.read_text().strip())
+                except ValueError:
+                    parser.error(f"malformed max-loop value in {saved}")
+            else:
+                parser.error(
+                    f"--resume requires {saved} or explicit --max-loop"
+                )
+
+    if max_loop is not None and max_loop < 1:
+        parser.error("--max-loop must be a positive integer")
+
+    return LoopConfig(
+        current_branch=current_branch,
+        target_branch=target,
+        max_loop=max_loop or 1,
+        max_subloop=max_subloop,
+        dry_run=dry_run,
+        auto_commit=auto_commit,
+        resume=args.resume,
+        retry_max_wait=retry_max_wait,
+        retry_initial_wait=retry_initial_wait,
+        budget_scope=_parse_budget_scope(
+            budget_scope_str, parser,
+            allowed=frozenset({BudgetScope.MICRO, BudgetScope.MODULE}),
+        ),
+        diagnostic_log=diagnostic_log,
+        log_dir=log_dir,
+        prompts_dir=prompts_dir,
+        pr_number=pr_number,
+    )
+
+
+@dataclass
+class _RefactorExtra:
+    """Refactor-suggest flags outside LoopConfig."""
+
+    create_pr: bool = False
+    with_review: bool = False
+    review_loops: int = 4
+
+
+def parse_refactor_suggest_args(
+    argv: list[str] | None = None,
+) -> tuple[LoopConfig, _RefactorExtra]:
+    """Parse refactor-suggest CLI arguments.
+
+    Returns a (LoopConfig, _RefactorExtra) tuple.  The extra struct
+    carries refactor-specific flags that don't belong in LoopConfig.
+    """
+    parser = argparse.ArgumentParser(
+        prog="refactor-suggest",
+        description="AI-powered refactoring suggestions",
+    )
+    parser.add_argument(
+        "-V", "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+    parser.add_argument(
+        "--scope",
+        default=None,
+        choices=["auto", "micro", "module", "layer", "full"],
+        help="Refactoring scope (default: auto)",
+    )
+    parser.add_argument(
+        "-t", "--target",
+        default=None,
+        help="Target branch (default: develop)",
+    )
+    parser.add_argument(
+        "-n", "--max-loop",
+        type=int,
+        default=None,
+        help="Maximum analysis-fix iterations (default: 1)",
+    )
+    parser.add_argument(
+        "--max-subloop",
+        type=int,
+        default=None,
+        help="Maximum self-review sub-iterations (default: 4)",
+    )
+    parser.add_argument(
+        "--no-self-review",
+        action="store_true",
+        help="Disable self-review",
+    )
+    dry_run_grp = parser.add_mutually_exclusive_group()
+    dry_run_grp.add_argument(
+        "--dry-run",
+        action="store_const",
+        const=True,
+        dest="dry_run",
+        help="Run analysis only, do not fix",
+    )
+    dry_run_grp.add_argument(
+        "--no-dry-run",
+        action="store_const",
+        const=False,
+        dest="dry_run",
+        help="Force fixes",
+    )
+    parser.add_argument(
+        "--create-pr",
+        action="store_true",
+        default=None,
+        help="Create a draft PR after completing iterations",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from a previously interrupted run",
+    )
+    parser.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="Skip interactive confirmation for layer/full scope",
+    )
+    parser.add_argument(
+        "--diagnostic-log",
+        action="store_true",
+        help="Save full event stream to sidecar files",
+    )
+    parser.add_argument(
+        "--with-review",
+        action="store_true",
+        default=None,
+        help="Run review-loop after PR creation",
+    )
+    parser.add_argument(
+        "--with-review-loops",
+        type=int,
+        default=None,
+        help="Review-loop iterations (implies --with-review)",
+    )
+
+    args = parser.parse_args(argv)
+
+    # Load rc file defaults
+    rc = _load_rc_file(".refactorsuggestrc")
+
+    # Resolve values: CLI > rc > defaults
+    scope = args.scope or rc.get("SCOPE", "auto")
+    target = args.target or rc.get("TARGET_BRANCH", "develop")
+    max_loop_rc = (
+        _int_from_rc(rc, "MAX_LOOP", "0", parser) if "MAX_LOOP" in rc
+        else None
+    )
+    max_loop = (
+        args.max_loop if args.max_loop is not None
+        else max_loop_rc
+    )
+    if max_loop is not None and max_loop < 1:
+        parser.error("--max-loop must be a positive integer")
+
+    max_subloop = (
+        0 if args.no_self_review
+        else (
+            args.max_subloop
+            if args.max_subloop is not None
+            else _int_from_rc(rc, "MAX_SUBLOOP", "4", parser)
+        )
+    )
+    if max_subloop < 0:
+        parser.error("--max-subloop must be non-negative")
+
+    dry_run = _resolve_bool(args.dry_run, rc.get("DRY_RUN"), False)
+    create_pr = _resolve_bool(args.create_pr, rc.get("CREATE_PR"), False)
+    auto_approve = args.auto_approve or rc.get(
+        "AUTO_APPROVE", "false"
+    ) == "true"
+    diagnostic_log = args.diagnostic_log or rc.get(
+        "DIAGNOSTIC_LOG", "false"
+    ) == "true"
+
+    with_review = _resolve_bool(args.with_review, rc.get("WITH_REVIEW"), False)
+    review_loops = (
+        args.with_review_loops
+        if args.with_review_loops is not None
+        else _int_from_rc(rc, "REVIEW_LOOPS", "4", parser)
+    )
+    if review_loops < 1:
+        parser.error("--with-review-loops must be a positive integer")
+    if args.with_review_loops is not None:
+        with_review = True
+    if with_review:
+        create_pr = True
+
+    retry_max_wait = _int_from_rc(rc, "RETRY_MAX_WAIT", "7200", parser)
+    retry_initial_wait = _int_from_rc(rc, "RETRY_INITIAL_WAIT", "30", parser)
+    if retry_max_wait < 1:
+        parser.error("RETRY_MAX_WAIT must be a positive integer")
+    if retry_initial_wait < 1:
+        parser.error("RETRY_INITIAL_WAIT must be a positive integer")
+    budget_scope_str = rc.get("BUDGET_SCOPE", "module")
+
+    prompts_dir = _resolve_prompts_dir(
+        rc.get("PROMPTS_DIR", ".review-loop/prompts/active")
+    )
+
+    current_branch = _detect_current_branch()
+
+    # Log directory
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    git_root = (
+        Path(result.stdout.strip()) if result.returncode == 0
+        else Path(".")
+    )
+    log_dir = git_root / ".review-loop" / "logs" / "refactor"
+
+    # Restore saved values on resume when not explicitly given
+    if args.resume:
+        if args.target is None:
+            saved = log_dir / "target-branch.txt"
+            if saved.is_file():
+                target = saved.read_text().strip()
+        if args.max_loop is None:
+            saved = log_dir / "max-loop.txt"
+            if saved.is_file():
+                try:
+                    max_loop = int(saved.read_text().strip())
+                except ValueError:
+                    parser.error(f"malformed max-loop value in {saved}")
+        if args.scope is None:
+            saved = log_dir / "scope.txt"
+            if saved.is_file():
+                scope = saved.read_text().strip()
+
+    if args.resume and max_loop is None:
+        parser.error(
+            "Cannot determine max_loop for resume: logs/max-loop.txt is missing. "
+            "Please provide -n / --max-loop explicitly."
+        )
+
+    _valid_scopes = {"auto", "micro", "module", "layer", "full"}
+    if scope not in _valid_scopes:
+        parser.error(
+            f"SCOPE must be one of: {', '.join(sorted(_valid_scopes))}. "
+            f"Got {scope!r}"
+        )
+
+    config = LoopConfig(
+        current_branch=current_branch,
+        target_branch=target,
+        max_loop=max_loop or 1,
+        max_subloop=max_subloop,
+        dry_run=dry_run,
+        auto_commit=True,
+        resume=args.resume,
+        auto_approve=auto_approve,
+        retry_max_wait=retry_max_wait,
+        retry_initial_wait=retry_initial_wait,
+        budget_scope=_parse_budget_scope(
+            budget_scope_str, parser,
+            allowed=frozenset({BudgetScope.MICRO, BudgetScope.MODULE}),
+        ),
+        diagnostic_log=diagnostic_log,
+        log_dir=log_dir,
+        prompts_dir=prompts_dir,
+        scope=scope,
+    )
+
+    extra = _RefactorExtra(
+        create_pr=create_pr,
+        with_review=with_review,
+        review_loops=review_loops,
+    )
+
+    return config, extra
+
+
+def _resolve_bool(
+    flag_value: bool | None,
+    rc_value: str | None,
+    default: bool,
+) -> bool:
+    """Resolve a boolean flag with CLI > rc > default precedence."""
+    if flag_value is not None:
+        return flag_value
+    if rc_value is not None:
+        return rc_value.lower() == "true"
+    return default

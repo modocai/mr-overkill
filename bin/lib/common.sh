@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared utilities for mr-overkill scripts.
+# Shared utilities for overkill scripts.
 # Usage: source "$SCRIPT_DIR/lib/common.sh"
 # Requires: caller must set -euo pipefail before sourcing.
 

@@ -104,7 +104,7 @@ def normalize_paths(review_json: dict[str, Any], repo_root: str) -> dict[str, An
     """
     root = repo_root.rstrip("/") + "/"
     findings: list[dict[str, Any]] | None = review_json.get("findings")
-    if findings is None:
+    if not isinstance(findings, list):
         return review_json
 
     result = dict(review_json)

@@ -132,6 +132,35 @@ def changed_files_since_snapshot(
     return changed
 
 
+def resume_reset_worktree(cwd: Path | None = None) -> None:
+    """Stash uncommitted changes and reset worktree for a clean resume.
+
+    Mirrors ``_resume_reset_working_tree`` from the bash version:
+    safety-stash any dirty state, then ``git reset HEAD`` + ``git checkout``.
+    """
+    dirty = git_all_dirty(cwd)
+    if dirty:
+        logger.info("Stashing uncommitted changes before resume reset...")
+        result = _run(
+            ["git", "stash", "push", "--include-untracked",
+             "-m", "review-loop: pre-resume safety stash"],
+            cwd=cwd,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                "Failed to stash uncommitted changes. "
+                "Aborting resume to prevent data loss."
+            )
+
+    toplevel = _run(["git", "rev-parse", "--show-toplevel"], cwd=cwd)
+    top = toplevel.stdout.strip()
+    logger.info("Resetting partial edits from interrupted run...")
+    _run(["git", "reset", "--quiet", "HEAD"], cwd=cwd)
+    result = _run(["git", "checkout", "--", "."], cwd=Path(top))
+    if result.returncode != 0:
+        logger.warning("git checkout failed during resume reset.")
+
+
 def stash_allowlisted(files: list[str], cwd: Path | None = None) -> bool:
     """Stash specific allowlisted files if dirty.
 
@@ -176,8 +205,11 @@ def commit_and_push(
     """Commit files changed since snapshot and push if upstream exists.
 
     Returns ``True`` if a commit was made, ``False`` if nothing to commit.
+    Raises ``RuntimeError`` if ``git commit`` or ``git push`` fails.
     """
-    changed = changed_files_since_snapshot(snapshot, cwd=cwd)
+    changed = changed_files_since_snapshot(
+        snapshot, cwd=cwd, exclude_prefix=".review-loop/logs/",
+    )
     if not changed:
         logger.info("No file changes after fix — nothing to commit.")
         return False
@@ -188,8 +220,7 @@ def commit_and_push(
     # Commit
     result = _run(["git", "commit", "-m", message, "--", *changed], cwd=cwd)
     if result.returncode != 0:
-        logger.warning("git commit failed: %s", result.stderr.strip())
-        return False
+        raise RuntimeError(f"git commit failed: {result.stderr.strip()}")
 
     logger.info("Committed.")
 
@@ -199,14 +230,18 @@ def commit_and_push(
         cwd=cwd,
     )
     if upstream_check.returncode == 0:
-        _run(["git", "push"], cwd=cwd)
+        push_result = _run(["git", "push"], cwd=cwd)
+        if push_result.returncode != 0:
+            raise RuntimeError(f"git push failed: {push_result.stderr.strip()}")
         logger.info("Pushed.")
     elif branch:
         remote_check = _run(["git", "remote"], cwd=cwd)
         remotes = remote_check.stdout.strip().splitlines()
         remote = "origin" if "origin" in remotes else (remotes[0] if remotes else "")
         if remote:
-            _run(["git", "push", "-u", remote, branch], cwd=cwd)
+            push_result = _run(["git", "push", "-u", remote, branch], cwd=cwd)
+            if push_result.returncode != 0:
+                raise RuntimeError(f"git push failed: {push_result.stderr.strip()}")
             logger.info("Pushed (upstream set).")
         else:
             logger.info("No upstream/remote set — skipping push.")
