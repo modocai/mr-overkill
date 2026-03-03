@@ -214,6 +214,9 @@ def review_fix_loop(
 
         # Reset partial edits from interrupted run (non-dry-run only)
         if not config.dry_run:
+            if not _validate_target_branch(config.target_branch, cwd):
+                logger.error("Target branch '%s' does not exist.", config.target_branch)
+                return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
             resume_reset_worktree(cwd=cwd)
 
     # ── Validate target branch (before any destructive operations) ───
