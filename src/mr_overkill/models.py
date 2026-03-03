@@ -12,6 +12,13 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
+# ── Exceptions ────────────────────────────────────────────────────────
+
+
+class BudgetTimeoutError(Exception):
+    """Raised when a tool budget wait times out."""
+
+
 # ── Enums ────────────────────────────────────────────────────────────
 
 

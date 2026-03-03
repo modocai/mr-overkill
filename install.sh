@@ -20,18 +20,18 @@ if $DEV_MODE; then
   echo "Installing mr-overkill (editable, local checkout)..."
   SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
   if command -v uv &>/dev/null; then
-    uv tool install -e "$SCRIPT_DIR"
+    uv tool install --reinstall -e "$SCRIPT_DIR"
   elif command -v pipx &>/dev/null; then
-    pipx install -e "$SCRIPT_DIR"
+    pipx install --force -e "$SCRIPT_DIR"
   else
     pip install -e "$SCRIPT_DIR"
   fi
 else
   echo "Installing mr-overkill..."
   if command -v uv &>/dev/null; then
-    uv tool install mr-overkill
+    uv tool install --reinstall mr-overkill
   elif command -v pipx &>/dev/null; then
-    pipx install mr-overkill
+    pipx install --force mr-overkill
   else
     pip install mr-overkill
   fi

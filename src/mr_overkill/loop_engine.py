@@ -26,6 +26,7 @@ from mr_overkill.git_ops import (
 )
 from mr_overkill.json_extract import parse_review_json
 from mr_overkill.models import (
+    BudgetTimeoutError,
     FinalStatus,
     FixFn,
     LoopConfig,
@@ -293,7 +294,13 @@ def review_fix_loop(
         if can_reuse:
             logger.info("[resume] Reusing saved review: %s", review_file)
         else:
-            if not reviewer(review_file, i):
+            try:
+                review_ok = reviewer(review_file, i)
+            except BudgetTimeoutError:
+                logger.error("Budget timeout during review (iteration %d).", i)
+                final_status = FinalStatus.CODEX_BUDGET_TIMEOUT
+                break
+            if not review_ok:
                 final_status = FinalStatus.CODEX_ERROR
                 break
 

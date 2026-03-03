@@ -57,9 +57,21 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
     if result.returncode != 0:
         return {}
 
-    rc_path = Path(result.stdout.strip()) / ".review-loop" / rc_name
+    git_root = Path(result.stdout.strip())
+    rc_path = git_root / ".review-loop" / rc_name
     if not rc_path.is_file():
-        return {}
+        # Fall back to the legacy repo-root location
+        legacy = git_root / rc_name
+        if legacy.is_file():
+            import logging
+            logging.getLogger(__name__).warning(
+                "%s found at repo root (legacy location). "
+                "Please move it to .review-loop/%s",
+                rc_name, rc_name,
+            )
+            rc_path = legacy
+        else:
+            return {}
 
     allowed_keys = {
         "TARGET_BRANCH", "MAX_LOOP", "MAX_SUBLOOP", "DRY_RUN",

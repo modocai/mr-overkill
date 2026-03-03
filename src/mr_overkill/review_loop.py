@@ -18,6 +18,7 @@ from mr_overkill.budget.codex import codex_budget_sufficient
 from mr_overkill.loop_engine import ReviewerFn, review_fix_loop
 from mr_overkill.models import (
     BudgetScope,
+    BudgetTimeoutError,
     FinalStatus,
     LoopConfig,
     WorktreeSnapshot,
@@ -109,10 +110,9 @@ def _make_reviewer(
         if not _wait_budget(
             "codex", config.budget_scope, 0, config.retry_max_wait
         ):
-            logger.error(
-                "Codex budget timeout (iteration %d).", iteration
+            raise BudgetTimeoutError(
+                f"Codex budget timeout (iteration {iteration})."
             )
-            return False
 
         stderr_path = output_path.with_suffix(".stderr")
         return retry_codex_cmd(
