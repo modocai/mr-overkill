@@ -221,7 +221,11 @@ def self_review_subloop(
                 refix_input = inject_refactoring_plan(sr_data, plan)
 
         refix_json_str = json.dumps(refix_input)
-        if not fix_fn(refix_json_str, f"re-fix-{iteration}-{j}"):
+        if not fix_fn(
+            refix_json_str,
+            f"re-fix-{iteration}-{j}",
+            fix_history=_build_fix_history(sr_history),
+        ):
             summary_parts.append(
                 f"Sub-iteration {j}: {sr_count} findings — re-fix failed"
             )
@@ -299,5 +303,19 @@ def _build_history_prompt(sr_history: str) -> str:
         "The following findings were flagged in previous sub-iterations "
         "and re-fix was already attempted.\n"
         "Do NOT repeat these same findings. Only flag NEW issues.\n\n"
+        + sr_history
+    )
+
+
+def _build_fix_history(sr_history: str) -> str:
+    """Build the FIX_HISTORY prompt section for re-fix attempts."""
+    if not sr_history:
+        return ""
+    return (
+        "\n## Previous Fix Attempts\n\n"
+        "Previous sub-iterations already attempted fixes for the findings below.\n"
+        "If the same or similar findings appear again, try a DIFFERENT approach "
+        "from what was done before.\n"
+        "Do not revert previous fixes unless they introduced new bugs.\n\n"
         + sr_history
     )

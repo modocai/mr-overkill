@@ -157,6 +157,7 @@ def _make_fixer(
             target_branch=config.target_branch,
             budget_scope=config.budget_scope,
             budget_max_wait=config.retry_max_wait,
+            fix_history=kw.get("fix_history", ""),
         )
 
     return fixer
@@ -187,7 +188,7 @@ def _make_self_reviewer(
         def fix_fn(
             review_json: str, label: str, **kw: Any
         ) -> bool:
-            return bool(fixer(review_json, label))
+            return bool(fixer(review_json, label, **kw))
 
         return self_review_subloop(
             pre_fix_snapshot=pre_fix_snapshot,
