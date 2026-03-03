@@ -160,6 +160,11 @@ def review_fix_loop(
     log_dir = config.log_dir
     log_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── Validate target branch (before any destructive operations) ───
+    if not _validate_target_branch(config.target_branch, cwd):
+        logger.error("Target branch '%s' does not exist.", config.target_branch)
+        return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+
     # ── Resume detection ─────────────────────────────────────────────
     resume_from = 1
     reuse_review = False
@@ -218,11 +223,6 @@ def review_fix_loop(
             "Use -n to set a higher max_loop or start a fresh run.",
             resume_from, config.max_loop,
         )
-        return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
-
-    # ── Validate target branch ────────────────────────────────────
-    if not _validate_target_branch(config.target_branch, cwd):
-        logger.error("Target branch '%s' does not exist.", config.target_branch)
         return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
 
     # ── Clean working tree check ────────────────────────────────────
