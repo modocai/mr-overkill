@@ -295,6 +295,9 @@ def parse_review_loop_args(
             "Please provide -n / --max-loop explicitly."
         )
 
+    if max_loop is not None and max_loop < 1:
+        parser.error("--max-loop must be a positive integer")
+
     return LoopConfig(
         current_branch=current_branch,
         target_branch=target,

@@ -472,6 +472,7 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     )
 
     # Create draft PR
+    pr_failed = False
     if create_pr and not config.dry_run and loop_result.final_status in {
         FinalStatus.MAX_ITERATIONS_REACHED,
         FinalStatus.ALL_CLEAR,
@@ -484,6 +485,7 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
             final_status=loop_result.final_status,
         ):
             logger.warning("Draft PR creation failed — refactor commits were saved successfully")
+            pr_failed = True
 
     logger.info("Done. Status: %s", loop_result.final_status)
 
@@ -492,4 +494,4 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
         FinalStatus.DRY_RUN,
         FinalStatus.MAX_ITERATIONS_REACHED,
     }
-    return 0 if loop_result.final_status in success else 1
+    return 0 if loop_result.final_status in success and not pr_failed else 1

@@ -401,13 +401,12 @@ def review_fix_loop(
             else:
                 logger.info("AUTO_COMMIT is disabled — skipping commit and push.")
         finally:
-            unstash_ok = _unstash_safe(allowed_stashed, cwd)
+            if not _unstash_safe(allowed_stashed, cwd):
+                final_status = FinalStatus.STASH_ERROR
+                iterations_run = i
+                allowed_stashed = False
+                break
             allowed_stashed = False
-
-        if not unstash_ok:
-            final_status = FinalStatus.STASH_ERROR
-            iterations_run = i
-            break
 
         # Stop after first iteration when auto-commit is off
         if not config.auto_commit:
