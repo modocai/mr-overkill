@@ -156,7 +156,7 @@ def resume_reset_worktree(cwd: Path | None = None) -> None:
     top = toplevel.stdout.strip()
     logger.info("Resetting partial edits from interrupted run...")
     _run(["git", "reset", "--quiet", "HEAD"], cwd=cwd)
-    result = _run(["git", "checkout", "--", top], cwd=cwd)
+    result = _run(["git", "checkout", "--", "."], cwd=Path(top))
     if result.returncode != 0:
         logger.warning("git checkout failed during resume reset.")
 
