@@ -57,6 +57,19 @@ def main() -> None:
             config, config.scope or "auto", create_pr=extra.create_pr,
         )
         if extra.with_review and exit_code == 0 and not config.dry_run:
+            import subprocess
+
+            ahead = subprocess.run(
+                ["git", "rev-list", "--count",
+                 f"{config.target_branch}..{config.current_branch}"],
+                capture_output=True, text=True, check=False,
+            )
+            if ahead.returncode != 0 or int(ahead.stdout.strip() or "0") == 0:
+                logging.getLogger(__name__).info(
+                    "No refactor commits — skipping chained review-loop.",
+                )
+                sys.exit(exit_code)
+
             from mr_overkill.cli import parse_review_loop_args
             from mr_overkill.review_loop import run as review_run
 

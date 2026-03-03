@@ -15,6 +15,11 @@ if [[ "${1:-}" == "--dev" ]]; then
   TARGET_DIR="${2:-.}"
 fi
 
+if [[ ! -d "$TARGET_DIR" ]]; then
+  echo "Error: target directory '$TARGET_DIR' does not exist." >&2
+  exit 1
+fi
+
 # ── Step 1: Install Python package ──────────────────────────────────
 if $DEV_MODE; then
   echo "Installing mr-overkill (editable, local checkout)..."
@@ -38,8 +43,4 @@ else
 fi
 
 # ── Step 2: Initialize project ──────────────────────────────────────
-if [[ ! -d "$TARGET_DIR" ]]; then
-  echo "Error: target directory '$TARGET_DIR' does not exist." >&2
-  exit 1
-fi
 mr-overkill init "$TARGET_DIR"
