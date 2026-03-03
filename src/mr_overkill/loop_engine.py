@@ -167,14 +167,6 @@ def review_fix_loop(
     if config.resume:
         state = detect_state(log_dir, commit_pattern, cwd=cwd)
 
-        # Already-completed runs can short-circuit without further validation
-        if state.status == "completed":
-            resolved_status = FinalStatus(state.prev_status or "max_iterations_reached")
-            return LoopResult(
-                final_status=resolved_status,
-                iterations_run=0,
-                summary_path=_generate_summary_safe(config, resolved_status),
-            )
         if state.status == "no_logs":
             logger.error("No previous logs found in %s. Nothing to resume.", log_dir)
             return LoopResult(
@@ -203,6 +195,15 @@ def review_fix_loop(
                 saved_target, config.target_branch,
             )
             return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+
+        # Already-completed runs can short-circuit after branch validation
+        if state.status == "completed":
+            resolved_status = FinalStatus(state.prev_status or "max_iterations_reached")
+            return LoopResult(
+                final_status=resolved_status,
+                iterations_run=0,
+                summary_path=_generate_summary_safe(config, resolved_status),
+            )
 
         resume_from = state.resume_from
         reuse_review = state.reuse_review

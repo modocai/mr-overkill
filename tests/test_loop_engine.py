@@ -290,6 +290,7 @@ class TestLoopEngineResume:
         (log_dir / "summary.md").write_text(
             "# Summary\n- **Final status**: all_clear\n"
         )
+        (log_dir / "branch.txt").write_text(config.current_branch)
 
         reviewer = MagicMock()
         fixer = MagicMock()

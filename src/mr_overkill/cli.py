@@ -139,15 +139,23 @@ def _int_from_rc(
 def _parse_budget_scope(
     raw: str,
     parser: argparse.ArgumentParser,
+    allowed: frozenset[BudgetScope] | None = None,
 ) -> BudgetScope:
     """Convert a string to BudgetScope, raising a clean CLI error on bad values."""
     try:
-        return BudgetScope(raw)
+        scope = BudgetScope(raw)
     except ValueError:
+        choices = allowed or frozenset(BudgetScope)
         parser.error(
             f"BUDGET_SCOPE must be one of: "
-            f"{', '.join(e.value for e in BudgetScope)}. Got {raw!r}"
+            f"{', '.join(e.value for e in choices)}. Got {raw!r}"
         )
+    if allowed and scope not in allowed:
+        parser.error(
+            f"BUDGET_SCOPE must be one of: "
+            f"{', '.join(e.value for e in allowed)}. Got {raw!r}"
+        )
+    return scope
 
 
 def parse_review_loop_args(
@@ -316,7 +324,10 @@ def parse_review_loop_args(
         resume=args.resume,
         retry_max_wait=retry_max_wait,
         retry_initial_wait=retry_initial_wait,
-        budget_scope=_parse_budget_scope(budget_scope_str, parser),
+        budget_scope=_parse_budget_scope(
+            budget_scope_str, parser,
+            allowed=frozenset({BudgetScope.MICRO, BudgetScope.MODULE}),
+        ),
         diagnostic_log=diagnostic_log,
         log_dir=log_dir,
         prompts_dir=prompts_dir,
@@ -548,7 +559,10 @@ def parse_refactor_suggest_args(
         auto_approve=auto_approve,
         retry_max_wait=retry_max_wait,
         retry_initial_wait=retry_initial_wait,
-        budget_scope=_parse_budget_scope(budget_scope_str, parser),
+        budget_scope=_parse_budget_scope(
+            budget_scope_str, parser,
+            allowed=frozenset({BudgetScope.MICRO, BudgetScope.MODULE}),
+        ),
         diagnostic_log=diagnostic_log,
         log_dir=log_dir,
         prompts_dir=prompts_dir,
