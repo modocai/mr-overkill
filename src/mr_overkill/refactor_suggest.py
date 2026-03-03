@@ -362,7 +362,7 @@ def _make_plan_confirm(scope: str):
                         order = step.get("order", "?")
                         desc = step.get("description", "")
                         files = step.get("files", [])
-                        files_str = ", ".join(files) if isinstance(files, list) else ""
+                        files_str = ", ".join(str(f) for f in files) if isinstance(files, list) else ""
                         print(f"    {order}. {desc} [{files_str}]")
             print()
 
