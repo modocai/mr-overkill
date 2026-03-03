@@ -134,7 +134,9 @@ def init_project(target_dir: Path) -> None:
     _ensure_gitignore(target_dir)
 
     n_prompts = len([e for e in manifest if e.startswith("prompts/")])
+    rl = _REVIEW_LOOP_DIR
     print(f"Initialized {dest}/")
-    print(f"  prompts:  {n_prompts} templates")
-    print("  configs:  .reviewlooprc, .refactorsuggestrc")
-    print("  logs:     logs/, logs/refactor/")
+    print(f"  {rl}/prompts/active/  {n_prompts} templates")
+    print(f"  {rl}/.reviewlooprc")
+    print(f"  {rl}/.refactorsuggestrc")
+    print(f"  {rl}/logs/")
