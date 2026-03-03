@@ -107,7 +107,13 @@ def _get_budget_status(tool: str) -> BudgetStatus:
 # ── Branch management ────────────────────────────────────────────────
 
 
-_ALLOWLISTED_FILES = [".gitignore", ".reviewlooprc", ".refactorsuggestrc"]
+_ALLOWLISTED_FILES = [
+    ".gitignore",
+    ".reviewlooprc",
+    ".refactorsuggestrc",
+    ".review-loop/.reviewlooprc",
+    ".review-loop/.refactorsuggestrc",
+]
 
 
 def create_refactor_branch(

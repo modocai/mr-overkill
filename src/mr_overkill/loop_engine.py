@@ -393,7 +393,13 @@ def review_fix_loop(
         # f. Stash allowlisted files
         try:
             allowed_stashed = stash_allowlisted(
-                [".gitignore", ".reviewlooprc", ".refactorsuggestrc"],
+                [
+                    ".gitignore",
+                    ".reviewlooprc",
+                    ".refactorsuggestrc",
+                    ".review-loop/.reviewlooprc",
+                    ".review-loop/.refactorsuggestrc",
+                ],
                 cwd=cwd,
             )
         except RuntimeError:
@@ -506,7 +512,13 @@ def _validate_target_branch(target: str, cwd: Path | None) -> bool:
 
 def _reject_dirty_worktree(cwd: Path | None) -> list[str]:
     """Return non-allowlisted dirty files, or empty list if clean."""
-    allowlisted = {".gitignore", ".reviewlooprc", ".refactorsuggestrc"}
+    allowlisted = {
+        ".gitignore",
+        ".reviewlooprc",
+        ".refactorsuggestrc",
+        ".review-loop/.reviewlooprc",
+        ".review-loop/.refactorsuggestrc",
+    }
     return [f for f in git_all_dirty(cwd) if f not in allowlisted]
 
 
