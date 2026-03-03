@@ -268,7 +268,14 @@ def review_fix_loop(
             continue
 
         # a. Check diff (skip on first iteration for refactor-created branches)
-        if _no_diff(config.target_branch, config.current_branch, cwd):
+        try:
+            no_diff = _no_diff(config.target_branch, config.current_branch, cwd)
+        except RuntimeError as exc:
+            logger.error("git diff check failed: %s", exc)
+            final_status = FinalStatus.REVIEW_FAILED
+            break
+
+        if no_diff:
             if i == 1 and config.skip_initial_no_diff:
                 logger.info("No diff on iteration 1 (expected for refactor branch).")
             else:
