@@ -215,10 +215,6 @@ def review_fix_loop(
         # Reset partial edits from interrupted run (non-dry-run only)
         if not config.dry_run:
             resume_reset_worktree(cwd=cwd)
-    else:
-        # Fresh run: clear stale iteration artifacts, then save metadata
-        _clean_stale_logs(log_dir)
-        _save_metadata(config, cwd)
 
     # ── Validate target branch (before any destructive operations) ───
     if not _validate_target_branch(config.target_branch, cwd):
@@ -248,6 +244,11 @@ def review_fix_loop(
             return LoopResult(
                 final_status=FinalStatus.REVIEW_FAILED, iterations_run=0,
             )
+
+    # ── Fresh-run cleanup (after all preflight checks pass) ───────
+    if not config.resume:
+        _clean_stale_logs(log_dir)
+        _save_metadata(config, cwd)
 
     # ── Main loop ────────────────────────────────────────────────────
     final_status = FinalStatus.MAX_ITERATIONS_REACHED
