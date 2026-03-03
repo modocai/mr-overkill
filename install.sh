@@ -38,4 +38,8 @@ else
 fi
 
 # ── Step 2: Initialize project ──────────────────────────────────────
+if [[ ! -d "$TARGET_DIR" ]]; then
+  echo "Error: target directory '$TARGET_DIR' does not exist." >&2
+  exit 1
+fi
 mr-overkill init "$TARGET_DIR"
