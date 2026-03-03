@@ -243,6 +243,8 @@ def parse_review_loop_args(
             else _int_from_rc(rc, "MAX_SUBLOOP", "4", parser)
         )
     )
+    if max_subloop < 0:
+        parser.error("--max-subloop must be non-negative")
 
     dry_run = _resolve_bool(args.dry_run, rc.get("DRY_RUN"), False)
     auto_commit = _resolve_bool(args.auto_commit, rc.get("AUTO_COMMIT"), True)
@@ -441,6 +443,8 @@ def parse_refactor_suggest_args(
             else _int_from_rc(rc, "MAX_SUBLOOP", "4", parser)
         )
     )
+    if max_subloop < 0:
+        parser.error("--max-subloop must be non-negative")
 
     dry_run = _resolve_bool(args.dry_run, rc.get("DRY_RUN"), False)
     create_pr = _resolve_bool(args.create_pr, rc.get("CREATE_PR"), False)
