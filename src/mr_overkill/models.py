@@ -1,4 +1,4 @@
-"""Shared data models and Protocol definitions for mr-overkill.
+"""Shared data models and Protocol definitions for overkill.
 
 All modules depend on this file; it depends on nothing else in the package.
 Protocols define DI contracts that enable parallel development of modules

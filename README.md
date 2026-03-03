@@ -21,17 +21,19 @@ This tool is designed to:
 ## Quick Install (If you dare)
 
 ```bash
-# Install into your project
-git clone --depth 1 https://github.com/modocai/mr-overkill.git /tmp/mr-overkill \
-  && /tmp/mr-overkill/install.sh /path/to/your-project \
-  && rm -rf /tmp/mr-overkill
+# Install the package
+pip install overkill          # or: uv tool install overkill / pipx install overkill
+
+# Initialize your project
+overkill init /path/to/your-project
 ```
 
-Or clone and install manually:
+Or use the convenience script from the source repo:
 
 ```bash
-git clone https://github.com/modocai/mr-overkill.git
-./mr-overkill/install.sh /path/to/your-project
+git clone --depth 1 https://github.com/modocai/mr-overkill.git /tmp/overkill \
+  && /tmp/overkill/install.sh /path/to/your-project \
+  && rm -rf /tmp/overkill
 ```
 
 ## :hammer_and_wrench: Prerequisites (The "Rich Dev" Starter Pack)
@@ -45,6 +47,7 @@ You need these to participate in the madness:
 
 **Runtime**:
 
+- [Python](https://www.python.org/) 3.12+ — for the `overkill` CLI
 - [Node.js](https://nodejs.org/) v18+ — Codex and Claude Code CLI are npm packages, so yes, you need this
 - A fast credit card — essential
 
@@ -61,26 +64,22 @@ npm install -g @anthropic-ai/claude-code  # Claude Code CLI
 - [perl](https://www.perl.org/) — used for JSON extraction and deduplication (pre-installed on macOS and most Linux)
 - git
 
-**Development** (for running tests):
-
-- [bats-core](https://github.com/bats-core/bats-core) — Bash Automated Testing System (`brew install bats-core`)
-
 ## Quick Start
 
 ```bash
 # In your project directory (after install):
 
 # Review loop — review and fix diffs against target branch
-.review-loop/bin/review-loop.sh -n 3
+overkill review-loop -n 3
 
 # Refactor suggest — analyze full codebase for refactoring opportunities
-.review-loop/bin/refactor-suggest.sh -n 1 --dry-run
+overkill refactor-suggest -n 1 --dry-run
 ```
 
-## Usage: review-loop.sh
+## Usage: overkill review-loop
 
 ```
-review-loop.sh [OPTIONS]
+overkill review-loop [OPTIONS]
 
 Options:
   -t, --target <branch>    Target branch to diff against (default: develop)
@@ -90,24 +89,22 @@ Options:
   --dry-run                Run review only, do not fix
   --no-auto-commit         Fix but do not commit/push (single iteration)
   --resume                 Resume from a previously interrupted run (reuses existing logs)
-  -V, --version            Show version
-  -h, --help               Show this help message
+  --diagnostic-log         Save full Claude event stream to sidecar files
 
 Examples:
-  review-loop.sh -t main -n 3          # diff against main, max 3 loops
-  review-loop.sh -n 5                  # diff against develop, max 5 loops
-  review-loop.sh -n 1 --dry-run        # single review, no fixes
-  review-loop.sh -n 3 --no-self-review # disable self-review sub-loop
-  review-loop.sh --resume              # resume an interrupted run
-  review-loop.sh --version             # print version
+  overkill review-loop -t main -n 3          # diff against main, max 3 loops
+  overkill review-loop -n 5                  # diff against develop, max 5 loops
+  overkill review-loop -n 1 --dry-run        # single review, no fixes
+  overkill review-loop -n 3 --no-self-review # disable self-review sub-loop
+  overkill review-loop --resume              # resume an interrupted run
 ```
 
-## Usage: refactor-suggest.sh
+## Usage: overkill refactor-suggest
 
-Unlike `review-loop.sh` which reviews diffs, `refactor-suggest.sh` analyzes the **entire codebase** for refactoring opportunities at a chosen scope level.
+Unlike `review-loop` which reviews diffs, `refactor-suggest` analyzes the **entire codebase** for refactoring opportunities at a chosen scope level.
 
 ```
-refactor-suggest.sh [OPTIONS]
+overkill refactor-suggest [OPTIONS]
 
 Options:
   --scope <scope>          Refactoring scope: auto|micro|module|layer|full (default: auto)
@@ -122,17 +119,36 @@ Options:
   --resume                 Resume from a previously interrupted run (reuses existing logs)
   --with-review            Run review-loop after PR creation (default: 4 iterations)
   --with-review-loops <N>  Set review-loop iteration count (implies --with-review)
-  -V, --version            Show version
-  -h, --help               Show this help message
+  --diagnostic-log         Save full Claude event stream to sidecar files
 
 Examples:
-  refactor-suggest.sh -n 3                             # auto scope (budget-aware)
-  refactor-suggest.sh --scope micro -n 3               # function/file-level fixes
-  refactor-suggest.sh --scope module -n 2 --dry-run    # analyze module duplication
-  refactor-suggest.sh --scope layer -n 1 --auto-approve  # cross-cutting concerns
-  refactor-suggest.sh --scope full -n 1 --create-pr    # architecture redesign + PR
-  refactor-suggest.sh -n 2 --with-review               # auto scope + auto review
-  refactor-suggest.sh --scope module -n 3 --with-review-loops 6 # custom review iterations
+  overkill refactor-suggest -n 3                             # auto scope (budget-aware)
+  overkill refactor-suggest --scope micro -n 3               # function/file-level fixes
+  overkill refactor-suggest --scope module -n 2 --dry-run    # analyze module duplication
+  overkill refactor-suggest --scope layer -n 1 --auto-approve  # cross-cutting concerns
+  overkill refactor-suggest --scope full -n 1 --create-pr    # architecture redesign + PR
+  overkill refactor-suggest -n 2 --with-review               # auto scope + auto review
+  overkill refactor-suggest --scope module -n 3 --with-review-loops 6 # custom review
+```
+
+## Usage: overkill init
+
+Initialize `.review-loop/` in a project directory. Safe to re-run — prompts are refreshed, user-edited configs are preserved.
+
+```
+overkill init [TARGET_DIR]   # default: current directory
+```
+
+Creates:
+
+```
+.review-loop/
+├── prompts/active/          # 10 prompt templates
+├── .reviewlooprc            # review-loop config
+├── .refactorsuggestrc       # refactor-suggest config
+├── logs/                    # runtime logs
+│   └── refactor/            # refactor-suggest logs
+└── .install-manifest        # tracks tool-owned files
 ```
 
 ### Scopes
@@ -163,12 +179,11 @@ Recommended workflow: start with `--dry-run` to review findings, then re-run wit
 
 ## Configuration
 
-### .reviewlooprc
+After running `overkill init`, config files live in `.review-loop/`:
 
-Create a `.reviewlooprc` file in your project root to set defaults for `review-loop.sh`. CLI arguments always take precedence.
+### .review-loop/.reviewlooprc
 
 ```bash
-# .reviewlooprc
 TARGET_BRANCH="main"
 MAX_LOOP=5
 MAX_SUBLOOP=4
@@ -176,14 +191,11 @@ AUTO_COMMIT=true
 PROMPTS_DIR="./custom-prompts"
 ```
 
-See `.review-loop/.reviewlooprc.example` for all available options.
+See `.review-loop/.reviewlooprc` for all available options.
 
-### .refactorsuggestrc
-
-Create a `.refactorsuggestrc` file in your project root to set defaults for `refactor-suggest.sh`.
+### .review-loop/.refactorsuggestrc
 
 ```bash
-# .refactorsuggestrc
 SCOPE="auto"
 TARGET_BRANCH="develop"
 MAX_LOOP=3
@@ -221,9 +233,9 @@ PROMPTS_DIR="./custom-prompts"
 
 ## Output Files
 
-All logs are git-ignored by default.
+All logs are git-ignored by default (inside `.review-loop/`).
 
-### review-loop logs (`logs/`)
+### review-loop logs (`.review-loop/logs/`)
 
 | File | Description |
 |------|-------------|
@@ -235,7 +247,7 @@ All logs are git-ignored by default.
 | `refix-N-M.md` | Claude re-fix log (iteration N, sub-iteration M) |
 | `summary.md` | Final summary with status and per-iteration results |
 
-### refactor-suggest logs (`logs/refactor/`)
+### refactor-suggest logs (`.review-loop/logs/refactor/`)
 
 | File | Description |
 |------|-------------|
@@ -250,21 +262,9 @@ All logs are git-ignored by default.
 
 ## Token Budget Checker
 
-`bin/lib/check-claude-limit.sh` checks Claude Code's 5-hour rate limit **before** starting expensive loops. It can be sourced as a library or run standalone.
-
-```bash
-# Standalone — human-readable summary
-.review-loop/bin/lib/check-claude-limit.sh
-
-# Library — source and call functions
-source .review-loop/bin/lib/check-claude-limit.sh
-_check_claude_token_budget          # JSON to stdout
-_claude_budget_sufficient module     # exit 0 = go, exit 1 = no-go
-```
+The budget checker verifies Claude Code's 5-hour rate limit **before** starting expensive loops.
 
 ### How it estimates usage
-
-The checker tries two methods in order:
 
 | Mode | Data source | Accuracy |
 |------|-------------|----------|
@@ -286,7 +286,7 @@ Go/no-go decision based on current usage percentage:
 
 ## Customizing Prompts
 
-Edit the templates in `.review-loop/prompts/active/` (or `prompts/active/` in the source repo).
+Edit the templates in `.review-loop/prompts/active/`.
 
 ### review-loop prompts
 
@@ -337,10 +337,8 @@ The loop terminates when any of these occur:
 # Quick — just nuke the directory
 rm -rf .review-loop
 
-# Thorough — also cleans up .gitignore entries (requires source repo)
-git clone --depth 1 https://github.com/modocai/mr-overkill.git /tmp/mr-overkill \
-  && /tmp/mr-overkill/uninstall.sh /path/to/your-project \
-  && rm -rf /tmp/mr-overkill
+# Also remove the Python package
+pip uninstall overkill       # or: uv tool uninstall overkill / pipx uninstall overkill
 ```
 
 ## Contributing
@@ -349,23 +347,29 @@ git clone --depth 1 https://github.com/modocai/mr-overkill.git /tmp/mr-overkill 
 2. Create a feature branch (`git checkout -b feat/my-feature`)
 3. Commit your changes
 4. Open a Pull Request against `develop`
-5. Run `bats test/` to verify all tests pass
-6. Run `review-loop.sh -n 3 --dry-run` on your PR branch — **required**. Let Mr. Overkill review your code before a human ever sees it. Even one line of documentation or a comment deserves a review. We eat our own dog food.
+5. Run `overkill review-loop -n 3 --dry-run` on your PR branch — **required**. Let Mr. Overkill review your code before a human ever sees it.
+
+## Development
+
+```bash
+git clone https://github.com/modocai/mr-overkill.git
+cd mr-overkill
+uv sync                      # install dev dependencies
+uv run pytest                # run tests
+uv run ruff check src/ tests/
+uv run mypy src/
+```
 
 ## Testing
 
-Tests use [bats-core](https://github.com/bats-core/bats-core) (Bash Automated Testing System).
-
 ```bash
-brew install bats-core   # one-time setup
-bats test/               # run all tests
-bats test/refactor-suggest.bats  # run a specific file
-```
+# Python tests
+uv run pytest --tb=short
 
-Tests are grouped by dependency:
-- **A (Help/Usage)** and **B (Validation)** — no external tools required, always run
-- **C (RC file)** — uses a temporary git repo, no external tools
-- **D (Dry-run integration)** — requires `jq`, `envsubst`, `perl`; auto-skipped if missing
+# Bash integration tests (requires bats-core)
+brew install bats-core       # one-time setup
+bats test/                   # run all tests
+```
 
 ## License
 

@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for mr-overkill tests."""
+"""Shared pytest fixtures for overkill tests."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""CLI argument parsing for mr-overkill entry points.
+"""CLI argument parsing for overkill entry points.
 
 Provides shared argument parsing for review-loop and refactor-suggest,
 mirroring the CLI interface of the bash scripts.
