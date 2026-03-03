@@ -207,7 +207,9 @@ def commit_and_push(
     Returns ``True`` if a commit was made, ``False`` if nothing to commit.
     Raises ``RuntimeError`` if ``git commit`` or ``git push`` fails.
     """
-    changed = changed_files_since_snapshot(snapshot, cwd=cwd)
+    changed = changed_files_since_snapshot(
+        snapshot, cwd=cwd, exclude_prefix=".review-loop/logs/",
+    )
     if not changed:
         logger.info("No file changes after fix — nothing to commit.")
         return False

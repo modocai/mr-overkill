@@ -87,7 +87,8 @@ def self_review_subloop(
     for j in range(1, max_subloop + 1):
         # Check if fix produced changes
         changed = changed_files_since_snapshot(
-            pre_fix_snapshot, cwd=cwd
+            pre_fix_snapshot, cwd=cwd,
+            exclude_prefix=".review-loop/logs/",
         )
         if not changed:
             logger.info("No working tree changes from fix — skipping self-review.")
