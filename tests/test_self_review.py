@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from mr_overkill.models import WorktreeSnapshot
 from mr_overkill.self_review import (
+    _build_fix_nits_guidelines,
     _compute_fingerprint,
     self_review_subloop,
 )
@@ -18,6 +19,7 @@ def _make_prompts(tmp_path: Path) -> Path:
     prompts.mkdir()
     (prompts / "claude-self-review.prompt.md").write_text(
         "Review: $REVIEW_JSON\nDiff: $DIFF_FILE\n"
+        "$EXTRA_REVIEW_GUIDELINES\n"
         "$SELF_REVIEW_HISTORY"
     )
     return prompts
@@ -331,3 +333,120 @@ class TestSelfReviewBudgetTimeout:
         )
 
         assert result == ""  # No sub-iterations completed
+
+
+class TestFixNitsGuidelines:
+    def test_fix_nits_true_injects_guidelines(self) -> None:
+        text = _build_fix_nits_guidelines()
+        assert "Fix nits and potential issues" in text
+        assert "Strict correctness in fix-nits mode" in text
+        assert "patch is incorrect" in text
+
+    @patch("mr_overkill.self_review._generate_diff")
+    @patch(
+        "mr_overkill.self_review.changed_files_since_snapshot",
+        return_value=["src/foo.py"],
+    )
+    def test_fix_nits_prompt_injection(
+        self,
+        mock_changed: MagicMock,
+        mock_diff: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """fix_nits=True should populate EXTRA_REVIEW_GUIDELINES in prompt."""
+        prompts = _make_prompts(tmp_path)
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        def write_diff(
+            changed: list[str], output: Path, cwd: Path | None
+        ) -> None:
+            output.write_text("diff --git a/foo b/foo\n")
+
+        mock_diff.side_effect = write_diff
+
+        captured_prompt: list[str] = []
+
+        def fake_retry(
+            output_path: Path, label: str, cmd_args: list[str], **kw: object
+        ) -> bool:
+            captured_prompt.append(str(kw.get("stdin", "")))
+            output_path.write_text(
+                json.dumps({
+                    "findings": [],
+                    "overall_correctness": "patch is correct",
+                })
+            )
+            return True
+
+        self_review_subloop(
+            pre_fix_snapshot=_make_snapshot(),
+            max_subloop=4,
+            log_dir=log_dir,
+            iteration=1,
+            review_json_str="{}",
+            retry_fn=fake_retry,
+            budget_fn=MagicMock(return_value=True),
+            fix_fn=MagicMock(),
+            prompts_dir=prompts,
+            current_branch="feat/x",
+            target_branch="develop",
+            fix_nits=True,
+        )
+
+        assert len(captured_prompt) == 1
+        assert "Fix nits and potential issues" in captured_prompt[0]
+
+    @patch("mr_overkill.self_review._generate_diff")
+    @patch(
+        "mr_overkill.self_review.changed_files_since_snapshot",
+        return_value=["src/foo.py"],
+    )
+    def test_fix_nits_false_empty_guidelines(
+        self,
+        mock_changed: MagicMock,
+        mock_diff: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """fix_nits=False (default) should leave EXTRA_REVIEW_GUIDELINES empty."""
+        prompts = _make_prompts(tmp_path)
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        def write_diff(
+            changed: list[str], output: Path, cwd: Path | None
+        ) -> None:
+            output.write_text("diff --git a/foo b/foo\n")
+
+        mock_diff.side_effect = write_diff
+
+        captured_prompt: list[str] = []
+
+        def fake_retry(
+            output_path: Path, label: str, cmd_args: list[str], **kw: object
+        ) -> bool:
+            captured_prompt.append(str(kw.get("stdin", "")))
+            output_path.write_text(
+                json.dumps({
+                    "findings": [],
+                    "overall_correctness": "patch is correct",
+                })
+            )
+            return True
+
+        self_review_subloop(
+            pre_fix_snapshot=_make_snapshot(),
+            max_subloop=4,
+            log_dir=log_dir,
+            iteration=1,
+            review_json_str="{}",
+            retry_fn=fake_retry,
+            budget_fn=MagicMock(return_value=True),
+            fix_fn=MagicMock(),
+            prompts_dir=prompts,
+            current_branch="feat/x",
+            target_branch="develop",
+        )
+
+        assert len(captured_prompt) == 1
+        assert "Fix nits" not in captured_prompt[0]

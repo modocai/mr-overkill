@@ -150,6 +150,7 @@ class LoopConfig:
 
     # Behaviour flags
     dry_run: bool = False
+    fix_nits: bool = False
     auto_commit: bool = True
     resume: bool = False
     auto_approve: bool = False

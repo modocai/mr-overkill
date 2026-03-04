@@ -79,11 +79,11 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "AUTO_COMMIT", "PROMPTS_DIR", "RETRY_MAX_WAIT",
         "RETRY_INITIAL_WAIT", "BUDGET_SCOPE", "DIAGNOSTIC_LOG",
         "SCOPE", "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
-        "REVIEW_LOOPS",
+        "REVIEW_LOOPS", "FIX_NITS",
     }
     boolean_keys = {
         "DRY_RUN", "AUTO_COMMIT", "DIAGNOSTIC_LOG",
-        "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
+        "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW", "FIX_NITS",
     }
     kv_re = re.compile(
         r"^\s*(\w+)=[\"']?([^\"']*)[\"']?\s*$"
@@ -229,6 +229,12 @@ def parse_review_loop_args(
         help="Resume from a previously interrupted run",
     )
     parser.add_argument(
+        "--fix-nits",
+        action="store_true",
+        default=None,
+        help="Also flag nits and style issues during self-review",
+    )
+    parser.add_argument(
         "--diagnostic-log",
         action="store_true",
         help="Save full event stream to sidecar files",
@@ -262,6 +268,7 @@ def parse_review_loop_args(
 
     dry_run = _resolve_bool(args.dry_run, rc.get("DRY_RUN"), False)
     auto_commit = _resolve_bool(args.auto_commit, rc.get("AUTO_COMMIT"), True)
+    fix_nits = _resolve_bool(args.fix_nits, rc.get("FIX_NITS"), False)
     diagnostic_log = args.diagnostic_log or rc.get(
         "DIAGNOSTIC_LOG", "false"
     ) == "true"
@@ -318,6 +325,7 @@ def parse_review_loop_args(
         max_loop=max_loop or 1,
         max_subloop=max_subloop,
         dry_run=dry_run,
+        fix_nits=fix_nits,
         auto_commit=auto_commit,
         resume=args.resume,
         retry_max_wait=retry_max_wait,
@@ -419,6 +427,12 @@ def parse_refactor_suggest_args(
         help="Skip interactive confirmation for layer/full scope",
     )
     parser.add_argument(
+        "--fix-nits",
+        action="store_true",
+        default=None,
+        help="Also flag nits and style issues during self-review",
+    )
+    parser.add_argument(
         "--diagnostic-log",
         action="store_true",
         help="Save full event stream to sidecar files",
@@ -467,6 +481,7 @@ def parse_refactor_suggest_args(
         parser.error("--max-subloop must be non-negative")
 
     dry_run = _resolve_bool(args.dry_run, rc.get("DRY_RUN"), False)
+    fix_nits = _resolve_bool(args.fix_nits, rc.get("FIX_NITS"), False)
     create_pr = _resolve_bool(args.create_pr, rc.get("CREATE_PR"), False)
     auto_approve = args.auto_approve or rc.get(
         "AUTO_APPROVE", "false"
@@ -552,6 +567,7 @@ def parse_refactor_suggest_args(
         max_loop=max_loop or 1,
         max_subloop=max_subloop,
         dry_run=dry_run,
+        fix_nits=fix_nits,
         auto_commit=True,
         resume=args.resume,
         auto_approve=auto_approve,

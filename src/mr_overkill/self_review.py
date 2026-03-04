@@ -43,6 +43,7 @@ def self_review_subloop(
     target_branch: str,
     budget_scope: BudgetScope = BudgetScope.MICRO,
     dry_run: bool = False,
+    fix_nits: bool = False,
     original_review_json: dict[str, object] | None = None,
     cwd: Path | None = None,
 ) -> str:
@@ -123,13 +124,14 @@ def self_review_subloop(
             )
             break
 
+        extra_guidelines = _build_fix_nits_guidelines() if fix_nits else ""
         prompt_vars = {
             "CURRENT_BRANCH": current_branch,
             "TARGET_BRANCH": target_branch,
             "ITERATION": str(iteration),
             "REVIEW_JSON": review_json_str,
             "DIFF_FILE": str(diff_file),
-            "EXTRA_REVIEW_GUIDELINES": "",
+            "EXTRA_REVIEW_GUIDELINES": extra_guidelines,
             "SELF_REVIEW_HISTORY": _build_history_prompt(sr_history),
         }
         tmpl = string.Template(
@@ -304,6 +306,27 @@ def _build_history_prompt(sr_history: str) -> str:
         "and re-fix was already attempted.\n"
         "Do NOT repeat these same findings. Only flag NEW issues.\n\n"
         + sr_history
+    )
+
+
+def _build_fix_nits_guidelines() -> str:
+    """Return extra review guidelines for --fix-nits mode."""
+    return (
+        "6. **Fix nits and potential issues**: Beyond verifying"
+        " the original fixes, also flag:\n"
+        "   - Style inconsistencies in the changed code"
+        " (naming, formatting)\n"
+        "   - Potential edge cases or error handling gaps\n"
+        "   - Minor improvements that are low-risk and"
+        " localized to the changed files\n"
+        "   - Do NOT flag issues in unchanged code"
+        " — only in files touched by the diff\n"
+        "7. **Strict correctness in fix-nits mode**: When any"
+        " finding remains (including nits and style issues),"
+        " you MUST set `overall_correctness` "
+        'to `"patch is incorrect"`. Only return '
+        '`"patch is correct"` when there '
+        "are truly zero findings."
     )
 
 
