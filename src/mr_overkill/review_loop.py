@@ -203,6 +203,8 @@ def _make_self_reviewer(
             current_branch=config.current_branch,
             target_branch=config.target_branch,
             budget_scope=config.budget_scope,
+            dry_run=config.dry_run,
+            fix_nits=config.fix_nits,
             original_review_json=json.loads(review_json_str),
         )
 

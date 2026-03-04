@@ -26,7 +26,8 @@ def main() -> None:
             "Commands:\n"
             "  init              Initialize .review-loop/ in a project\n"
             "  review-loop       Run AI review-fix loop\n"
-            "  refactor-suggest  Run AI refactoring suggestions",
+            "  refactor-suggest  Run AI refactoring suggestions\n"
+            "  check-budget      Show token budget usage summary",
             file=sys.stderr,
         )
         sys.exit(0 if len(sys.argv) >= 2 else 1)
@@ -90,6 +91,21 @@ def main() -> None:
             ])
             exit_code = review_run(review_config)
         sys.exit(exit_code)
+    elif command == "check-budget":
+        import argparse
+
+        from mr_overkill.budget_report import print_budget_report
+
+        p = argparse.ArgumentParser(
+            prog="overkill check-budget",
+            description="Show token budget usage summary",
+        )
+        p.add_argument(
+            "--json", action="store_true", dest="json_mode",
+            help="Output machine-readable JSON",
+        )
+        budget_args = p.parse_args()
+        sys.exit(print_budget_report(json_mode=budget_args.json_mode))
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
         sys.exit(1)
