@@ -22,6 +22,11 @@ _THRESHOLDS: dict[BudgetScope, int | None] = {
 }
 
 
+def has_threshold(scope: BudgetScope) -> bool:
+    """Return True if *scope* has a defined go/no-go threshold."""
+    return _THRESHOLDS.get(scope) is not None
+
+
 def budget_sufficient(scope: BudgetScope, status: BudgetStatus) -> bool:
     """Go/no-go decision based on usage thresholds.
 
