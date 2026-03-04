@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from mr_overkill.models import WorktreeSnapshot
 from mr_overkill.self_review import (
-    _build_fix_nits_guidelines,
+    _FIX_NITS_GUIDELINES,
     _compute_fingerprint,
     self_review_subloop,
 )
@@ -336,11 +336,10 @@ class TestSelfReviewBudgetTimeout:
 
 
 class TestFixNitsGuidelines:
-    def test_fix_nits_true_injects_guidelines(self) -> None:
-        text = _build_fix_nits_guidelines()
-        assert "Fix nits and potential issues" in text
-        assert "Strict correctness in fix-nits mode" in text
-        assert "patch is incorrect" in text
+    def test_fix_nits_guidelines_content(self) -> None:
+        assert "Fix nits and potential issues" in _FIX_NITS_GUIDELINES
+        assert "Strict correctness in fix-nits mode" in _FIX_NITS_GUIDELINES
+        assert "patch is incorrect" in _FIX_NITS_GUIDELINES
 
     @patch("mr_overkill.self_review._generate_diff")
     @patch(

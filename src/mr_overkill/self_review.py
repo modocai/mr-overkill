@@ -124,7 +124,7 @@ def self_review_subloop(
             )
             break
 
-        extra_guidelines = _build_fix_nits_guidelines() if fix_nits else ""
+        extra_guidelines = _FIX_NITS_GUIDELINES if fix_nits else ""
         prompt_vars = {
             "CURRENT_BRANCH": current_branch,
             "TARGET_BRANCH": target_branch,
@@ -309,25 +309,17 @@ def _build_history_prompt(sr_history: str) -> str:
     )
 
 
-def _build_fix_nits_guidelines() -> str:
-    """Return extra review guidelines for --fix-nits mode."""
-    return (
-        "6. **Fix nits and potential issues**: Beyond verifying"
-        " the original fixes, also flag:\n"
-        "   - Style inconsistencies in the changed code"
-        " (naming, formatting)\n"
-        "   - Potential edge cases or error handling gaps\n"
-        "   - Minor improvements that are low-risk and"
-        " localized to the changed files\n"
-        "   - Do NOT flag issues in unchanged code"
-        " — only in files touched by the diff\n"
-        "7. **Strict correctness in fix-nits mode**: When any"
-        " finding remains (including nits and style issues),"
-        " you MUST set `overall_correctness` "
-        'to `"patch is incorrect"`. Only return '
-        '`"patch is correct"` when there '
-        "are truly zero findings."
-    )
+_FIX_NITS_GUIDELINES = """\
+6. **Fix nits and potential issues**: Beyond verifying \
+the original fixes, also flag:
+   - Style inconsistencies in the changed code (naming, formatting)
+   - Potential edge cases or error handling gaps
+   - Minor improvements that are low-risk and localized to the changed files
+   - Do NOT flag issues in unchanged code — only in files touched by the diff
+7. **Strict correctness in fix-nits mode**: When any finding remains \
+(including nits and style issues), you MUST set `overall_correctness` \
+to `"patch is incorrect"`. Only return `"patch is correct"` when there \
+are truly zero findings."""
 
 
 def _build_fix_history(sr_history: str) -> str:
