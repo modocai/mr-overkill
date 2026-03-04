@@ -6,7 +6,7 @@ import json
 import sys
 from dataclasses import asdict
 
-from mr_overkill.budget import _THRESHOLDS, budget_sufficient
+from mr_overkill.budget import budget_sufficient
 from mr_overkill.budget.claude import check_token_budget as claude_check
 from mr_overkill.budget.codex import check_token_budget as codex_check
 from mr_overkill.models import BudgetScope, BudgetStatus
@@ -67,12 +67,8 @@ def _print_scope_table(claude_st: BudgetStatus, codex_st: BudgetStatus) -> None:
         BudgetScope.LAYER, BudgetScope.FULL,
     )
     for scope in scopes:
-        if _THRESHOLDS.get(scope) is None:
-            c_label = "—"
-            x_label = "—"
-        else:
-            c_label = "GO" if budget_sufficient(scope, claude_st) else "NOGO"
-            x_label = "GO" if budget_sufficient(scope, codex_st) else "NOGO"
+        c_label = "GO" if budget_sufficient(scope, claude_st) else "NOGO"
+        x_label = "GO" if budget_sufficient(scope, codex_st) else "NOGO"
         print(f"  {scope.value:<8} {c_label:<7} {x_label}")
 
 
