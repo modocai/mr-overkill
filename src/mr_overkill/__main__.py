@@ -92,10 +92,20 @@ def main() -> None:
             exit_code = review_run(review_config)
         sys.exit(exit_code)
     elif command == "check-budget":
+        import argparse
+
         from mr_overkill.budget_report import print_budget_report
 
-        json_mode = "--json" in sys.argv
-        sys.exit(print_budget_report(json_mode=json_mode))
+        p = argparse.ArgumentParser(
+            prog="overkill check-budget",
+            description="Show token budget usage summary",
+        )
+        p.add_argument(
+            "--json", action="store_true", dest="json_mode",
+            help="Output machine-readable JSON",
+        )
+        budget_args = p.parse_args()
+        sys.exit(print_budget_report(json_mode=budget_args.json_mode))
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
         sys.exit(1)
