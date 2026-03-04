@@ -47,31 +47,44 @@ def detect_tier(telemetry_dir: Path | None = None) -> str:
 
     for f in telemetry_dir.glob("*.json"):
         try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+            text = f.read_text(encoding="utf-8")
+        except OSError:
             continue
 
-        event_data = data.get("event_data")
-        if not isinstance(event_data, dict):
-            continue
-
-        ua = event_data.get("user_attributes")
-        if isinstance(ua, str):
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
             try:
-                ua = json.loads(ua)
+                data = json.loads(line)
             except json.JSONDecodeError:
                 continue
-        if not isinstance(ua, dict):
-            continue
 
-        tier_raw = ua.get("rateLimitTier", "")
-        if not tier_raw:
-            continue
+            event_data = data.get("event_data")
+            if not isinstance(event_data, dict):
+                continue
 
-        ts = event_data.get("client_timestamp") or event_data.get("timestamp") or ""
-        if ts >= best_ts:
-            best_ts = ts
-            best_tier = str(tier_raw)
+            ua = event_data.get("user_attributes")
+            if isinstance(ua, str):
+                try:
+                    ua = json.loads(ua)
+                except json.JSONDecodeError:
+                    continue
+            if not isinstance(ua, dict):
+                continue
+
+            tier_raw = ua.get("rateLimitTier", "")
+            if not tier_raw:
+                continue
+
+            ts = (
+                event_data.get("client_timestamp")
+                or event_data.get("timestamp")
+                or ""
+            )
+            if ts >= best_ts:
+                best_ts = ts
+                best_tier = str(tier_raw)
 
     return _TIER_MAP.get(best_tier, "pro")
 
