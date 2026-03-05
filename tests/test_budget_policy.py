@@ -129,7 +129,7 @@ class TestSumUsage:
 
     def test_cache_read_weighted(self) -> None:
         usage = {"input_tokens": 0, "cache_read_input_tokens": 1000}
-        assert _sum_usage(usage) == 100  # 1000 * 0.1
+        assert _sum_usage(usage) == 80  # 1000 * 0.08
 
     def test_all_fields(self) -> None:
         usage = {
@@ -138,8 +138,8 @@ class TestSumUsage:
             "cache_creation_input_tokens": 400,
             "cache_read_input_tokens": 10000,
         }
-        # 100 + 200 + 400*0.25 + 10000*0.1 = 100+200+100+1000 = 1400
-        assert _sum_usage(usage) == 1400
+        # 100 + 200 + 400*0.25 + 10000*0.08 = 100+200+100+800 = 1200
+        assert _sum_usage(usage) == 1200
 
     def test_empty_usage(self) -> None:
         assert _sum_usage({}) == 0
