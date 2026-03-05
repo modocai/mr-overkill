@@ -81,6 +81,8 @@ def detect_tier(telemetry_dir: Path | None = None) -> str:
                     continue
 
         for data in entries:
+            if not isinstance(data, dict):
+                continue
             event_data = data.get("event_data")
             if not isinstance(event_data, dict):
                 continue
@@ -274,9 +276,10 @@ def _load_cache() -> BudgetStatus | None:
     try:
         data = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
         resets_at = data.get("resets_at")
-        if resets_at:
-            if datetime.now(tz=UTC) > datetime.fromisoformat(resets_at):
-                return None
+        if not resets_at:
+            return None
+        if datetime.now(tz=UTC) > datetime.fromisoformat(resets_at):
+            return None
         data["mode"] = "cached"
         data["estimated"] = True
         return BudgetStatus(**data)
