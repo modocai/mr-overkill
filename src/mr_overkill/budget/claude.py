@@ -19,17 +19,18 @@ from mr_overkill.models import BudgetScope, BudgetStatus
 
 logger = logging.getLogger(__name__)
 
-def _sum_usage(usage: dict[str, int]) -> int:
+def _sum_usage(usage: dict[str, int]) -> float:
     """Sum token usage with approximate rate-limit weights.
 
     Anthropic rate limits weight cache tokens differently:
     cache_creation ~0.25x, cache_read ~0.08x of full token cost.
+    Returns float to avoid per-entry truncation; caller should round once.
     """
     return (
         usage.get("input_tokens", 0)
         + usage.get("output_tokens", 0)
-        + int(usage.get("cache_creation_input_tokens", 0) * 0.25)
-        + int(usage.get("cache_read_input_tokens", 0) * 0.08)
+        + usage.get("cache_creation_input_tokens", 0) * 0.25
+        + usage.get("cache_read_input_tokens", 0) * 0.08
     )
 
 
@@ -197,7 +198,7 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
     cutoff = datetime.now(tz=UTC) - timedelta(hours=5)
 
     # Find JSONL files modified in the last 5 hours
-    total_tokens = 0
+    total_tokens: float = 0
     seen_ids: dict[str, dict[str, int]] = {}  # message_id → usage dict
 
     if projects_dir.is_dir():
@@ -240,12 +241,12 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
     for usage in seen_ids.values():
         total_tokens += _sum_usage(usage)
 
-    pct = (total_tokens * 100 // limit) if total_tokens > 0 and limit > 0 else 0
+    pct = (int(total_tokens) * 100 // limit) if total_tokens > 0 and limit > 0 else 0
 
     return BudgetStatus(
         five_hour_used_pct=pct,
         seven_day_used_pct=None,
-        tokens_used=total_tokens,
+        tokens_used=int(total_tokens),
         mode="local",
         tier=tier,
         resets_at=None,
