@@ -267,16 +267,21 @@ def _generate_diff(
         output.write_text("")
         return
 
+    pathspec = "\n".join(changed_files)
+
     # Stage untracked as intent-to-add so git diff can see them
     subprocess.run(
-        ["git", "add", "--intent-to-add", "--", *changed_files],
+        ["git", "add", "--intent-to-add", "--pathspec-from-file=-"],
+        input=pathspec,
         cwd=cwd,
         capture_output=True,
+        text=True,
         check=False,
     )
 
     result = subprocess.run(
-        ["git", "diff", "HEAD", "--", *changed_files],
+        ["git", "diff", "HEAD", "--pathspec-from-file=-"],
+        input=pathspec,
         cwd=cwd,
         capture_output=True,
         text=True,
@@ -286,9 +291,11 @@ def _generate_diff(
 
     # Undo intent-to-add
     subprocess.run(
-        ["git", "reset", "--quiet", "--", *changed_files],
+        ["git", "reset", "--quiet", "--pathspec-from-file=-"],
+        input=pathspec,
         cwd=cwd,
         capture_output=True,
+        text=True,
         check=False,
     )
 
