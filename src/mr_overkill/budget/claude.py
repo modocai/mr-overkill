@@ -24,12 +24,11 @@ _CACHE_READ_WEIGHT = 0.1
 
 
 def _sum_usage(usage: dict[str, int]) -> int:
-    """Sum token usage with discounted cache-read weight."""
+    """Sum token usage excluding cache-read (discounted separately)."""
     return (
         usage.get("input_tokens", 0)
         + usage.get("output_tokens", 0)
         + usage.get("cache_creation_input_tokens", 0)
-        + round(usage.get("cache_read_input_tokens", 0) * _CACHE_READ_WEIGHT)
     )
 
 
@@ -198,6 +197,7 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
 
     # Find JSONL files modified in the last 5 hours
     total_tokens = 0
+    total_cache_read = 0
     seen_ids: dict[str, dict[str, int]] = {}  # message_id → usage dict
 
     if projects_dir.is_dir():
@@ -233,13 +233,16 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
                         seen_ids[msg_id] = usage
                     else:
                         total_tokens += _sum_usage(usage)
+                        total_cache_read += usage.get("cache_read_input_tokens", 0)
             except OSError:
                 continue
 
     # Sum deduplicated usage
     for usage in seen_ids.values():
         total_tokens += _sum_usage(usage)
+        total_cache_read += usage.get("cache_read_input_tokens", 0)
 
+    total_tokens += round(total_cache_read * _CACHE_READ_WEIGHT)
     pct = (total_tokens * 100 // limit) if total_tokens > 0 and limit > 0 else 0
 
     return BudgetStatus(
@@ -303,7 +306,11 @@ def check_token_budget() -> BudgetStatus:
     if cached is not None:
         if local.five_hour_used_pct > cached.five_hour_used_pct:
             logger.info("Cached OAuth available but local estimate is higher; using local.")
-            return local
+            return dataclasses.replace(
+                local,
+                seven_day_used_pct=cached.seven_day_used_pct,
+                seven_day_resets_at=cached.seven_day_resets_at,
+            )
         logger.info("Using cached OAuth budget data.")
         return cached
 
