@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Thresholds: scope → max allowed 5-hour percentage (exclusive).
 _THRESHOLDS: dict[BudgetScope, int | None] = {
     BudgetScope.MICRO: 90,
-    BudgetScope.MODULE: 75,
+    BudgetScope.MODULE: 95,
     BudgetScope.LAYER: None,  # no threshold established
     BudgetScope.FULL: None,
 }
@@ -30,7 +30,7 @@ def has_threshold(scope: BudgetScope) -> bool:
 def budget_sufficient(scope: BudgetScope, status: BudgetStatus) -> bool:
     """Go/no-go decision based on usage thresholds.
 
-    Thresholds: micro < 90 %, module < 75 %, layer/full = always go.
+    Thresholds: micro < 90 %, module < 95 %, layer/full = always go.
     7-day guard: >= 100 % always no-go, >= 90 % no-go for module+.
     """
     threshold = _THRESHOLDS.get(scope)
@@ -46,7 +46,7 @@ def budget_sufficient(scope: BudgetScope, status: BudgetStatus) -> bool:
                 "Budget check failed: 7-day window %d%% used (exhausted)", pct_7d
             )
             return False
-        if pct_7d >= 90 and threshold <= 75:
+        if pct_7d >= 90 and scope != BudgetScope.MICRO:
             logger.warning(
                 "Budget check failed: 7-day window %d%% used "
                 "(threshold for '%s' requires <90%%)",
