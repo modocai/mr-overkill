@@ -99,7 +99,7 @@ def detect_tier(telemetry_dir: Path | None = None) -> str:
             if not tier_raw:
                 continue
 
-            ts = (
+            ts = str(
                 event_data.get("client_timestamp")
                 or event_data.get("timestamp")
                 or ""
