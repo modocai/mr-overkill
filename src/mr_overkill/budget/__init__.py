@@ -46,7 +46,7 @@ def budget_sufficient(scope: BudgetScope, status: BudgetStatus) -> bool:
                 "Budget check failed: 7-day window %d%% used (exhausted)", pct_7d
             )
             return False
-        if pct_7d >= 90 and threshold <= 75:
+        if pct_7d >= 90 and scope != BudgetScope.MICRO:
             logger.warning(
                 "Budget check failed: 7-day window %d%% used "
                 "(threshold for '%s' requires <90%%)",

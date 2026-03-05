@@ -7,6 +7,7 @@ claude_budget_sufficient.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import subprocess
@@ -17,6 +18,21 @@ from mr_overkill.budget import budget_sufficient
 from mr_overkill.models import BudgetScope, BudgetStatus
 
 logger = logging.getLogger(__name__)
+
+def _sum_usage(usage: dict[str, int]) -> float:
+    """Sum token usage with approximate rate-limit weights.
+
+    Anthropic rate limits weight cache tokens differently:
+    cache_creation ~0.25x, cache_read ~0.08x of full token cost.
+    Returns float to avoid per-entry truncation; caller should round once.
+    """
+    return (
+        usage.get("input_tokens", 0)
+        + usage.get("output_tokens", 0)
+        + usage.get("cache_creation_input_tokens", 0) * 0.25
+        + usage.get("cache_read_input_tokens", 0) * 0.08
+    )
+
 
 # Rough 5-hour token limits per tier (empirical estimates).
 _TIER_LIMITS: dict[str, int] = {
@@ -47,31 +63,52 @@ def detect_tier(telemetry_dir: Path | None = None) -> str:
 
     for f in telemetry_dir.glob("*.json"):
         try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+            text = f.read_text(encoding="utf-8")
+        except OSError:
             continue
 
-        event_data = data.get("event_data")
-        if not isinstance(event_data, dict):
-            continue
+        # Try whole-file JSON first (pretty-printed), fall back to JSONL.
+        try:
+            entries = [json.loads(text)]
+        except json.JSONDecodeError:
+            entries = []
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
 
-        ua = event_data.get("user_attributes")
-        if isinstance(ua, str):
-            try:
-                ua = json.loads(ua)
-            except json.JSONDecodeError:
+        for data in entries:
+            if not isinstance(data, dict):
                 continue
-        if not isinstance(ua, dict):
-            continue
+            event_data = data.get("event_data")
+            if not isinstance(event_data, dict):
+                continue
 
-        tier_raw = ua.get("rateLimitTier", "")
-        if not tier_raw:
-            continue
+            ua = event_data.get("user_attributes")
+            if isinstance(ua, str):
+                try:
+                    ua = json.loads(ua)
+                except json.JSONDecodeError:
+                    continue
+            if not isinstance(ua, dict):
+                continue
 
-        ts = event_data.get("client_timestamp") or event_data.get("timestamp") or ""
-        if ts >= best_ts:
-            best_ts = ts
-            best_tier = str(tier_raw)
+            tier_raw = ua.get("rateLimitTier", "")
+            if not tier_raw:
+                continue
+
+            ts = str(
+                event_data.get("client_timestamp")
+                or event_data.get("timestamp")
+                or ""
+            )
+            if ts >= best_ts:
+                best_ts = ts
+                best_tier = str(tier_raw)
 
     return _TIER_MAP.get(best_tier, "pro")
 
@@ -161,7 +198,7 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
     cutoff = datetime.now(tz=UTC) - timedelta(hours=5)
 
     # Find JSONL files modified in the last 5 hours
-    total_tokens = 0
+    total_tokens: float = 0
     seen_ids: dict[str, dict[str, int]] = {}  # message_id → usage dict
 
     if projects_dir.is_dir():
@@ -196,31 +233,20 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
                     if msg_id:
                         seen_ids[msg_id] = usage
                     else:
-                        # No id — count directly
-                        total_tokens += (
-                            usage.get("input_tokens", 0)
-                            + usage.get("output_tokens", 0)
-                            + usage.get("cache_creation_input_tokens", 0)
-                            + usage.get("cache_read_input_tokens", 0)
-                        )
+                        total_tokens += _sum_usage(usage)
             except OSError:
                 continue
 
     # Sum deduplicated usage
     for usage in seen_ids.values():
-        total_tokens += (
-            usage.get("input_tokens", 0)
-            + usage.get("output_tokens", 0)
-            + usage.get("cache_creation_input_tokens", 0)
-            + usage.get("cache_read_input_tokens", 0)
-        )
+        total_tokens += _sum_usage(usage)
 
-    pct = (total_tokens * 100 // limit) if total_tokens > 0 and limit > 0 else 0
+    pct = (int(total_tokens) * 100 // limit) if total_tokens > 0 and limit > 0 else 0
 
     return BudgetStatus(
         five_hour_used_pct=pct,
         seven_day_used_pct=None,
-        tokens_used=total_tokens,
+        tokens_used=int(total_tokens),
         mode="local",
         tier=tier,
         resets_at=None,
@@ -229,12 +255,85 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
     )
 
 
+_CACHE_PATH = Path.home() / ".cache" / "mr-overkill" / "claude-budget.json"
+
+
+def _save_cache(status: BudgetStatus) -> None:
+    """Persist a successful OAuth result to disk."""
+    try:
+        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CACHE_PATH.write_text(
+            json.dumps(dataclasses.asdict(status)), encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def _load_cache() -> BudgetStatus | None:
+    """Load the last successful OAuth result from disk.
+
+    Returns ``None`` if both cached windows have expired.
+    """
+    try:
+        data = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
+        now = datetime.now(tz=UTC)
+        # Clear stale 5-hour data if that window has already reset.
+        resets_at = data.get("resets_at")
+        if not resets_at or now > datetime.fromisoformat(resets_at):
+            data["five_hour_used_pct"] = None
+            data["resets_at"] = None
+        # Clear stale 7-day data if that window has already reset.
+        seven_day_ra = data.get("seven_day_resets_at")
+        if not seven_day_ra or now > datetime.fromisoformat(seven_day_ra):
+            data["seven_day_used_pct"] = None
+            data["seven_day_resets_at"] = None
+        # Nothing useful remains.
+        five_gone = data.get("five_hour_used_pct") is None
+        seven_gone = data.get("seven_day_used_pct") is None
+        if five_gone and seven_gone:
+            return None
+        data["mode"] = "cached"
+        data["estimated"] = True
+        for key in ("five_hour_used_pct", "seven_day_used_pct", "tokens_used"):
+            val = data.get(key)
+            if val is not None:
+                data[key] = int(val)
+        return BudgetStatus(**data)
+    except (OSError, json.JSONDecodeError, TypeError, KeyError, ValueError):
+        return None
+
+
 def check_token_budget() -> BudgetStatus:
-    """Get Claude budget status — tries OAuth first, falls back to local."""
+    """Get Claude budget status.
+
+    Priority: OAuth → max(cached OAuth, local JSONL) → local JSONL.
+    """
     result = check_oauth()
     if result is not None:
+        _save_cache(result)
         return result
-    return check_local()
+
+    cached = _load_cache()
+    local = check_local()
+
+    if cached is not None:
+        # Merge: always prefer the higher 5-hour estimate, carry 7-day from cache.
+        local_pct = local.five_hour_used_pct or 0
+        cached_pct = cached.five_hour_used_pct or 0
+        if local_pct > cached_pct or cached.five_hour_used_pct is None:
+            logger.info(
+                "Cached OAuth available but local estimate "
+                "is higher; using local.",
+            )
+            return dataclasses.replace(
+                local,
+                seven_day_used_pct=cached.seven_day_used_pct,
+                seven_day_resets_at=cached.seven_day_resets_at,
+            )
+        logger.info("Using cached OAuth budget data.")
+        return cached
+
+    return local
 
 
 def claude_budget_sufficient(
