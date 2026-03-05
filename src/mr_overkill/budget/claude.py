@@ -19,6 +19,20 @@ from mr_overkill.models import BudgetScope, BudgetStatus
 
 logger = logging.getLogger(__name__)
 
+# Cache-read tokens are ~1/10 cost in Anthropic's rate-limit accounting.
+_CACHE_READ_WEIGHT = 0.1
+
+
+def _sum_usage(usage: dict[str, int]) -> int:
+    """Sum token usage with discounted cache-read weight."""
+    return (
+        usage.get("input_tokens", 0)
+        + usage.get("output_tokens", 0)
+        + usage.get("cache_creation_input_tokens", 0)
+        + int(usage.get("cache_read_input_tokens", 0) * _CACHE_READ_WEIGHT)
+    )
+
+
 # Rough 5-hour token limits per tier (empirical estimates).
 _TIER_LIMITS: dict[str, int] = {
     "pro": 1_000_000,
@@ -210,24 +224,13 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
                     if msg_id:
                         seen_ids[msg_id] = usage
                     else:
-                        # No id — count directly
-                        total_tokens += (
-                            usage.get("input_tokens", 0)
-                            + usage.get("output_tokens", 0)
-                            + usage.get("cache_creation_input_tokens", 0)
-                            + usage.get("cache_read_input_tokens", 0)
-                        )
+                        total_tokens += _sum_usage(usage)
             except OSError:
                 continue
 
     # Sum deduplicated usage
     for usage in seen_ids.values():
-        total_tokens += (
-            usage.get("input_tokens", 0)
-            + usage.get("output_tokens", 0)
-            + usage.get("cache_creation_input_tokens", 0)
-            + usage.get("cache_read_input_tokens", 0)
-        )
+        total_tokens += _sum_usage(usage)
 
     pct = (total_tokens * 100 // limit) if total_tokens > 0 and limit > 0 else 0
 
