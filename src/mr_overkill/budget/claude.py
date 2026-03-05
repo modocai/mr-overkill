@@ -274,21 +274,24 @@ def _save_cache(status: BudgetStatus) -> None:
 def _load_cache() -> BudgetStatus | None:
     """Load the last successful OAuth result from disk.
 
-    Returns ``None`` if the cached 5-hour window has already reset.
+    Returns ``None`` if both cached windows have expired.
     """
     try:
         data = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
-        resets_at = data.get("resets_at")
-        if not resets_at:
-            return None
         now = datetime.now(tz=UTC)
-        if now > datetime.fromisoformat(resets_at):
-            return None
+        # Clear stale 5-hour data if that window has already reset.
+        resets_at = data.get("resets_at")
+        if not resets_at or now > datetime.fromisoformat(resets_at):
+            data["five_hour_used_pct"] = None
+            data["resets_at"] = None
         # Clear stale 7-day data if that window has already reset.
         seven_day_ra = data.get("seven_day_resets_at")
-        if seven_day_ra and now > datetime.fromisoformat(seven_day_ra):
+        if not seven_day_ra or now > datetime.fromisoformat(seven_day_ra):
             data["seven_day_used_pct"] = None
             data["seven_day_resets_at"] = None
+        # Nothing useful remains.
+        if data.get("five_hour_used_pct") is None and data.get("seven_day_used_pct") is None:
+            return None
         data["mode"] = "cached"
         data["estimated"] = True
         return BudgetStatus(**data)
@@ -310,7 +313,10 @@ def check_token_budget() -> BudgetStatus:
     local = check_local()
 
     if cached is not None:
-        if local.five_hour_used_pct > cached.five_hour_used_pct:
+        # Merge: always prefer the higher 5-hour estimate, carry 7-day from cache.
+        local_pct = local.five_hour_used_pct or 0
+        cached_pct = cached.five_hour_used_pct or 0
+        if local_pct > cached_pct or cached.five_hour_used_pct is None:
             logger.info("Cached OAuth available but local estimate is higher; using local.")
             return dataclasses.replace(
                 local,
