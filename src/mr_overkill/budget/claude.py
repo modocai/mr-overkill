@@ -66,15 +66,21 @@ def detect_tier(telemetry_dir: Path | None = None) -> str:
         except OSError:
             continue
 
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                data = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+        # Try whole-file JSON first (pretty-printed), fall back to JSONL.
+        try:
+            entries = [json.loads(text)]
+        except json.JSONDecodeError:
+            entries = []
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
 
+        for data in entries:
             event_data = data.get("event_data")
             if not isinstance(event_data, dict):
                 continue
