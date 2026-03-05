@@ -33,10 +33,10 @@ class TestFiveHourThresholds:
         assert budget_sufficient(BudgetScope.MICRO, _status(pct=90)) is False
 
     def test_module_below_threshold(self) -> None:
-        assert budget_sufficient(BudgetScope.MODULE, _status(pct=94)) is True
+        assert budget_sufficient(BudgetScope.MODULE, _status(pct=74)) is True
 
     def test_module_at_threshold(self) -> None:
-        assert budget_sufficient(BudgetScope.MODULE, _status(pct=95)) is False
+        assert budget_sufficient(BudgetScope.MODULE, _status(pct=75)) is False
 
     def test_layer_always_go(self) -> None:
         assert budget_sufficient(BudgetScope.LAYER, _status(pct=99)) is True
