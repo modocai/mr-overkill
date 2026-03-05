@@ -294,6 +294,10 @@ def _load_cache() -> BudgetStatus | None:
             return None
         data["mode"] = "cached"
         data["estimated"] = True
+        for key in ("five_hour_used_pct", "seven_day_used_pct", "tokens_used"):
+            val = data.get(key)
+            if val is not None:
+                data[key] = int(val)
         return BudgetStatus(**data)
     except (OSError, json.JSONDecodeError, TypeError, KeyError, ValueError):
         return None
