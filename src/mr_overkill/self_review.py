@@ -302,9 +302,10 @@ def _compute_fingerprint(findings: list[object]) -> str:
         title = f.get("title", "")
         loc = f.get("code_location", {})
         fpath = loc.get("file_path", "") if isinstance(loc, dict) else ""
-        line_range = loc.get("line_range", {}) if isinstance(loc, dict) else {}
+        lr = loc.get("line_range", {}) if isinstance(loc, dict) else {}
+        lr_str = json.dumps(lr, sort_keys=True) if isinstance(lr, dict) else str(lr)
         body = str(f.get("body", ""))[:200]
-        parts.append(f"{title}@{fpath}@{line_range}@{body}")
+        parts.append(f"{title}@{fpath}@{lr_str}@{body}")
     parts.sort()
     return "|".join(parts)
 
