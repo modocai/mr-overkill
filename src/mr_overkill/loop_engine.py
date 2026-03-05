@@ -356,7 +356,11 @@ def review_fix_loop(
         review_data = _normalize_paths(review_data, cwd)
 
         findings = review_data.get("findings", [])
-        findings_count = len(findings) if isinstance(findings, list) else 0
+        if not isinstance(findings, list):
+            logger.warning("findings is not a list — treating as parse error")
+            final_status = FinalStatus.PARSE_ERROR
+            break
+        findings_count = len(findings)
         overall = review_data.get("overall_correctness", "?")
         logger.info("Findings: %d | Overall: %s", findings_count, overall)
         if findings_count > 0:
