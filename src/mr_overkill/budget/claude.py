@@ -281,8 +281,14 @@ def _load_cache() -> BudgetStatus | None:
         resets_at = data.get("resets_at")
         if not resets_at:
             return None
-        if datetime.now(tz=UTC) > datetime.fromisoformat(resets_at):
+        now = datetime.now(tz=UTC)
+        if now > datetime.fromisoformat(resets_at):
             return None
+        # Clear stale 7-day data if that window has already reset.
+        seven_day_ra = data.get("seven_day_resets_at")
+        if seven_day_ra and now > datetime.fromisoformat(seven_day_ra):
+            data["seven_day_used_pct"] = None
+            data["seven_day_resets_at"] = None
         data["mode"] = "cached"
         data["estimated"] = True
         return BudgetStatus(**data)
