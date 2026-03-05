@@ -499,7 +499,6 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     success = {
         FinalStatus.ALL_CLEAR,
         FinalStatus.DRY_RUN,
-        FinalStatus.NO_DIFF,
         FinalStatus.MAX_ITERATIONS_REACHED,
     }
     if loop_result.final_status not in success or pr_failed:
