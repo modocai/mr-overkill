@@ -302,8 +302,9 @@ def _compute_fingerprint(findings: list[object]) -> str:
         title = f.get("title", "")
         loc = f.get("code_location", {})
         fpath = loc.get("file_path", "") if isinstance(loc, dict) else ""
-        body = str(f.get("body", ""))[:60]
-        parts.append(f"{title}@{fpath}@{body}")
+        line_range = loc.get("line_range", {}) if isinstance(loc, dict) else {}
+        body = str(f.get("body", ""))[:200]
+        parts.append(f"{title}@{fpath}@{line_range}@{body}")
     parts.sort()
     return "|".join(parts)
 
@@ -316,7 +317,8 @@ def _build_history_prompt(sr_history: str) -> str:
         "\n## Previous Sub-Iteration Findings\n\n"
         "The following findings were flagged in previous sub-iterations "
         "and re-fix was already attempted.\n"
-        "Do NOT repeat these same findings. Only flag NEW issues.\n\n"
+        "If any of these issues STILL exist in the current diff, re-flag them.\n"
+        "Also flag any NEW issues introduced by the re-fix.\n\n"
         + sr_history
     )
 
