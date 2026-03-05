@@ -29,7 +29,7 @@ def _sum_usage(usage: dict[str, int]) -> int:
         usage.get("input_tokens", 0)
         + usage.get("output_tokens", 0)
         + usage.get("cache_creation_input_tokens", 0)
-        + int(usage.get("cache_read_input_tokens", 0) * _CACHE_READ_WEIGHT)
+        + round(usage.get("cache_read_input_tokens", 0) * _CACHE_READ_WEIGHT)
     )
 
 
@@ -261,13 +261,20 @@ def _save_cache(status: BudgetStatus) -> None:
 
 
 def _load_cache() -> BudgetStatus | None:
-    """Load the last successful OAuth result from disk."""
+    """Load the last successful OAuth result from disk.
+
+    Returns ``None`` if the cached 5-hour window has already reset.
+    """
     try:
         data = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
+        resets_at = data.get("resets_at")
+        if resets_at:
+            if datetime.now(tz=UTC) > datetime.fromisoformat(resets_at):
+                return None
         data["mode"] = "cached"
         data["estimated"] = True
         return BudgetStatus(**data)
-    except (OSError, json.JSONDecodeError, TypeError, KeyError):
+    except (OSError, json.JSONDecodeError, TypeError, KeyError, ValueError):
         return None
 
 
