@@ -290,7 +290,7 @@ def _load_cache() -> BudgetStatus | None:
 def check_token_budget() -> BudgetStatus:
     """Get Claude budget status.
 
-    Priority: OAuth → cached OAuth → local JSONL estimation.
+    Priority: OAuth → max(cached OAuth, local JSONL) → local JSONL.
     """
     result = check_oauth()
     if result is not None:
@@ -298,11 +298,16 @@ def check_token_budget() -> BudgetStatus:
         return result
 
     cached = _load_cache()
+    local = check_local()
+
     if cached is not None:
+        if local.five_hour_used_pct > cached.five_hour_used_pct:
+            logger.info("Cached OAuth available but local estimate is higher; using local.")
+            return local
         logger.info("Using cached OAuth budget data.")
         return cached
 
-    return check_local()
+    return local
 
 
 def claude_budget_sufficient(
