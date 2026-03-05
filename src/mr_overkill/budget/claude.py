@@ -20,12 +20,16 @@ from mr_overkill.models import BudgetScope, BudgetStatus
 logger = logging.getLogger(__name__)
 
 def _sum_usage(usage: dict[str, int]) -> int:
-    """Sum all token usage fields (matches check-claude-limit.sh)."""
+    """Sum token usage with approximate rate-limit weights.
+
+    Anthropic rate limits weight cache tokens differently:
+    cache_creation ~0.25x, cache_read ~0.1x of full token cost.
+    """
     return (
         usage.get("input_tokens", 0)
         + usage.get("output_tokens", 0)
-        + usage.get("cache_creation_input_tokens", 0)
-        + usage.get("cache_read_input_tokens", 0)
+        + int(usage.get("cache_creation_input_tokens", 0) * 0.25)
+        + int(usage.get("cache_read_input_tokens", 0) * 0.1)
     )
 
 
