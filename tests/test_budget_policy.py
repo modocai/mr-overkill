@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from mr_overkill.budget import budget_sufficient, codex_parse_window
 from mr_overkill.budget.claude import (
@@ -220,11 +220,7 @@ class TestCheckTokenBudgetMerge:
             estimated=True,
         )
 
-    @patch("mr_overkill.budget.claude.check_oauth")
-    def test_oauth_success_uses_oauth(
-        self, mock_oauth: object, tmp_path: Path,
-    ) -> None:
-        from unittest.mock import MagicMock
+    def test_oauth_success_uses_oauth(self, tmp_path: Path) -> None:
         mock_oauth = MagicMock(return_value=self._oauth_status())
         with (
             patch("mr_overkill.budget.claude.check_oauth", mock_oauth),
@@ -237,13 +233,10 @@ class TestCheckTokenBudgetMerge:
         assert result.mode == "oauth"
         assert result.five_hour_used_pct == 20
 
-    @patch("mr_overkill.budget.claude.check_oauth", return_value=None)
-    @patch("mr_overkill.budget.claude.check_local")
     def test_local_higher_than_cache_uses_local(
-        self, mock_local: object, mock_oauth: object, tmp_path: Path,
+        self, tmp_path: Path,
     ) -> None:
-        from unittest.mock import MagicMock
-        mock_local_fn = MagicMock(return_value=self._local_status(pct=60))
+        mock_local = MagicMock(return_value=self._local_status(pct=60))
         cache_file = tmp_path / "budget.json"
         # Cache has 5h=30%, 7d=10%
         cache_file.write_text(json.dumps({
@@ -257,7 +250,8 @@ class TestCheckTokenBudgetMerge:
             "estimated": False,
         }))
         with (
-            patch("mr_overkill.budget.claude.check_local", mock_local_fn),
+            patch("mr_overkill.budget.claude.check_oauth", return_value=None),
+            patch("mr_overkill.budget.claude.check_local", mock_local),
             patch("mr_overkill.budget.claude._CACHE_PATH", cache_file),
         ):
             result = check_token_budget()
@@ -266,15 +260,11 @@ class TestCheckTokenBudgetMerge:
         assert result.five_hour_used_pct == 60
         assert result.seven_day_used_pct == 10
 
-    @patch("mr_overkill.budget.claude.check_oauth", return_value=None)
-    @patch("mr_overkill.budget.claude.check_local")
-    def test_no_cache_uses_local(
-        self, mock_local: object, mock_oauth: object, tmp_path: Path,
-    ) -> None:
-        from unittest.mock import MagicMock
-        mock_local_fn = MagicMock(return_value=self._local_status(pct=47))
+    def test_no_cache_uses_local(self, tmp_path: Path) -> None:
+        mock_local = MagicMock(return_value=self._local_status(pct=47))
         with (
-            patch("mr_overkill.budget.claude.check_local", mock_local_fn),
+            patch("mr_overkill.budget.claude.check_oauth", return_value=None),
+            patch("mr_overkill.budget.claude.check_local", mock_local),
             patch(
                 "mr_overkill.budget.claude._CACHE_PATH",
                 tmp_path / "nope.json",
