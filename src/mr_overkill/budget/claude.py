@@ -7,6 +7,7 @@ claude_budget_sufficient.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import subprocess
@@ -242,11 +243,46 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
     )
 
 
+_CACHE_PATH = Path.home() / ".cache" / "mr-overkill" / "claude-budget.json"
+
+
+def _save_cache(status: BudgetStatus) -> None:
+    """Persist a successful OAuth result to disk."""
+    try:
+        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CACHE_PATH.write_text(
+            json.dumps(dataclasses.asdict(status)), encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def _load_cache() -> BudgetStatus | None:
+    """Load the last successful OAuth result from disk."""
+    try:
+        data = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
+        data["mode"] = "cached"
+        data["estimated"] = True
+        return BudgetStatus(**data)
+    except (OSError, json.JSONDecodeError, TypeError, KeyError):
+        return None
+
+
 def check_token_budget() -> BudgetStatus:
-    """Get Claude budget status — tries OAuth first, falls back to local."""
+    """Get Claude budget status.
+
+    Priority: OAuth → cached OAuth → local JSONL estimation.
+    """
     result = check_oauth()
     if result is not None:
+        _save_cache(result)
         return result
+
+    cached = _load_cache()
+    if cached is not None:
+        logger.info("Using cached OAuth budget data.")
+        return cached
+
     return check_local()
 
 
