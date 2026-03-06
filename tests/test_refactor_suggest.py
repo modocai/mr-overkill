@@ -131,12 +131,14 @@ class TestCreateDraftPr:
 
 
 class TestRun:
+    @patch("mr_overkill.refactor_suggest.git_all_dirty", return_value=[])
     @patch("mr_overkill.refactor_suggest.review_fix_loop")
     @patch("mr_overkill.refactor_suggest.subprocess.run")
     def test_success_returns_zero(
         self,
         mock_run: MagicMock,
         mock_loop: MagicMock,
+        _mock_dirty: MagicMock,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         mock_run.return_value = MagicMock(
@@ -149,12 +151,14 @@ class TestRun:
         config = make_loop_config(current_branch="refactor/module-20260301")
         assert run(config, "module") == 0
 
+    @patch("mr_overkill.refactor_suggest.git_all_dirty", return_value=[])
     @patch("mr_overkill.refactor_suggest.review_fix_loop")
     @patch("mr_overkill.refactor_suggest.subprocess.run")
     def test_error_returns_one(
         self,
         mock_run: MagicMock,
         mock_loop: MagicMock,
+        _mock_dirty: MagicMock,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         mock_run.return_value = MagicMock(
@@ -167,6 +171,7 @@ class TestRun:
         config = make_loop_config(current_branch="refactor/module-20260301")
         assert run(config, "module") == 1
 
+    @patch("mr_overkill.refactor_suggest.git_all_dirty", return_value=[])
     @patch("mr_overkill.refactor_suggest.create_draft_pr")
     @patch("mr_overkill.refactor_suggest.review_fix_loop")
     @patch("mr_overkill.refactor_suggest.subprocess.run")
@@ -175,6 +180,7 @@ class TestRun:
         mock_run: MagicMock,
         mock_loop: MagicMock,
         mock_pr: MagicMock,
+        _mock_dirty: MagicMock,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         mock_run.return_value = MagicMock(
@@ -188,6 +194,7 @@ class TestRun:
         run(config, "module", create_pr=True)
         mock_pr.assert_called_once()
 
+    @patch("mr_overkill.refactor_suggest.git_all_dirty", return_value=[])
     @patch("mr_overkill.refactor_suggest.create_draft_pr")
     @patch("mr_overkill.refactor_suggest.review_fix_loop")
     @patch("mr_overkill.refactor_suggest.subprocess.run")
@@ -196,6 +203,7 @@ class TestRun:
         mock_run: MagicMock,
         mock_loop: MagicMock,
         mock_pr: MagicMock,
+        _mock_dirty: MagicMock,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         mock_run.return_value = MagicMock(
