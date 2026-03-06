@@ -63,7 +63,7 @@ def generate_summary(
             findings = data.get("findings", [])
             count = str(len(findings)) if isinstance(findings, list) else "?"
             verdict = data.get("overall_correctness", "?")
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, AttributeError, TypeError):
             pass
 
         lines.append(
@@ -84,7 +84,7 @@ def generate_summary(
                     else "?"
                 )
                 sr_verdict = sr_data.get("overall_correctness", "?")
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, OSError, AttributeError, TypeError):
                 pass
             lines.append(
                 f"  - Sub-iteration {sub_m}: {sr_count} findings, verdict: {sr_verdict}"
