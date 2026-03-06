@@ -110,8 +110,11 @@ def normalize_paths(review_json: dict[str, Any], repo_root: str) -> dict[str, An
     result = dict(review_json)
     new_findings: list[dict[str, Any]] = []
     for finding in findings:
+        if not isinstance(finding, dict):
+            new_findings.append(finding)
+            continue
         finding = dict(finding)
-        loc = dict(finding.get("code_location", {}))
+        loc = dict(finding.get("code_location") or {})
         raw_path: str = loc.get("file_path") or loc.get("absolute_file_path", "")
         if raw_path.startswith(root):
             raw_path = raw_path[len(root) :]

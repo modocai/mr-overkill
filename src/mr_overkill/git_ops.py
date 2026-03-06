@@ -24,11 +24,13 @@ logger = logging.getLogger(__name__)
 def _run(
     cmd: list[str],
     cwd: Path | None = None,
+    input: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with common defaults."""
     return subprocess.run(
         cmd,
         cwd=cwd,
+        input=input,
         capture_output=True,
         text=True,
         check=False,
@@ -215,10 +217,15 @@ def commit_and_push(
         return False
 
     # Stage changed files
-    _run(["git", "add", "--", *changed], cwd=cwd)
+    pathspec = "\n".join(changed)
+    _run(["git", "add", "--pathspec-from-file=-"], cwd=cwd, input=pathspec)
 
     # Commit
-    result = _run(["git", "commit", "-m", message, "--", *changed], cwd=cwd)
+    result = _run(
+        ["git", "commit", "-m", message, "--pathspec-from-file=-"],
+        cwd=cwd,
+        input=pathspec,
+    )
     if result.returncode != 0:
         raise RuntimeError(f"git commit failed: {result.stderr.strip()}")
 

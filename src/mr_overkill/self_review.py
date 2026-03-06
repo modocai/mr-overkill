@@ -267,16 +267,21 @@ def _generate_diff(
         output.write_text("")
         return
 
+    pathspec = "\n".join(changed_files)
+
     # Stage untracked as intent-to-add so git diff can see them
     subprocess.run(
-        ["git", "add", "--intent-to-add", "--", *changed_files],
+        ["git", "add", "--intent-to-add", "--pathspec-from-file=-"],
+        input=pathspec,
         cwd=cwd,
         capture_output=True,
+        text=True,
         check=False,
     )
 
     result = subprocess.run(
-        ["git", "diff", "HEAD", "--", *changed_files],
+        ["git", "diff", "HEAD", "--pathspec-from-file=-"],
+        input=pathspec,
         cwd=cwd,
         capture_output=True,
         text=True,
@@ -286,9 +291,11 @@ def _generate_diff(
 
     # Undo intent-to-add
     subprocess.run(
-        ["git", "reset", "--quiet", "--", *changed_files],
+        ["git", "reset", "--quiet", "--pathspec-from-file=-"],
+        input=pathspec,
         cwd=cwd,
         capture_output=True,
+        text=True,
         check=False,
     )
 
@@ -302,8 +309,10 @@ def _compute_fingerprint(findings: list[object]) -> str:
         title = f.get("title", "")
         loc = f.get("code_location", {})
         fpath = loc.get("file_path", "") if isinstance(loc, dict) else ""
-        body = str(f.get("body", ""))[:60]
-        parts.append(f"{title}@{fpath}@{body}")
+        lr = loc.get("line_range", {}) if isinstance(loc, dict) else {}
+        lr_str = json.dumps(lr, sort_keys=True) if isinstance(lr, dict) else str(lr)
+        body = str(f.get("body", ""))[:200]
+        parts.append(f"{title}@{fpath}@{lr_str}@{body}")
     parts.sort()
     return "|".join(parts)
 
@@ -316,7 +325,8 @@ def _build_history_prompt(sr_history: str) -> str:
         "\n## Previous Sub-Iteration Findings\n\n"
         "The following findings were flagged in previous sub-iterations "
         "and re-fix was already attempted.\n"
-        "Do NOT repeat these same findings. Only flag NEW issues.\n\n"
+        "If any of these issues STILL exist in the current diff, re-flag them.\n"
+        "Also flag any NEW issues introduced by the re-fix.\n\n"
         + sr_history
     )
 

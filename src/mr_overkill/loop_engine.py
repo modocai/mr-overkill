@@ -356,7 +356,11 @@ def review_fix_loop(
         review_data = _normalize_paths(review_data, cwd)
 
         findings = review_data.get("findings", [])
-        findings_count = len(findings) if isinstance(findings, list) else 0
+        if not isinstance(findings, list):
+            logger.warning("findings is not a list — treating as parse error")
+            final_status = FinalStatus.PARSE_ERROR
+            break
+        findings_count = len(findings)
         overall = review_data.get("overall_correctness", "?")
         logger.info("Findings: %d | Overall: %s", findings_count, overall)
         if findings_count > 0:
@@ -413,7 +417,7 @@ def review_fix_loop(
             # h. Fix
             review_json_str = json.dumps(review_data)
             try:
-                fix_ok = fixer(review_json_str, f"fix-{i}")
+                fix_ok = fixer(review_json_str, str(i))
             except Exception:
                 logger.exception("Fixer raised an unexpected exception.")
                 fix_ok = False
@@ -474,8 +478,8 @@ def review_fix_loop(
                 iteration=i,
                 max_loop=config.max_loop,
                 review_json=review_data,
-                fix_file=log_dir / f"fix-fix-{i}.md",
-                opinion_file=log_dir / f"opinion-fix-{i}.md",
+                fix_file=log_dir / f"fix-{i}.md",
+                opinion_file=log_dir / f"opinion-{i}.md",
                 self_review_summary=self_review_summary,
                 max_subloop=config.max_subloop,
             )
