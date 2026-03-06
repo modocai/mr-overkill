@@ -1,71 +1,53 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+# install.sh — Install overkill and initialize a project.
+#
+# Usage:
+#   ./install.sh [TARGET_DIR]     # install from PyPI + init
+#   ./install.sh --dev [TARGET]   # editable install from local checkout + init
+
 TARGET_DIR="${1:-.}"
+DEV_MODE=false
 
-# Read version from review-loop.sh
-VERSION=$(grep -m1 '^VERSION=' "$SCRIPT_DIR/bin/review-loop.sh" | cut -d'"' -f2)
+if [[ "${1:-}" == "--dev" ]]; then
+  DEV_MODE=true
+  TARGET_DIR="${2:-.}"
+fi
 
-# Ensure target directory exists and resolve to absolute path
 if [[ ! -d "$TARGET_DIR" ]]; then
-  echo "Error: target directory '$TARGET_DIR' does not exist."
+  echo "Error: target directory '$TARGET_DIR' does not exist." >&2
   exit 1
 fi
-TARGET_DIR=$(cd "$TARGET_DIR" && pwd)
 
-echo "Installing review-loop v${VERSION} into: $TARGET_DIR/.review-loop/"
-
-INSTALL_DIR="$TARGET_DIR/.review-loop"
-mkdir -p "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR/logs/refactor"
-
-# Copy bin/
-cp -r "$SCRIPT_DIR/bin" "$INSTALL_DIR/"
-chmod +x "$INSTALL_DIR/bin/review-loop.sh"
-chmod +x "$INSTALL_DIR/bin/refactor-suggest.sh"
-chmod +x "$INSTALL_DIR/bin/lib/self-review.sh"
-
-# Copy active prompts
-mkdir -p "$INSTALL_DIR/prompts/active"
-cp "$SCRIPT_DIR"/prompts/active/* "$INSTALL_DIR/prompts/active/"
-
-# Copy rc examples
-if [[ -f "$SCRIPT_DIR/.reviewlooprc.example" ]]; then
-  cp "$SCRIPT_DIR/.reviewlooprc.example" "$INSTALL_DIR/"
-  echo "Copied .reviewlooprc.example"
-fi
-if [[ -f "$SCRIPT_DIR/.refactorsuggestrc.example" ]]; then
-  cp "$SCRIPT_DIR/.refactorsuggestrc.example" "$INSTALL_DIR/"
-  echo "Copied .refactorsuggestrc.example"
-fi
-
-# Generate install manifest from SOURCE files (not target directory)
-# This ensures only installer-owned files are tracked, preserving user-added files on reinstall.
-{
-  find "$SCRIPT_DIR/bin" -type f | sed "s|^${SCRIPT_DIR}/||"
-  find "$SCRIPT_DIR/prompts/active" -type f | sed "s|^${SCRIPT_DIR}/||"
-  for _rc in .reviewlooprc.example .refactorsuggestrc.example; do
-    [[ -f "$SCRIPT_DIR/$_rc" ]] && echo "$_rc"
-  done
-} | sort > "$INSTALL_DIR/.install-manifest"
-echo "Generated .install-manifest ($(wc -l < "$INSTALL_DIR/.install-manifest") files)"
-
-# Add .review-loop/ to .gitignore
-GITIGNORE="$TARGET_DIR/.gitignore"
-MARKER="# review-loop (added by installer)"
-if [[ -f "$GITIGNORE" ]] && grep -qxF ".review-loop/" "$GITIGNORE"; then
-  echo "review-loop entry already in .gitignore"
-else
-  # Ensure file ends with a newline before appending
-  if [[ -f "$GITIGNORE" ]] && [[ -s "$GITIGNORE" ]] && [[ "$(tail -c1 "$GITIGNORE")" != "" ]]; then
-    echo "" >> "$GITIGNORE"
+# ── Step 1: Install Python package ──────────────────────────────────
+if $DEV_MODE; then
+  echo "Installing overkill (editable, local checkout)..."
+  SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+  if command -v uv &>/dev/null; then
+    uv tool install --reinstall -e "$SCRIPT_DIR"
+  elif command -v pipx &>/dev/null; then
+    pipx install --force -e "$SCRIPT_DIR"
+  else
+    pip install -e "$SCRIPT_DIR"
   fi
-  {
-    echo "$MARKER"
-    echo ".review-loop/"
-  } >> "$GITIGNORE"
-  echo "Added .review-loop/ to .gitignore"
+else
+  echo "Installing overkill..."
+  if command -v uv &>/dev/null; then
+    uv tool install --reinstall overkill
+  elif command -v pipx &>/dev/null; then
+    pipx install --force overkill
+  else
+    pip install overkill
+  fi
 fi
 
-echo "Done. Run: .review-loop/bin/review-loop.sh -n 3"
+# ── Step 2: Initialize project ──────────────────────────────────────
+if ! command -v overkill &>/dev/null; then
+  echo "Warning: 'overkill' not found on PATH after installation." >&2
+  echo "You may need to add ~/.local/bin to your PATH, then run:" >&2
+  echo "  overkill init $TARGET_DIR" >&2
+  exit 1
+fi
+
+overkill init "$TARGET_DIR"

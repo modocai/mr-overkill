@@ -6,5 +6,30 @@
 # review-loop self-hosted install
 .review-loop/
 
-# Test artifacts
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Testing / Coverage
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
 test/tmp/
+
+# mypy / ruff / type checkers
+.mypy_cache/
+.ruff_cache/
+
+# Distribution / packaging
+*.whl

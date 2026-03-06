@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Self-review sub-loop for mr-overkill scripts.
+# Self-review sub-loop for overkill scripts.
 # Source this file for library use, or run standalone for ad-hoc self-review.
 # Requires: caller must set -euo pipefail before sourcing.
 # Requires: common.sh must be sourced before this file (library mode).
