@@ -4,6 +4,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT) [![Token Cost](https://img.shields.io/badge/Token%20Cost-Bankrupt-red)](#) [![Efficiency](https://img.shields.io/badge/Efficiency-0%25-orange)](#) [![Over-Engineering](https://img.shields.io/badge/Over--Engineering-Max-blueviolet)](#)
 
+<img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/930a88d3-1224-47fc-bf5f-d9b367a8f29a" />
+
+
 **Mr. Overkill** is an automated loop that forces **Codex** (the pedantic reviewer) and **Claude** (the tired developer) into a locked room. They will not stop refactoring your code until it is "perfectly over-engineered" or your API credit runs out.
 
 ## :warning: WARNING: FINANCIAL HAZARD
