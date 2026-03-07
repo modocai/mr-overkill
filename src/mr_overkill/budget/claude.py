@@ -317,10 +317,13 @@ def check_token_budget() -> BudgetStatus:
     local = check_local()
 
     if cached is not None:
-        # OAuth (even cached) is ground truth — always prefer it over local
-        # estimates.  Only fall through to local when cached 5-hour has expired
-        # (already cleared to None by _load_cache).
+        # Cached OAuth is authoritative, but may be stale within its window.
+        # Take the higher of cached vs local to avoid under-reporting.
         if cached.five_hour_used_pct is not None:
+            local_pct = local.five_hour_used_pct or 0
+            if local_pct > cached.five_hour_used_pct:
+                logger.info("Local estimate exceeds cached OAuth; using local.")
+                return local
             logger.info("Using cached OAuth budget data.")
             return cached
         # 5-hour expired but 7-day still valid — merge 7-day into local.
