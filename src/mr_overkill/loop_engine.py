@@ -336,10 +336,16 @@ def review_fix_loop(
                 review_ok = reviewer(review_file, i)
             except BudgetTimeoutError:
                 logger.error("Budget timeout during review (iteration %d).", i)
-                final_status = FinalStatus.CODEX_BUDGET_TIMEOUT
+                if config.reviewer_backend == "claude":
+                    final_status = FinalStatus.CLAUDE_ERROR
+                else:
+                    final_status = FinalStatus.CODEX_BUDGET_TIMEOUT
                 break
             if not review_ok:
-                final_status = FinalStatus.CODEX_ERROR
+                if config.reviewer_backend == "claude":
+                    final_status = FinalStatus.CLAUDE_ERROR
+                else:
+                    final_status = FinalStatus.CODEX_ERROR
                 break
 
             # Save diff hash
