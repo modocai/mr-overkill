@@ -318,6 +318,15 @@ def check_token_budget() -> BudgetStatus:
 
     if cached is not None:
         if cached.five_hour_used_pct is not None:
+            # Use the higher 5h value between cached and local to avoid
+            # underreporting when cache is stale.
+            if (
+                local.five_hour_used_pct is not None
+                and local.five_hour_used_pct > cached.five_hour_used_pct
+            ):
+                cached = dataclasses.replace(
+                    cached, five_hour_used_pct=local.five_hour_used_pct,
+                )
             logger.info("Using cached OAuth budget data.")
             return cached
         # 5-hour expired but 7-day still valid — merge 7-day into local.
