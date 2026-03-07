@@ -238,7 +238,7 @@ class TestCheckTokenBudgetMerge:
     ) -> None:
         mock_local = MagicMock(return_value=self._local_status(pct=60))
         cache_file = tmp_path / "budget.json"
-        # Cache has 5h=30%, 7d=10% — OAuth is ground truth
+        # Cache has 5h=30%, 7d=10% — but local=60% is higher
         cache_file.write_text(json.dumps({
             "five_hour_used_pct": 30,
             "seven_day_used_pct": 10,
@@ -255,9 +255,9 @@ class TestCheckTokenBudgetMerge:
             patch("mr_overkill.budget.claude._CACHE_PATH", cache_file),
         ):
             result = check_token_budget()
-        # OAuth (cached) is ground truth — always preferred over local
+        # Conservative: use max(cached, local) for 5h to avoid underreporting
         assert result.mode == "cached"
-        assert result.five_hour_used_pct == 30
+        assert result.five_hour_used_pct == 60
         assert result.seven_day_used_pct == 10
 
     def test_no_cache_uses_local(self, tmp_path: Path) -> None:

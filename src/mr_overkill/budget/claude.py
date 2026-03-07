@@ -306,7 +306,7 @@ def _load_cache() -> BudgetStatus | None:
 def check_token_budget() -> BudgetStatus:
     """Get Claude budget status.
 
-    Priority: OAuth → cached OAuth → local JSONL.
+    Priority: OAuth → max(cached OAuth, local) for 5h → local JSONL.
     """
     result = check_oauth()
     if result is not None:
