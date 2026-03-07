@@ -321,6 +321,10 @@ def parse_review_loop_args(
                 parser.error(
                     f"--resume requires {saved} or explicit --max-loop"
                 )
+        if args.reviewer_backend is None:
+            saved = log_dir / "reviewer-backend.txt"
+            if saved.is_file():
+                args.reviewer_backend = saved.read_text().strip()
 
     if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")
@@ -566,6 +570,10 @@ def parse_refactor_suggest_args(
             saved = log_dir / "scope.txt"
             if saved.is_file():
                 scope = saved.read_text().strip()
+        if args.reviewer_backend is None:
+            saved = log_dir / "reviewer-backend.txt"
+            if saved.is_file():
+                args.reviewer_backend = saved.read_text().strip()
 
     if args.resume and max_loop is None:
         parser.error(
