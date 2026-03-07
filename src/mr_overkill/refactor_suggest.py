@@ -301,7 +301,13 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
 
     # Resolve auto scope
     if scope == "auto":
-        tools = ["codex"] if config.dry_run else ["claude", "codex"]
+        if config.dry_run:
+            tools = ["codex"]
+        else:
+            # Fixer always uses Claude; add Codex only when it is the reviewer
+            tools = ["claude"]
+            if config.reviewer_backend == "codex":
+                tools.append("codex")
         resolved = resolve_auto_scope(tools=tools)
         if resolved is None:
             logger.error("Budget too low for any refactor scope.")
