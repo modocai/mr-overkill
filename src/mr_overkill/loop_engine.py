@@ -31,6 +31,7 @@ from mr_overkill.models import (
     FixFn,
     LoopConfig,
     LoopResult,
+    WorktreeSnapshot,
 )
 from mr_overkill.reporting import generate_summary, post_pr_comment
 from mr_overkill.resume import detect_state
@@ -65,7 +66,7 @@ class SelfReviewFn(Protocol):
 
     Parameters
     ----------
-    pre_fix_snapshot : list
+    pre_fix_snapshot : list[WorktreeSnapshot]
         Worktree snapshot from before fixes were applied.
     max_subloop : int
         Maximum sub-iterations.
@@ -84,7 +85,7 @@ class SelfReviewFn(Protocol):
 
     def __call__(
         self,
-        pre_fix_snapshot: object,
+        pre_fix_snapshot: list[WorktreeSnapshot],
         max_subloop: int,
         log_dir: Path,
         iteration: int,

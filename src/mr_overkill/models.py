@@ -168,6 +168,9 @@ class LoopConfig:
     # PR
     pr_number: str | None = None
 
+    # Reviewer backend
+    reviewer_backend: str = "codex"  # "codex" | "claude"
+
     # Refactor-specific
     scope: str | None = None  # micro | module | layer | full
     skip_initial_no_diff: bool = False  # refactor: 1st iteration has no diff

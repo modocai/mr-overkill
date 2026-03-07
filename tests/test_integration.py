@@ -14,16 +14,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from mr_overkill.agents import create_fix_agent, create_review_agent
 from mr_overkill.models import (
     FinalStatus,
     LoopConfig,
     LoopResult,
 )
-from mr_overkill.review_loop import _make_fixer, _make_reviewer, run
+from mr_overkill.review_loop import run
 
 
 class TestReviewLoopIntegration:
-    """Test review_loop.run with real _make_reviewer / _make_fixer."""
+    """Test review_loop.run with real agent factories."""
 
     @patch("mr_overkill.review_loop.review_fix_loop")
     def test_run_wires_reviewer_and_fixer(
@@ -53,18 +54,19 @@ class TestReviewLoopIntegration:
         )
 
 
-class TestMakeReviewerIntegration:
-    """Test _make_reviewer produces a working ReviewerFn."""
+class TestCreateReviewAgentIntegration:
+    """Test create_review_agent produces a working ReviewerFn."""
 
-    @patch("mr_overkill.review_loop._wait_budget", return_value=True)
-    @patch("mr_overkill.review_loop.retry_codex_cmd")
+    @patch("mr_overkill.agents._make_budget_fn")
+    @patch("mr_overkill.agents.retry_codex_cmd")
     def test_reviewer_reads_prompt_and_calls_codex(
         self,
         mock_retry: MagicMock,
-        mock_budget: MagicMock,
+        mock_budget_factory: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
+        mock_budget_factory.return_value = MagicMock(return_value=True)
         prompts = tmp_path / "prompts"
         prompts.mkdir(exist_ok=True)
         (prompts / "codex-review.prompt.md").write_text(
@@ -72,7 +74,7 @@ class TestMakeReviewerIntegration:
         )
 
         config = make_loop_config(prompts_dir=prompts)
-        reviewer = _make_reviewer(config)
+        reviewer = create_review_agent(config)
 
         output = tmp_path / "review.json"
         mock_retry.return_value = True
@@ -98,7 +100,7 @@ class TestMakeReviewerIntegration:
         # No prompt file created
 
         config = make_loop_config(prompts_dir=prompts)
-        reviewer = _make_reviewer(config)
+        reviewer = create_review_agent(config)
 
         output = tmp_path / "review.json"
         result = reviewer(output, 1)
@@ -106,19 +108,23 @@ class TestMakeReviewerIntegration:
         assert result is False
 
 
-class TestMakeFixerIntegration:
-    """Test _make_fixer produces a working FixFn."""
+class TestCreateFixAgentIntegration:
+    """Test create_fix_agent produces a working FixFn."""
 
-    @patch("mr_overkill.review_loop._wait_budget", return_value=True)
-    @patch("mr_overkill.review_loop.claude_two_step_fix")
+    @patch("mr_overkill.agents._make_budget_fn")
+    @patch("mr_overkill.agents._make_retry_fn")
+    @patch("mr_overkill.agents.claude_two_step_fix")
     def test_fixer_calls_two_step_fix(
         self,
         mock_tsf: MagicMock,
-        mock_budget: MagicMock,
+        mock_retry_factory: MagicMock,
+        mock_budget_factory: MagicMock,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
+        mock_retry_factory.return_value = MagicMock()
+        mock_budget_factory.return_value = MagicMock()
         config = make_loop_config()
-        fixer = _make_fixer(config)
+        fixer = create_fix_agent(config)
 
         review_json = json.dumps({"findings": []})
         mock_tsf.return_value = True

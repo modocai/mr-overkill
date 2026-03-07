@@ -52,12 +52,14 @@ class TestLoadRcFile:
             "MAX_LOOP=5\n"
             "DRY_RUN=true\n"
             'BUDGET_SCOPE="module"\n'
+            "REVIEWER_BACKEND=claude\n"
             "INVALID_KEY=ignored\n"
         )
         result = _load_rc_file(".reviewlooprc")
         assert result["TARGET_BRANCH"] == "main"
         assert result["MAX_LOOP"] == "5"
         assert result["DRY_RUN"] == "true"
+        assert result["REVIEWER_BACKEND"] == "claude"
         assert "INVALID_KEY" not in result
 
 
@@ -196,6 +198,104 @@ class TestParseReviewLoopArgs:
         config = parse_review_loop_args(["-n", "1", "--no-dry-run"])
         assert config.dry_run is False
 
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_reviewer_backend_default(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config = parse_review_loop_args(["-n", "1"])
+        assert config.reviewer_backend == "codex"
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_reviewer_backend_cli(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config = parse_review_loop_args([
+            "-n", "1", "--reviewer-backend", "claude",
+        ])
+        assert config.reviewer_backend == "claude"
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch(
+        "mr_overkill.cli._load_rc_file",
+        return_value={"REVIEWER_BACKEND": "claude"},
+    )
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_reviewer_backend_rc(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config = parse_review_loop_args(["-n", "1"])
+        assert config.reviewer_backend == "claude"
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch(
+        "mr_overkill.cli._load_rc_file",
+        return_value={"REVIEWER_BACKEND": "claude"},
+    )
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_reviewer_backend_cli_overrides_rc(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config = parse_review_loop_args([
+            "-n", "1", "--reviewer-backend", "codex",
+        ])
+        assert config.reviewer_backend == "codex"
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch(
+        "mr_overkill.cli._load_rc_file",
+        return_value={"REVIEWER_BACKEND": "gemini"},
+    )
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_reviewer_backend_invalid_rc(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        with pytest.raises(SystemExit):
+            parse_review_loop_args(["-n", "1"])
+
 
 class TestParseRefactorSuggestArgs:
     @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
@@ -324,3 +424,35 @@ class TestParseRefactorSuggestArgs:
         )
         config, _extra = parse_refactor_suggest_args(["--scope", "module"])
         assert config.scope == "module"
+
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_reviewer_backend_default(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config, _extra = parse_refactor_suggest_args([])
+        assert config.reviewer_backend == "codex"
+
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_reviewer_backend_cli(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config, _extra = parse_refactor_suggest_args([
+            "--reviewer-backend", "claude",
+        ])
+        assert config.reviewer_backend == "claude"
