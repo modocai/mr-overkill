@@ -302,7 +302,8 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     # Resolve auto scope
     if scope == "auto":
         if config.dry_run:
-            tools = ["codex"]
+            # dry-run: only check the reviewer backend (fixer won't run)
+            tools = [config.reviewer_backend]
         else:
             # Fixer always uses Claude; add Codex only when it is the reviewer
             tools = ["claude"]
