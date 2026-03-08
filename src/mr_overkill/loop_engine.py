@@ -357,12 +357,13 @@ def review_fix_loop(
                         config.reviewer_backend,
                     )
                     can_reuse = False
+            else:
+                logger.info("[resume] No backend metadata; re-running review.")
+                can_reuse = False
 
         if can_reuse:
             logger.info("[resume] Reusing saved review: %s", review_file)
         else:
-            # Update backend metadata now that reuse check is done
-            (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
             try:
                 review_ok = reviewer(review_file, i)
             except BudgetTimeoutError:
@@ -379,11 +380,12 @@ def review_fix_loop(
                     final_status = FinalStatus.CODEX_ERROR
                 break
 
-            # Save diff hash
+            # Save diff hash and backend metadata after successful review
             current_hash = diff_hash(
                 config.target_branch, config.current_branch, cwd=cwd
             )
             (log_dir / f"diff-hash-{i}.txt").write_text(current_hash)
+            (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
 
         # c. Parse review JSON
         review_data, _rc = parse_review_json(review_file, "review")
