@@ -330,6 +330,19 @@ def review_fix_loop(
                 can_reuse = False
 
         if can_reuse:
+            # Invalidate if reviewer backend changed
+            saved_backend_file = log_dir / "reviewer-backend.txt"
+            if saved_backend_file.is_file():
+                saved_backend = saved_backend_file.read_text().strip()
+                if saved_backend != config.reviewer_backend:
+                    logger.info(
+                        "[resume] Backend changed (%s -> %s); re-running review.",
+                        saved_backend,
+                        config.reviewer_backend,
+                    )
+                    can_reuse = False
+
+        if can_reuse:
             logger.info("[resume] Reusing saved review: %s", review_file)
         else:
             try:
