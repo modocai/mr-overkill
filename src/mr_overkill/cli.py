@@ -79,7 +79,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "AUTO_COMMIT", "PROMPTS_DIR", "RETRY_MAX_WAIT",
         "RETRY_INITIAL_WAIT", "BUDGET_SCOPE", "DIAGNOSTIC_LOG",
         "SCOPE", "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
-        "REVIEW_LOOPS", "FIX_NITS",
+        "REVIEW_LOOPS", "FIX_NITS", "REVIEWER_BACKEND",
     }
     boolean_keys = {
         "DRY_RUN", "AUTO_COMMIT", "DIAGNOSTIC_LOG",
@@ -239,6 +239,12 @@ def parse_review_loop_args(
         action="store_true",
         help="Save full event stream to sidecar files",
     )
+    parser.add_argument(
+        "--reviewer-backend",
+        default=None,
+        choices=["claude", "codex"],
+        help="Backend for code review (default: codex)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -315,9 +321,19 @@ def parse_review_loop_args(
                 parser.error(
                     f"--resume requires {saved} or explicit --max-loop"
                 )
+        if args.reviewer_backend is None:
+            saved = log_dir / "reviewer-backend.txt"
+            if saved.is_file():
+                args.reviewer_backend = saved.read_text().strip()
 
     if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")
+
+    reviewer_backend = args.reviewer_backend or rc.get("REVIEWER_BACKEND", "codex")
+    if reviewer_backend not in ("claude", "codex"):
+        parser.error(
+            f"REVIEWER_BACKEND must be 'claude' or 'codex', got {reviewer_backend!r}"
+        )
 
     return LoopConfig(
         current_branch=current_branch,
@@ -338,6 +354,7 @@ def parse_review_loop_args(
         log_dir=log_dir,
         prompts_dir=prompts_dir,
         pr_number=pr_number,
+        reviewer_backend=reviewer_backend,
     )
 
 
@@ -449,6 +466,12 @@ def parse_refactor_suggest_args(
         default=None,
         help="Review-loop iterations (implies --with-review)",
     )
+    parser.add_argument(
+        "--reviewer-backend",
+        default=None,
+        choices=["claude", "codex"],
+        help="Backend for code review (default: codex)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -547,6 +570,10 @@ def parse_refactor_suggest_args(
             saved = log_dir / "scope.txt"
             if saved.is_file():
                 scope = saved.read_text().strip()
+        if args.reviewer_backend is None:
+            saved = log_dir / "reviewer-backend.txt"
+            if saved.is_file():
+                args.reviewer_backend = saved.read_text().strip()
 
     if args.resume and max_loop is None:
         parser.error(
@@ -559,6 +586,12 @@ def parse_refactor_suggest_args(
         parser.error(
             f"SCOPE must be one of: {', '.join(sorted(_valid_scopes))}. "
             f"Got {scope!r}"
+        )
+
+    reviewer_backend = args.reviewer_backend or rc.get("REVIEWER_BACKEND", "codex")
+    if reviewer_backend not in ("claude", "codex"):
+        parser.error(
+            f"REVIEWER_BACKEND must be 'claude' or 'codex', got {reviewer_backend!r}"
         )
 
     config = LoopConfig(
@@ -581,6 +614,7 @@ def parse_refactor_suggest_args(
         log_dir=log_dir,
         prompts_dir=prompts_dir,
         scope=scope,
+        reviewer_backend=reviewer_backend,
     )
 
     extra = _RefactorExtra(

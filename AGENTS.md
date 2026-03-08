@@ -1,3 +1,12 @@
+## Project Identity
+
+- **Repo**: `modocai/mr-overkill` (GitHub)
+- **PyPI package name**: `overkill` (pending publisher registered)
+- **Python import**: `mr_overkill` (source in `src/mr_overkill/`)
+- **CLI entrypoint**: `overkill` (subcommands: `review-loop`, `refactor-suggest`, `init`, `check-budget`)
+- **Version**: managed in `pyproject.toml` → `[project] version`
+- **CI/CD**: GitHub Actions — `publish.yml` triggers PyPI publish
+
 ## Pull Request Rules
 
 Every PR must pass the review loop (`review-loop.sh --dry-run`) before merging. No exceptions. We eat our own dog food — if Mr. Overkill can't approve it, neither can you.

@@ -31,6 +31,7 @@ from mr_overkill.models import (
     FixFn,
     LoopConfig,
     LoopResult,
+    WorktreeSnapshot,
 )
 from mr_overkill.reporting import generate_summary, post_pr_comment
 from mr_overkill.resume import detect_state
@@ -65,7 +66,7 @@ class SelfReviewFn(Protocol):
 
     Parameters
     ----------
-    pre_fix_snapshot : list
+    pre_fix_snapshot : list[WorktreeSnapshot]
         Worktree snapshot from before fixes were applied.
     max_subloop : int
         Maximum sub-iterations.
@@ -84,7 +85,7 @@ class SelfReviewFn(Protocol):
 
     def __call__(
         self,
-        pre_fix_snapshot: object,
+        pre_fix_snapshot: list[WorktreeSnapshot],
         max_subloop: int,
         log_dir: Path,
         iteration: int,
@@ -335,10 +336,16 @@ def review_fix_loop(
                 review_ok = reviewer(review_file, i)
             except BudgetTimeoutError:
                 logger.error("Budget timeout during review (iteration %d).", i)
-                final_status = FinalStatus.CODEX_BUDGET_TIMEOUT
+                if config.reviewer_backend == "claude":
+                    final_status = FinalStatus.CLAUDE_BUDGET_TIMEOUT
+                else:
+                    final_status = FinalStatus.CODEX_BUDGET_TIMEOUT
                 break
             if not review_ok:
-                final_status = FinalStatus.CODEX_ERROR
+                if config.reviewer_backend == "claude":
+                    final_status = FinalStatus.CLAUDE_ERROR
+                else:
+                    final_status = FinalStatus.CODEX_ERROR
                 break
 
             # Save diff hash
@@ -569,6 +576,7 @@ def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
     (log_dir / "branch.txt").write_text(config.current_branch)
     (log_dir / "target-branch.txt").write_text(config.target_branch)
     (log_dir / "max-loop.txt").write_text(str(config.max_loop))
+    (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
     if config.scope:
         (log_dir / "scope.txt").write_text(config.scope)
 
