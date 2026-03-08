@@ -254,6 +254,9 @@ def review_fix_loop(
     if not config.resume:
         _clean_stale_logs(log_dir)
         _save_metadata(config, cwd)
+    else:
+        # Update backend metadata so repeated resumes don't re-run reviews
+        (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
 
     # ── Main loop ────────────────────────────────────────────────────
     final_status = FinalStatus.MAX_ITERATIONS_REACHED
