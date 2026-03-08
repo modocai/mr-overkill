@@ -400,6 +400,7 @@ class TestLoopEngineSummary:
 
 
 class TestLoopEngineMetadata:
+    @patch("mr_overkill.loop_engine.git_all_dirty", return_value=[])
     @patch("mr_overkill.loop_engine._no_diff", return_value=True)
     @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
     @patch("mr_overkill.loop_engine.subprocess.run")
@@ -408,6 +409,7 @@ class TestLoopEngineMetadata:
         mock_run: MagicMock,
         mock_dirty: MagicMock,
         mock_diff: MagicMock,
+        _mock_dirty: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
