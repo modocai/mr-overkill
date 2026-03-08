@@ -267,7 +267,10 @@ def _make_plan_confirm(scope: str) -> PreFixConfirmFn:
                         order = step.get("order", "?")
                         desc = step.get("description", "")
                         files = step.get("files", [])
-                        files_str = ", ".join(str(f) for f in files) if isinstance(files, list) else ""
+                        files_str = (
+                            ", ".join(str(f) for f in files)
+                            if isinstance(files, list) else ""
+                        )
                         print(f"    {order}. {desc} [{files_str}]")
             print()
 
@@ -320,13 +323,16 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     config.scope = scope
 
     # Guard: non-dry-run resume requires a refactor/* branch
-    if config.resume and not config.dry_run:
-        if not config.current_branch.startswith("refactor/"):
-            logger.error(
-                "Non-dry-run resume requires a refactor/* branch, got '%s'.",
-                config.current_branch,
-            )
-            return 1
+    if (
+        config.resume
+        and not config.dry_run
+        and not config.current_branch.startswith("refactor/")
+    ):
+        logger.error(
+            "Non-dry-run resume requires a refactor/* branch, got '%s'.",
+            config.current_branch,
+        )
+        return 1
 
     # Reject non-allowlisted dirty files before creating a branch
     if not config.dry_run and not config.resume:
@@ -388,19 +394,25 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
 
     # Create draft PR when requested
     pr_failed = False
-    if create_pr and not config.dry_run and loop_result.final_status in {
-        FinalStatus.MAX_ITERATIONS_REACHED,
-        FinalStatus.ALL_CLEAR,
-    }:
-        if not create_draft_pr(
-            scope=scope,
-            target_branch=config.target_branch,
-            current_branch=config.current_branch,
-            max_loop=config.max_loop,
-            final_status=loop_result.final_status,
-        ):
-            logger.error("--create-pr was requested but PR creation failed.")
-            pr_failed = True
+    pr_eligible = (
+        create_pr
+        and not config.dry_run
+        and loop_result.final_status in {
+            FinalStatus.MAX_ITERATIONS_REACHED,
+            FinalStatus.ALL_CLEAR,
+        }
+    )
+    if pr_eligible and not create_draft_pr(
+        scope=scope,
+        target_branch=config.target_branch,
+        current_branch=config.current_branch,
+        max_loop=config.max_loop,
+        final_status=loop_result.final_status,
+    ):
+        logger.error(
+            "--create-pr was requested but PR creation failed.",
+        )
+        pr_failed = True
 
     logger.info("Done. Status: %s", loop_result.final_status)
 

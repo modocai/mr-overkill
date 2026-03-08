@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib.resources import as_file, files
 from pathlib import Path
-from typing import Iterator
 
 _REVIEW_LOOP_DIR = ".review-loop"
 

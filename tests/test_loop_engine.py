@@ -401,10 +401,12 @@ class TestLoopEngineSummary:
 
 class TestLoopEngineMetadata:
     @patch("mr_overkill.loop_engine._no_diff", return_value=True)
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
     @patch("mr_overkill.loop_engine.subprocess.run")
     def test_metadata_saved(
         self,
         mock_run: MagicMock,
+        mock_dirty: MagicMock,
         mock_diff: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],

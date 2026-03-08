@@ -253,7 +253,11 @@ def parse_review_loop_args(
 
     # Resolve values with precedence: CLI > rc file > defaults
     target = args.target or rc.get("TARGET_BRANCH", "develop")
-    max_loop = args.max_loop if args.max_loop is not None else (_int_from_rc(rc, "MAX_LOOP", "0", parser) or None)
+    rc_max = _int_from_rc(rc, "MAX_LOOP", "0", parser)
+    max_loop = (
+        args.max_loop if args.max_loop is not None
+        else (rc_max or None)
+    )
 
     if not args.resume and max_loop is None:
         parser.error("-n / --max-loop is required")

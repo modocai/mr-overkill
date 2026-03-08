@@ -132,10 +132,12 @@ class TestCreateDraftPr:
 
 class TestRun:
     @patch("mr_overkill.refactor_suggest.review_fix_loop")
+    @patch("mr_overkill.refactor_suggest.git_all_dirty", return_value=[])
     @patch("mr_overkill.refactor_suggest.subprocess.run")
     def test_success_returns_zero(
         self,
         mock_run: MagicMock,
+        mock_dirty: MagicMock,
         mock_loop: MagicMock,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
@@ -150,10 +152,12 @@ class TestRun:
         assert run(config, "module") == 0
 
     @patch("mr_overkill.refactor_suggest.review_fix_loop")
+    @patch("mr_overkill.refactor_suggest.git_all_dirty", return_value=[])
     @patch("mr_overkill.refactor_suggest.subprocess.run")
     def test_error_returns_one(
         self,
         mock_run: MagicMock,
+        mock_dirty: MagicMock,
         mock_loop: MagicMock,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
@@ -169,10 +173,12 @@ class TestRun:
 
     @patch("mr_overkill.refactor_suggest.create_draft_pr")
     @patch("mr_overkill.refactor_suggest.review_fix_loop")
+    @patch("mr_overkill.refactor_suggest.git_all_dirty", return_value=[])
     @patch("mr_overkill.refactor_suggest.subprocess.run")
     def test_create_pr_called(
         self,
         mock_run: MagicMock,
+        mock_dirty: MagicMock,
         mock_loop: MagicMock,
         mock_pr: MagicMock,
         make_loop_config: Callable[..., LoopConfig],
