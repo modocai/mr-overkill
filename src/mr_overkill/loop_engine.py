@@ -337,7 +337,7 @@ def review_fix_loop(
             except BudgetTimeoutError:
                 logger.error("Budget timeout during review (iteration %d).", i)
                 if config.reviewer_backend == "claude":
-                    final_status = FinalStatus.CLAUDE_ERROR
+                    final_status = FinalStatus.CLAUDE_BUDGET_TIMEOUT
                 else:
                     final_status = FinalStatus.CODEX_BUDGET_TIMEOUT
                 break
