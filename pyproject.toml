@@ -1,9 +1,28 @@
 [project]
 name = "overkill"
-version = "0.1.0"
-description = "AI-powered code review loop — Python core"
+version = "0.2.1"
+description = "AI-powered code review loop — automates Codex review + Claude fix cycles"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.12"
+authors = [{ name = "ModocAI" }]
+keywords = ["code-review", "refactoring", "ai", "claude", "codex", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = []
+
+[project.urls]
+Repository = "https://github.com/modocai/mr-overkill"
+Issues = "https://github.com/modocai/mr-overkill/issues"
 
 [project.scripts]
 overkill = "mr_overkill.__main__:main"

@@ -31,6 +31,7 @@ from mr_overkill.models import (
     FixFn,
     LoopConfig,
     LoopResult,
+    WorktreeSnapshot,
 )
 from mr_overkill.reporting import generate_summary, post_pr_comment
 from mr_overkill.resume import detect_state
@@ -65,7 +66,7 @@ class SelfReviewFn(Protocol):
 
     Parameters
     ----------
-    pre_fix_snapshot : list
+    pre_fix_snapshot : list[WorktreeSnapshot]
         Worktree snapshot from before fixes were applied.
     max_subloop : int
         Maximum sub-iterations.
@@ -84,7 +85,7 @@ class SelfReviewFn(Protocol):
 
     def __call__(
         self,
-        pre_fix_snapshot: object,
+        pre_fix_snapshot: list[WorktreeSnapshot],
         max_subloop: int,
         log_dir: Path,
         iteration: int,
@@ -175,17 +176,27 @@ def review_fix_loop(
             )
 
         # Validate that saved metadata matches the current run
-        saved_branch = (log_dir / "branch.txt").read_text().strip() if (log_dir / "branch.txt").is_file() else None
-        saved_target = (log_dir / "target-branch.txt").read_text().strip() if (log_dir / "target-branch.txt").is_file() else None
+        branch_file = log_dir / "branch.txt"
+        target_file = log_dir / "target-branch.txt"
+        saved_branch = (
+            branch_file.read_text().strip()
+            if branch_file.is_file() else None
+        )
+        saved_target = (
+            target_file.read_text().strip()
+            if target_file.is_file() else None
+        )
         if not saved_branch:
             logger.error(
-                "Resume metadata (branch.txt) missing in %s — cannot verify branch safety.",
+                "Resume metadata (branch.txt) missing in %s"
+                " — cannot verify branch safety.",
                 log_dir,
             )
             return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
         if saved_branch != config.current_branch:
             logger.error(
-                "Resume branch mismatch: logs are from '%s' but current branch is '%s'.",
+                "Resume branch mismatch: logs are from '%s'"
+                " but current branch is '%s'.",
                 saved_branch, config.current_branch,
             )
             return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
@@ -216,8 +227,14 @@ def review_fix_loop(
         # Reset partial edits from interrupted run (non-dry-run only)
         if not config.dry_run:
             if not _validate_target_branch(config.target_branch, cwd):
-                logger.error("Target branch '%s' does not exist.", config.target_branch)
-                return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+                logger.error(
+                    "Target branch '%s' does not exist.",
+                    config.target_branch,
+                )
+                return LoopResult(
+                    final_status=FinalStatus.REVIEW_FAILED,
+                    iterations_run=0,
+                )
             resume_reset_worktree(cwd=cwd)
 
     # ── Validate target branch (before any destructive operations) ───
@@ -329,23 +346,46 @@ def review_fix_loop(
                 can_reuse = False
 
         if can_reuse:
+            # Invalidate if reviewer backend changed
+            saved_backend_file = log_dir / "reviewer-backend.txt"
+            if saved_backend_file.is_file():
+                saved_backend = saved_backend_file.read_text().strip()
+                if saved_backend != config.reviewer_backend:
+                    logger.info(
+                        "[resume] Backend changed (%s -> %s); re-running review.",
+                        saved_backend,
+                        config.reviewer_backend,
+                    )
+                    can_reuse = False
+            else:
+                logger.info("[resume] No backend metadata; re-running review.")
+                can_reuse = False
+
+        if can_reuse:
             logger.info("[resume] Reusing saved review: %s", review_file)
         else:
             try:
                 review_ok = reviewer(review_file, i)
             except BudgetTimeoutError:
                 logger.error("Budget timeout during review (iteration %d).", i)
-                final_status = FinalStatus.CODEX_BUDGET_TIMEOUT
+                if config.reviewer_backend == "claude":
+                    final_status = FinalStatus.CLAUDE_BUDGET_TIMEOUT
+                else:
+                    final_status = FinalStatus.CODEX_BUDGET_TIMEOUT
                 break
             if not review_ok:
-                final_status = FinalStatus.CODEX_ERROR
+                if config.reviewer_backend == "claude":
+                    final_status = FinalStatus.CLAUDE_ERROR
+                else:
+                    final_status = FinalStatus.CODEX_ERROR
                 break
 
-            # Save diff hash
+            # Save diff hash and backend metadata after successful review
             current_hash = diff_hash(
                 config.target_branch, config.current_branch, cwd=cwd
             )
             (log_dir / f"diff-hash-{i}.txt").write_text(current_hash)
+            (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
 
         # c. Parse review JSON
         review_data, _rc = parse_review_json(review_file, "review")
@@ -443,7 +483,11 @@ def review_fix_loop(
                     f"Auto-generated by review loop (iteration {i}/{config.max_loop})"
                 )
                 if self_review_summary:
-                    summary_oneline = self_review_summary.replace("\n", "; ").rstrip("; ")
+                    summary_oneline = (
+                        self_review_summary
+                        .replace("\n", "; ")
+                        .rstrip("; ")
+                    )
                     commit_msg += f"\nSelf-review: {summary_oneline}"
                 try:
                     fix_committed = commit_and_push(
@@ -569,6 +613,7 @@ def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
     (log_dir / "branch.txt").write_text(config.current_branch)
     (log_dir / "target-branch.txt").write_text(config.target_branch)
     (log_dir / "max-loop.txt").write_text(str(config.max_loop))
+    (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
     if config.scope:
         (log_dir / "scope.txt").write_text(config.scope)
 

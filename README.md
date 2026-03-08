@@ -92,6 +92,7 @@ Options:
   --dry-run                Run review only, do not fix
   --no-auto-commit         Fix but do not commit/push (single iteration)
   --resume                 Resume from a previously interrupted run (reuses existing logs)
+  --reviewer-backend <be>  Reviewer backend: claude|codex (default: codex)
   --diagnostic-log         Save full Claude event stream to sidecar files
 
 Examples:
@@ -100,6 +101,7 @@ Examples:
   overkill review-loop -n 1 --dry-run        # single review, no fixes
   overkill review-loop -n 3 --no-self-review # disable self-review sub-loop
   overkill review-loop --resume              # resume an interrupted run
+  overkill review-loop -n 2 --reviewer-backend claude  # use Claude as reviewer
 ```
 
 ## Usage: overkill refactor-suggest
@@ -122,6 +124,7 @@ Options:
   --resume                 Resume from a previously interrupted run (reuses existing logs)
   --with-review            Run review-loop after PR creation (default: 4 iterations)
   --with-review-loops <N>  Set review-loop iteration count (implies --with-review)
+  --reviewer-backend <be>  Reviewer backend: claude|codex (default: codex)
   --diagnostic-log         Save full Claude event stream to sidecar files
 
 Examples:
@@ -168,7 +171,7 @@ Creates:
 
 ```
 1. Collect source file list (git ls-files)
-2. Codex analyzes the full codebase for scope-specific refactoring opportunities
+2. Reviewer (Codex or Claude) analyzes the full codebase for scope-specific refactoring opportunities
 3. (layer/full) Display refactoring plan and wait for confirmation
 4. Claude applies refactoring (two-step: opinion → execute)
 5. Claude self-reviews changes, re-fixes if needed
@@ -191,6 +194,7 @@ TARGET_BRANCH="main"
 MAX_LOOP=5
 MAX_SUBLOOP=4
 AUTO_COMMIT=true
+REVIEWER_BACKEND="codex"    # or "claude"
 PROMPTS_DIR="./custom-prompts"
 ```
 
@@ -209,6 +213,7 @@ AUTO_APPROVE=false
 CREATE_PR=false
 WITH_REVIEW=false
 REVIEW_LOOPS=4
+REVIEWER_BACKEND="codex"    # or "claude"
 PROMPTS_DIR="./custom-prompts"
 ```
 
@@ -220,7 +225,7 @@ PROMPTS_DIR="./custom-prompts"
 3. Loop (iteration 1..N):
    a. Generate diff: git diff $TARGET...$CURRENT
    b. Empty diff → exit
-   c. Codex reviews the diff → JSON with findings
+   c. Reviewer (Codex or Claude, via --reviewer-backend) reviews the diff → JSON with findings
    d. No findings + "patch is correct" → exit
    e. Claude fixes all issues (P0-P3)
    f. Sub-loop (1..MAX_SUBLOOP):
@@ -293,21 +298,20 @@ Edit the templates in `.review-loop/prompts/active/`.
 
 ### review-loop prompts
 
-- **`codex-review.prompt.md`** — Review prompt sent to Codex. Uses `envsubst` variables: `${CURRENT_BRANCH}`, `${TARGET_BRANCH}`, `${ITERATION}`.
+- **`codex-review.prompt.md`** — Review prompt sent to Codex. Uses variables: `${CURRENT_BRANCH}`, `${TARGET_BRANCH}`, `${ITERATION}`.
+- **`claude-review.prompt.md`** — Review prompt for Claude reviewer (symlink to codex-review by default).
 - **`claude-fix.prompt.md`** — Opinion prompt: Claude evaluates review findings. Uses: `${REVIEW_JSON}`, `${CURRENT_BRANCH}`, `${TARGET_BRANCH}`.
 - **`claude-fix-execute.prompt.md`** — Execute prompt: tells Claude to fix based on its opinion.
 - **`claude-self-review.prompt.md`** — Self-review prompt for Claude to check its own fixes. Uses: `${REVIEW_JSON}`, `${CURRENT_BRANCH}`, `${TARGET_BRANCH}`, `${ITERATION}`.
 
 ### refactor-suggest prompts
 
-Each scope has a dedicated Codex prompt with scope-specific instructions, anti-pattern guardrails, and good/bad finding examples:
+Each scope has a dedicated prompt with scope-specific instructions, anti-pattern guardrails, and good/bad finding examples:
 
-- **`codex-refactor-micro.prompt.md`** — Function/file-level analysis.
-- **`codex-refactor-module.prompt.md`** — Module duplication and boundary analysis.
-- **`codex-refactor-layer.prompt.md`** — Cross-cutting concern analysis.
-- **`codex-refactor-full.prompt.md`** — Architecture-level analysis.
+- **`codex-refactor-{micro,module,layer,full}.prompt.md`** — Codex reviewer prompts per scope.
+- **`claude-refactor-{micro,module,layer,full}.prompt.md`** — Claude reviewer prompts (symlinks to codex versions by default).
 
-All four Codex prompts use `envsubst` variables: `${TARGET_BRANCH}`, `${ITERATION}`, `${SOURCE_FILES_PATH}`.
+All refactor prompts use variables: `${TARGET_BRANCH}`, `${ITERATION}`, `${SOURCE_FILES_PATH}`.
 
 - **`claude-refactor-fix.prompt.md`** — Opinion prompt: Claude evaluates refactoring findings with scope-aware judgment. Uses: `${REVIEW_JSON}`, `${CURRENT_BRANCH}`, `${TARGET_BRANCH}`.
 - **`claude-refactor-fix-execute.prompt.md`** — Execute prompt with safety guards (syntax check, scope overflow detection, regression testing).

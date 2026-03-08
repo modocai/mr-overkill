@@ -51,6 +51,7 @@ class FinalStatus(StrEnum):
     CODEX_ERROR = "codex_error"
     CODEX_BUDGET_TIMEOUT = "codex_budget_timeout"
     CLAUDE_ERROR = "claude_error"
+    CLAUDE_BUDGET_TIMEOUT = "claude_budget_timeout"
     PARSE_ERROR = "parse_error"
     STASH_ERROR = "stash_error"
     STASH_CONFLICT = "stash_conflict"
@@ -167,6 +168,9 @@ class LoopConfig:
 
     # PR
     pr_number: str | None = None
+
+    # Reviewer backend
+    reviewer_backend: str = "codex"  # "codex" | "claude"
 
     # Refactor-specific
     scope: str | None = None  # micro | module | layer | full

@@ -8,29 +8,25 @@ chaining.
 from __future__ import annotations
 
 import logging
-import string
 import subprocess
 from datetime import UTC, datetime
-from pathlib import Path
 
+from mr_overkill.agents import (
+    create_fix_agent,
+    create_review_agent,
+    create_self_review_agent,
+)
 from mr_overkill.budget import budget_sufficient
 from mr_overkill.budget.claude import check_token_budget as claude_budget
 from mr_overkill.budget.codex import check_token_budget as codex_budget
 from mr_overkill.git_ops import git_all_dirty, stash_allowlisted, unstash_allowlisted
-from mr_overkill.loop_engine import ReviewerFn, review_fix_loop
+from mr_overkill.loop_engine import PreFixConfirmFn, review_fix_loop
 from mr_overkill.models import (
     BudgetScope,
     BudgetStatus,
-    BudgetTimeoutError,
     FinalStatus,
     LoopConfig,
 )
-from mr_overkill.retry import retry_claude_cmd, retry_codex_cmd
-from mr_overkill.review_loop import (
-    _make_self_reviewer,
-    _wait_budget,
-)
-from mr_overkill.two_step_fix import claude_two_step_fix
 
 logger = logging.getLogger(__name__)
 
@@ -253,104 +249,7 @@ def create_draft_pr(
     return False
 
 
-# ── Refactor-specific reviewer ───────────────────────────────────────
-
-
-def _make_refactor_reviewer(
-    config: LoopConfig,
-    scope: str,
-) -> ReviewerFn:
-    """Create a reviewer that uses scope-specific Codex prompt."""
-
-    def reviewer(output_path: Path, iteration: int) -> bool:
-        # Refresh source file list each iteration
-        source_files_path = config.log_dir / "source-files.txt"
-        result = subprocess.run(
-            ["git", "ls-files"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        source_files_path.write_text(result.stdout)
-
-        prompt_file = config.prompts_dir / f"codex-refactor-{scope}.prompt.md"
-        if not prompt_file.is_file():
-            logger.error("Prompt not found: %s", prompt_file)
-            return False
-
-        tmpl = string.Template(
-            prompt_file.read_text(encoding="utf-8")
-        )
-        prompt_text = tmpl.safe_substitute({
-            "CURRENT_BRANCH": config.current_branch,
-            "TARGET_BRANCH": config.target_branch,
-            "ITERATION": str(iteration),
-            "SOURCE_FILES_PATH": str(config.log_dir / "source-files.txt"),
-        })
-
-        if not _wait_budget(
-            "codex", config.budget_scope, 0, config.retry_max_wait
-        ):
-            raise BudgetTimeoutError(
-                f"Codex budget timeout (iteration {iteration})."
-            )
-
-        stderr_path = output_path.with_suffix(".stderr")
-        return retry_codex_cmd(
-            stderr_path,
-            "Codex analysis",
-            [
-                "codex", "exec", "--sandbox", "read-only",
-                "-o", str(output_path), prompt_text,
-            ],
-            max_wait=config.retry_max_wait,
-            initial_wait=config.retry_initial_wait,
-        )
-
-    return reviewer
-
-
-# ── Refactor-specific fixer ──────────────────────────────────────────
-
-
-def _make_refactor_fixer(config: LoopConfig):
-    """Create a fixer that uses refactor-specific fix prompts."""
-
-    def _retry_fn(output_path, label, cmd_args, **kw):
-        return retry_claude_cmd(
-            output_path, label, cmd_args,
-            stdin=kw.get("stdin"),
-            max_wait=config.retry_max_wait,
-            initial_wait=config.retry_initial_wait,
-            diagnostic_log=config.diagnostic_log,
-        )
-
-    def _budget_fn(tool, scope, max_wait):
-        return _wait_budget(tool, scope, max_wait, config.retry_max_wait)
-
-    def fixer(review_json, label, **kw):
-        log_dir = config.log_dir
-        return claude_two_step_fix(
-            review_json=review_json,
-            opinion_file=log_dir / f"opinion-{label}.md",
-            fix_file=log_dir / f"fix-{label}.md",
-            label=label,
-            retry_fn=_retry_fn,
-            budget_fn=_budget_fn,
-            prompts_dir=config.prompts_dir,
-            current_branch=config.current_branch,
-            target_branch=config.target_branch,
-            budget_scope=config.budget_scope,
-            budget_max_wait=config.retry_max_wait,
-            opinion_prompt="claude-refactor-fix.prompt.md",
-            execute_prompt="claude-refactor-fix-execute.prompt.md",
-            fix_history=kw.get("fix_history", ""),
-        )
-
-    return fixer
-
-
-def _make_plan_confirm(scope: str):
+def _make_plan_confirm(scope: str) -> PreFixConfirmFn:
     """Return a confirmation callback for layer/full refactor plans."""
 
     def _confirm(review_data: dict[str, object]) -> bool:
@@ -368,7 +267,10 @@ def _make_plan_confirm(scope: str):
                         order = step.get("order", "?")
                         desc = step.get("description", "")
                         files = step.get("files", [])
-                        files_str = ", ".join(str(f) for f in files) if isinstance(files, list) else ""
+                        files_str = (
+                            ", ".join(str(f) for f in files)
+                            if isinstance(files, list) else ""
+                        )
                         print(f"    {order}. {desc} [{files_str}]")
             print()
 
@@ -402,7 +304,14 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
 
     # Resolve auto scope
     if scope == "auto":
-        tools = ["codex"] if config.dry_run else ["claude", "codex"]
+        if config.dry_run:
+            # dry-run: only check the reviewer backend (fixer won't run)
+            tools = [config.reviewer_backend]
+        else:
+            # Fixer always uses Claude; add Codex only when it is the reviewer
+            tools = ["claude"]
+            if config.reviewer_backend == "codex":
+                tools.append("codex")
         resolved = resolve_auto_scope(tools=tools)
         if resolved is None:
             logger.error("Budget too low for any refactor scope.")
@@ -414,13 +323,16 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     config.scope = scope
 
     # Guard: non-dry-run resume requires a refactor/* branch
-    if config.resume and not config.dry_run:
-        if not config.current_branch.startswith("refactor/"):
-            logger.error(
-                "Non-dry-run resume requires a refactor/* branch, got '%s'.",
-                config.current_branch,
-            )
-            return 1
+    if (
+        config.resume
+        and not config.dry_run
+        and not config.current_branch.startswith("refactor/")
+    ):
+        logger.error(
+            "Non-dry-run resume requires a refactor/* branch, got '%s'.",
+            config.current_branch,
+        )
+        return 1
 
     # Reject non-allowlisted dirty files before creating a branch
     if not config.dry_run and not config.resume:
@@ -458,7 +370,13 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     count = len(result.stdout.strip().splitlines())
     logger.info("Collected %d source files.", count)
 
-    refactor_fixer = _make_refactor_fixer(config)
+    reviewer = create_review_agent(config, scope=scope)
+    fixer = create_fix_agent(config, variant="refactor")
+    self_reviewer = (
+        create_self_review_agent(config, fixer)
+        if config.max_subloop > 0
+        else None
+    )
 
     # Safety confirmation for high-blast-radius scopes
     confirm_fn = None
@@ -467,32 +385,34 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
 
     loop_result = review_fix_loop(
         config,
-        reviewer=_make_refactor_reviewer(config, scope),
-        fixer=refactor_fixer,
-        self_reviewer=(
-            _make_self_reviewer(config, fixer=refactor_fixer)
-            if config.max_subloop > 0
-            else None
-        ),
+        reviewer=reviewer,
+        fixer=fixer,
+        self_reviewer=self_reviewer,
         pre_fix_confirm=confirm_fn,
         commit_pattern=f"refactor(ai-{scope}): apply iteration",
     )
 
     # Create draft PR when requested
     pr_failed = False
-    if create_pr and not config.dry_run and loop_result.final_status in {
-        FinalStatus.MAX_ITERATIONS_REACHED,
-        FinalStatus.ALL_CLEAR,
-    }:
-        if not create_draft_pr(
-            scope=scope,
-            target_branch=config.target_branch,
-            current_branch=config.current_branch,
-            max_loop=config.max_loop,
-            final_status=loop_result.final_status,
-        ):
-            logger.error("--create-pr was requested but PR creation failed.")
-            pr_failed = True
+    pr_eligible = (
+        create_pr
+        and not config.dry_run
+        and loop_result.final_status in {
+            FinalStatus.MAX_ITERATIONS_REACHED,
+            FinalStatus.ALL_CLEAR,
+        }
+    )
+    if pr_eligible and not create_draft_pr(
+        scope=scope,
+        target_branch=config.target_branch,
+        current_branch=config.current_branch,
+        max_loop=config.max_loop,
+        final_status=loop_result.final_status,
+    ):
+        logger.error(
+            "--create-pr was requested but PR creation failed.",
+        )
+        pr_failed = True
 
     logger.info("Done. Status: %s", loop_result.final_status)
 

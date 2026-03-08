@@ -306,7 +306,7 @@ def _load_cache() -> BudgetStatus | None:
 def check_token_budget() -> BudgetStatus:
     """Get Claude budget status.
 
-    Priority: OAuth → max(cached OAuth, local JSONL) → local JSONL.
+    Priority: OAuth → max(cached OAuth, local) for 5h → local JSONL.
     """
     result = check_oauth()
     if result is not None:
@@ -317,21 +317,28 @@ def check_token_budget() -> BudgetStatus:
     local = check_local()
 
     if cached is not None:
-        # Merge: always prefer the higher 5-hour estimate, carry 7-day from cache.
-        local_pct = local.five_hour_used_pct or 0
-        cached_pct = cached.five_hour_used_pct or 0
-        if local_pct > cached_pct or cached.five_hour_used_pct is None:
-            logger.info(
-                "Cached OAuth available but local estimate "
-                "is higher; using local.",
-            )
-            return dataclasses.replace(
-                local,
-                seven_day_used_pct=cached.seven_day_used_pct,
-                seven_day_resets_at=cached.seven_day_resets_at,
-            )
-        logger.info("Using cached OAuth budget data.")
-        return cached
+        if cached.five_hour_used_pct is not None:
+            # Use the higher 5h value between cached and local to avoid
+            # underreporting when cache is stale.
+            if (
+                local.five_hour_used_pct is not None
+                and local.five_hour_used_pct > cached.five_hour_used_pct
+            ):
+                cached = dataclasses.replace(
+                    cached, five_hour_used_pct=local.five_hour_used_pct,
+                )
+            logger.info("Using cached OAuth budget data.")
+            return cached
+        # 5-hour expired but 7-day still valid — merge 7-day into local.
+        logger.info(
+            "Cached OAuth 5-hour expired; using local estimate "
+            "with cached 7-day data.",
+        )
+        return dataclasses.replace(
+            local,
+            seven_day_used_pct=cached.seven_day_used_pct,
+            seven_day_resets_at=cached.seven_day_resets_at,
+        )
 
     return local
 

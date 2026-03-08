@@ -88,6 +88,7 @@ def main() -> None:
             review_config = parse_review_loop_args([
                 "-t", config.target_branch,
                 "-n", str(extra.review_loops),
+                "--reviewer-backend", config.reviewer_backend,
             ])
             exit_code = review_run(review_config)
         sys.exit(exit_code)

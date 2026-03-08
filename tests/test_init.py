@@ -25,7 +25,7 @@ class TestInitProject:
         assert "codex-review.prompt.md" in prompt_files
         assert "claude-fix.prompt.md" in prompt_files
         assert "claude-self-review.prompt.md" in prompt_files
-        assert len(prompt_files) == 10
+        assert len(prompt_files) == 15
 
     def test_copies_rc_files(self, tmp_path: Path) -> None:
         init_project(tmp_path)
