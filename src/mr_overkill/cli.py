@@ -59,18 +59,39 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         return {}
 
     git_root = Path(result.stdout.strip())
-    rc_path = git_root / ".review-loop" / rc_name
+    rc_path = git_root / ".overkill" / rc_name
     if not rc_path.is_file():
-        # Fall back to the legacy repo-root location
-        legacy = git_root / rc_name
-        if legacy.is_file():
+        # Fall back to the legacy .review-loop/ location
+        legacy_dir = git_root / ".review-loop" / rc_name
+        # Also check for legacy .reviewlooprc name in .review-loop/
+        legacy_old_name = (
+            git_root / ".review-loop" / ".reviewlooprc"
+            if rc_name == ".overkillrc" else None
+        )
+        legacy_root = git_root / rc_name
+        if legacy_dir.is_file():
+            import logging
+            logging.getLogger(__name__).warning(
+                "%s found at .review-loop/ (legacy location). "
+                "Please run 'overkill init' to migrate to .overkill/",
+                rc_name,
+            )
+            rc_path = legacy_dir
+        elif legacy_old_name and legacy_old_name.is_file():
+            import logging
+            logging.getLogger(__name__).warning(
+                ".reviewlooprc found at .review-loop/ (legacy location). "
+                "Please run 'overkill init' to migrate to .overkill/.overkillrc",
+            )
+            rc_path = legacy_old_name
+        elif legacy_root.is_file():
             import logging
             logging.getLogger(__name__).warning(
                 "%s found at repo root (legacy location). "
-                "Please move it to .review-loop/%s",
+                "Please move it to .overkill/%s",
                 rc_name, rc_name,
             )
-            rc_path = legacy
+            rc_path = legacy_root
         else:
             return {}
 
@@ -249,7 +270,7 @@ def parse_review_loop_args(
     args = parser.parse_args(argv)
 
     # Load rc file defaults
-    rc = _load_rc_file(".reviewlooprc")
+    rc = _load_rc_file(".overkillrc")
 
     # Resolve values with precedence: CLI > rc file > defaults
     target = args.target or rc.get("TARGET_BRANCH", "develop")
@@ -292,7 +313,7 @@ def parse_review_loop_args(
     budget_scope_str = rc.get("BUDGET_SCOPE", "module")
 
     prompts_dir = _resolve_prompts_dir(
-        rc.get("PROMPTS_DIR", ".review-loop/prompts/active")
+        rc.get("PROMPTS_DIR", ".overkill/prompts/active")
     )
 
     current_branch = _detect_current_branch()
@@ -306,7 +327,7 @@ def parse_review_loop_args(
         check=False,
     )
     git_root = Path(result.stdout.strip()) if result.returncode == 0 else Path(".")
-    log_dir = git_root / ".review-loop" / "logs"
+    log_dir = git_root / ".overkill" / "logs"
 
     # Restore saved values on resume when not explicitly given
     if args.resume:
@@ -539,7 +560,7 @@ def parse_refactor_suggest_args(
     budget_scope_str = rc.get("BUDGET_SCOPE", "module")
 
     prompts_dir = _resolve_prompts_dir(
-        rc.get("PROMPTS_DIR", ".review-loop/prompts/active")
+        rc.get("PROMPTS_DIR", ".overkill/prompts/active")
     )
 
     current_branch = _detect_current_branch()
@@ -555,7 +576,7 @@ def parse_refactor_suggest_args(
         Path(result.stdout.strip()) if result.returncode == 0
         else Path(".")
     )
-    log_dir = git_root / ".review-loop" / "logs" / "refactor"
+    log_dir = git_root / ".overkill" / "logs" / "refactor"
 
     # Restore saved values on resume when not explicitly given
     if args.resume:

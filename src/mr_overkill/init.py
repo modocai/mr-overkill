@@ -1,14 +1,18 @@
-"""``overkill init`` — scaffold ``.review-loop/`` in a target project."""
+"""``overkill init`` — scaffold ``.overkill/`` in a target project."""
 
 from __future__ import annotations
 
+import logging
 import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib.resources import as_file, files
 from pathlib import Path
 
-_REVIEW_LOOP_DIR = ".review-loop"
+logger = logging.getLogger(__name__)
+
+_OVERKILL_DIR = ".overkill"
+_LEGACY_DIR = ".review-loop"
 
 
 @contextmanager
@@ -57,36 +61,59 @@ def _copy_prompts(data: Path, dest: Path) -> list[str]:
 def _copy_rc_files(data: Path, dest: Path) -> list[str]:
     """Copy RC example files as live configs, preserving user edits.
 
-    If the live config already exists under ``.review-loop/``, it is kept
+    If the live config already exists under ``.overkill/``, it is kept
     as-is.  Otherwise, a legacy rc at the repo root is migrated first;
     only when neither exists does the bundled example get copied.
     """
     manifest: list[str] = []
     project_root = dest.parent
     rc_pairs = [
-        (".reviewlooprc.example", ".reviewlooprc"),
-        (".refactorsuggestrc.example", ".refactorsuggestrc"),
+        (".overkillrc.example", ".overkillrc", ".reviewlooprc"),
+        (".refactorsuggestrc.example", ".refactorsuggestrc", None),
     ]
-    for example_name, live_name in rc_pairs:
+    for example_name, live_name, legacy_name in rc_pairs:
         live_path = dest / live_name
         if not live_path.exists():
-            legacy = project_root / live_name
-            if legacy.is_file():
-                shutil.copy2(legacy, live_path)
-            elif (src_path := data / example_name).exists():
+            # Check for legacy rc names at repo root
+            legacy_names = [n for n in (legacy_name, live_name) if n]
+            migrated = False
+            for ln in legacy_names:
+                legacy = project_root / ln
+                if legacy.is_file():
+                    shutil.copy2(legacy, live_path)
+                    migrated = True
+                    break
+            if not migrated and (src_path := data / example_name).exists():
                 shutil.copy2(src_path, live_path)
         manifest.append(live_name)
     return manifest
 
 
 def _ensure_gitignore(project_root: Path) -> None:
-    """Add ``.review-loop/`` to ``.gitignore`` if absent."""
+    """Add ``.overkill/`` to ``.gitignore`` if absent."""
     gitignore = project_root / ".gitignore"
-    marker = ".review-loop/"
+    marker = ".overkill/"
+    legacy_marker = ".review-loop/"
 
     if gitignore.is_file():
         content = gitignore.read_text(encoding="utf-8")
-        if marker in content.splitlines():
+        lines = content.splitlines()
+
+        # Migrate legacy marker
+        if legacy_marker in lines and marker not in lines:
+            content = content.replace(legacy_marker, marker)
+            content = content.replace(
+                "# review-loop (added by overkill init)",
+                "# overkill (added by overkill init)",
+            )
+            content = content.replace(
+                "# review-loop (added by installer)",
+                "# overkill (added by overkill init)",
+            )
+            gitignore.write_text(content, encoding="utf-8")
+            return
+
+        if marker in lines:
             return
         # Ensure trailing newline before appending
         if content and not content.endswith("\n"):
@@ -94,7 +121,7 @@ def _ensure_gitignore(project_root: Path) -> None:
     else:
         content = ""
 
-    content += f"# review-loop (added by overkill init)\n{marker}\n"
+    content += f"# overkill (added by overkill init)\n{marker}\n"
     gitignore.write_text(content, encoding="utf-8")
 
 
@@ -107,14 +134,38 @@ def _write_manifest(dest: Path, entries: list[str]) -> None:
     )
 
 
+def _migrate_legacy_dir(target_dir: Path) -> None:
+    """Migrate ``.review-loop/`` to ``.overkill/`` if present."""
+    legacy = target_dir / _LEGACY_DIR
+    dest = target_dir / _OVERKILL_DIR
+
+    if not legacy.is_dir() or dest.is_dir():
+        return
+
+    shutil.move(str(legacy), str(dest))
+    logger.info("Migrated %s/ → %s/", _LEGACY_DIR, _OVERKILL_DIR)
+
+    # Rename legacy RC file inside the migrated directory
+    old_rc = dest / ".reviewlooprc"
+    new_rc = dest / ".overkillrc"
+    if old_rc.is_file() and not new_rc.is_file():
+        old_rc.rename(new_rc)
+        logger.info("Renamed .reviewlooprc → .overkillrc")
+
+    print(f"Migrated {_LEGACY_DIR}/ → {_OVERKILL_DIR}/")
+
+
 def init_project(target_dir: Path) -> None:
-    """Initialize ``.review-loop/`` in the target project.
+    """Initialize ``.overkill/`` in the target project.
 
     Idempotent: safe to re-run.  Prompt templates are always refreshed.
     RC config files are only created if missing (preserving user edits).
     """
+    # Migrate legacy .review-loop/ if present
+    _migrate_legacy_dir(target_dir)
+
     with _data_root() as data:
-        dest = target_dir / _REVIEW_LOOP_DIR
+        dest = target_dir / _OVERKILL_DIR
         dest.mkdir(parents=True, exist_ok=True)
 
         # 1. Copy prompt templates (always overwrite — tool-owned)
@@ -134,9 +185,9 @@ def init_project(target_dir: Path) -> None:
     _ensure_gitignore(target_dir)
 
     n_prompts = len([e for e in manifest if e.startswith("prompts/")])
-    rl = _REVIEW_LOOP_DIR
+    ok = _OVERKILL_DIR
     print(f"Initialized {dest}/")
-    print(f"  {rl}/prompts/active/  {n_prompts} templates")
-    print(f"  {rl}/.reviewlooprc")
-    print(f"  {rl}/.refactorsuggestrc")
-    print(f"  {rl}/logs/")
+    print(f"  {ok}/prompts/active/  {n_prompts} templates")
+    print(f"  {ok}/.overkillrc")
+    print(f"  {ok}/.refactorsuggestrc")
+    print(f"  {ok}/logs/")

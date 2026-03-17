@@ -3,7 +3,9 @@
 
 # Legacy log directory from previous versions
 .ai-review-logs/
-# review-loop self-hosted install
+# overkill self-hosted install
+.overkill/
+# Legacy directory (pre-migration)
 .review-loop/
 
 # Python

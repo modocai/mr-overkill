@@ -24,7 +24,7 @@ def main() -> None:
         print(
             "Usage: overkill <command>\n\n"
             "Commands:\n"
-            "  init              Initialize .review-loop/ in a project\n"
+            "  init              Initialize .overkill/ in a project\n"
             "  review-loop       Run AI review-fix loop\n"
             "  refactor-suggest  Run AI refactoring suggestions\n"
             "  check-budget      Show token budget usage summary",
@@ -43,7 +43,7 @@ def main() -> None:
 
         p = argparse.ArgumentParser(
             prog="overkill init",
-            description="Initialize .review-loop/ in a project",
+            description="Initialize .overkill/ in a project",
         )
         p.add_argument("target", nargs="?", default=".", help="Target directory")
         init_args = p.parse_args()

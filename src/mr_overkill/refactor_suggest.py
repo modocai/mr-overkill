@@ -105,6 +105,9 @@ def _get_budget_status(tool: str) -> BudgetStatus:
 
 _ALLOWLISTED_FILES = [
     ".gitignore",
+    ".overkill/.overkillrc",
+    ".overkill/.refactorsuggestrc",
+    # Legacy paths for pre-migration users
     ".reviewlooprc",
     ".refactorsuggestrc",
     ".review-loop/.reviewlooprc",
@@ -337,7 +340,12 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     # Reject non-allowlisted dirty files before creating a branch
     if not config.dry_run and not config.resume:
         allowlisted = set(_ALLOWLISTED_FILES)
-        non_allowed = [f for f in git_all_dirty(None) if f not in allowlisted]
+        non_allowed = [
+            f for f in git_all_dirty(None)
+            if f not in allowlisted
+            and not f.startswith(".overkill/logs/")
+            and not f.startswith(".review-loop/logs/")
+        ]
         if non_allowed:
             logger.error(
                 "Working tree is not clean. Commit or stash your changes "

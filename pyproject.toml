@@ -36,7 +36,7 @@ packages = ["src/mr_overkill"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "prompts/active" = "mr_overkill/data/prompts/active"
-".reviewlooprc.example" = "mr_overkill/data/.reviewlooprc.example"
+".overkillrc.example" = "mr_overkill/data/.overkillrc.example"
 ".refactorsuggestrc.example" = "mr_overkill/data/.refactorsuggestrc.example"
 
 [tool.pytest.ini_options]

@@ -210,7 +210,7 @@ def commit_and_push(
     Raises ``RuntimeError`` if ``git commit`` or ``git push`` fails.
     """
     changed = changed_files_since_snapshot(
-        snapshot, cwd=cwd, exclude_prefix=".review-loop/logs/",
+        snapshot, cwd=cwd, exclude_prefix=".overkill/logs/",
     )
     if not changed:
         logger.info("No file changes after fix — nothing to commit.")

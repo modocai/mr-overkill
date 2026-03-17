@@ -439,6 +439,9 @@ def review_fix_loop(
             allowed_stashed = stash_allowlisted(
                 [
                     ".gitignore",
+                    ".overkill/.overkillrc",
+                    ".overkill/.refactorsuggestrc",
+                    # Legacy paths for pre-migration users
                     ".reviewlooprc",
                     ".refactorsuggestrc",
                     ".review-loop/.reviewlooprc",
@@ -562,12 +565,20 @@ def _reject_dirty_worktree(cwd: Path | None) -> list[str]:
     """Return non-allowlisted dirty files, or empty list if clean."""
     allowlisted = {
         ".gitignore",
+        ".overkill/.overkillrc",
+        ".overkill/.refactorsuggestrc",
+        # Legacy paths for pre-migration users
         ".reviewlooprc",
         ".refactorsuggestrc",
         ".review-loop/.reviewlooprc",
         ".review-loop/.refactorsuggestrc",
     }
-    return [f for f in git_all_dirty(cwd) if f not in allowlisted]
+    return [
+        f for f in git_all_dirty(cwd)
+        if f not in allowlisted
+        and not f.startswith(".overkill/logs/")
+        and not f.startswith(".review-loop/logs/")
+    ]
 
 
 def _no_diff(target: str, current: str, cwd: Path | None) -> bool:
