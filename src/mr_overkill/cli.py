@@ -139,7 +139,21 @@ def _resolve_prompts_dir(prompts_dir: str) -> Path:
         check=False,
     )
     if result.returncode == 0:
-        return Path(result.stdout.strip()) / prompts_dir
+        git_root = Path(result.stdout.strip())
+        resolved = git_root / prompts_dir
+        # Legacy fallback: .overkill/... → .review-loop/...
+        if not resolved.is_dir() and ".overkill/" in prompts_dir:
+            legacy = git_root / prompts_dir.replace(
+                ".overkill/", ".review-loop/", 1
+            )
+            if legacy.is_dir():
+                logging.getLogger(__name__).warning(
+                    "Prompts dir found at %s (legacy location). "
+                    "Please run 'overkill init' to migrate to .overkill/",
+                    legacy,
+                )
+                return legacy
+        return resolved
     return p
 
 
