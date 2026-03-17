@@ -69,7 +69,9 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
             git_root / ".review-loop" / ".reviewlooprc"
             if rc_name == ".overkillrc" else None
         )
-        legacy_root = git_root / rc_name
+        # Legacy repo-root name: .overkillrc was .reviewlooprc
+        legacy_root_name = ".reviewlooprc" if rc_name == ".overkillrc" else rc_name
+        legacy_root = git_root / legacy_root_name
         if legacy_dir.is_file():
             logging.getLogger(__name__).warning(
                 "%s found at .review-loop/ (legacy location). "
@@ -87,7 +89,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
             logging.getLogger(__name__).warning(
                 "%s found at repo root (legacy location). "
                 "Please move it to .overkill/%s",
-                rc_name, rc_name,
+                legacy_root_name, rc_name,
             )
             rc_path = legacy_root
         else:
