@@ -153,6 +153,18 @@ def _resolve_prompts_dir(prompts_dir: str) -> Path:
                     legacy,
                 )
                 return legacy
+        # Inverse fallback: .review-loop/... → .overkill/...
+        if not resolved.is_dir() and ".review-loop/" in prompts_dir:
+            migrated = git_root / prompts_dir.replace(
+                ".review-loop/", ".overkill/", 1
+            )
+            if migrated.is_dir():
+                logging.getLogger(__name__).warning(
+                    "Prompts dir migrated to %s. "
+                    "Please update PROMPTS_DIR in your rc file.",
+                    migrated,
+                )
+                return migrated
         return resolved
     return p
 
@@ -342,6 +354,10 @@ def parse_review_loop_args(
     )
     git_root = Path(result.stdout.strip()) if result.returncode == 0 else Path(".")
     log_dir = git_root / ".overkill" / "logs"
+    if not log_dir.is_dir():
+        legacy_log = git_root / ".review-loop" / "logs"
+        if legacy_log.is_dir():
+            log_dir = legacy_log
 
     # Restore saved values on resume when not explicitly given
     if args.resume:
@@ -591,6 +607,10 @@ def parse_refactor_suggest_args(
         else Path(".")
     )
     log_dir = git_root / ".overkill" / "logs" / "refactor"
+    if not log_dir.is_dir():
+        legacy_log = git_root / ".review-loop" / "logs" / "refactor"
+        if legacy_log.is_dir():
+            log_dir = legacy_log
 
     # Restore saved values on resume when not explicitly given
     if args.resume:
