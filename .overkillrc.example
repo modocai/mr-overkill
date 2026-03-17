@@ -1,5 +1,5 @@
-# .reviewlooprc — project-level configuration for review-loop.sh
-# Copy this file to your project root as ".reviewlooprc" and customize.
+# .overkillrc — project-level configuration for overkill review-loop
+# Place this file in .overkill/.overkillrc and customize.
 # CLI arguments always take precedence over these values.
 
 # Target branch to diff against (default: develop)

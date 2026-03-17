@@ -100,12 +100,14 @@ def changed_files_since_snapshot(
     snapshot: list[WorktreeSnapshot],
     cwd: Path | None = None,
     exclude_prefix: str | None = None,
+    exclude_prefixes: tuple[str, ...] | None = None,
 ) -> list[str]:
     """Compare current dirty files against a snapshot.
 
     Returns list of file paths that changed (new, modified, or deleted).
     Uses a dict for O(1) lookups (vs O(n²) awk in bash).
     """
+    _prefixes = exclude_prefixes or ((exclude_prefix,) if exclude_prefix else ())
     snap_map: dict[str, tuple[str, str]] = {
         s.path: (s.file_hash, s.mode) for s in snapshot
     }
@@ -113,7 +115,7 @@ def changed_files_since_snapshot(
     changed: list[str] = []
 
     for f in git_all_dirty(cwd):
-        if exclude_prefix and f.startswith(exclude_prefix):
+        if _prefixes and any(f.startswith(p) for p in _prefixes):
             continue
 
         fpath = base / f
@@ -210,7 +212,8 @@ def commit_and_push(
     Raises ``RuntimeError`` if ``git commit`` or ``git push`` fails.
     """
     changed = changed_files_since_snapshot(
-        snapshot, cwd=cwd, exclude_prefix=".review-loop/logs/",
+        snapshot, cwd=cwd,
+        exclude_prefixes=(".overkill/logs/", ".review-loop/logs/"),
     )
     if not changed:
         logger.info("No file changes after fix — nothing to commit.")

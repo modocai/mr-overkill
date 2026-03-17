@@ -35,7 +35,7 @@ class TestLoadRcFile:
     @patch("mr_overkill.cli.subprocess.run")
     def test_no_git_root(self, mock_run: MagicMock) -> None:
         mock_run.return_value = MagicMock(returncode=1, stdout="")
-        assert _load_rc_file(".reviewlooprc") == {}
+        assert _load_rc_file(".overkillrc") == {}
 
     @patch("mr_overkill.cli.subprocess.run")
     def test_parses_valid_keys(
@@ -44,8 +44,8 @@ class TestLoadRcFile:
         mock_run.return_value = MagicMock(
             returncode=0, stdout=str(tmp_path)
         )
-        (tmp_path / ".review-loop").mkdir()
-        rc = tmp_path / ".review-loop" / ".reviewlooprc"
+        (tmp_path / ".overkill").mkdir()
+        rc = tmp_path / ".overkill" / ".overkillrc"
         rc.write_text(
             "# comment\n"
             "TARGET_BRANCH=main\n"
@@ -55,7 +55,7 @@ class TestLoadRcFile:
             "REVIEWER_BACKEND=claude\n"
             "INVALID_KEY=ignored\n"
         )
-        result = _load_rc_file(".reviewlooprc")
+        result = _load_rc_file(".overkillrc")
         assert result["TARGET_BRANCH"] == "main"
         assert result["MAX_LOOP"] == "5"
         assert result["DRY_RUN"] == "true"
