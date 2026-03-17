@@ -150,7 +150,7 @@ Creates:
 ```
 .overkill/
 ├── prompts/active/          # 10 prompt templates
-├── .overkillrc            # review-loop config
+├── .overkillrc              # review-loop config
 ├── .refactorsuggestrc       # refactor-suggest config
 ├── logs/                    # runtime logs
 │   └── refactor/            # refactor-suggest logs

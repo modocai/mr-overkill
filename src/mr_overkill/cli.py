@@ -7,6 +7,7 @@ mirroring the CLI interface of the bash scripts.
 from __future__ import annotations
 
 import argparse
+import logging
 import re
 import subprocess
 from dataclasses import dataclass
@@ -70,7 +71,6 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         )
         legacy_root = git_root / rc_name
         if legacy_dir.is_file():
-            import logging
             logging.getLogger(__name__).warning(
                 "%s found at .review-loop/ (legacy location). "
                 "Please run 'overkill init' to migrate to .overkill/",
@@ -78,14 +78,12 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
             )
             rc_path = legacy_dir
         elif legacy_old_name and legacy_old_name.is_file():
-            import logging
             logging.getLogger(__name__).warning(
                 ".reviewlooprc found at .review-loop/ (legacy location). "
                 "Please run 'overkill init' to migrate to .overkill/.overkillrc",
             )
             rc_path = legacy_old_name
         elif legacy_root.is_file():
-            import logging
             logging.getLogger(__name__).warning(
                 "%s found at repo root (legacy location). "
                 "Please move it to .overkill/%s",
