@@ -77,11 +77,11 @@ def _copy_rc_files(data: Path, dest: Path) -> list[str]:
         if not live_path.exists():
             # Check for legacy rc at repo root, then inside .review-loop/
             legacy_candidates: list[Path] = []
-            for ln in [n for n in (legacy_name, live_name) if n]:
+            for ln in [n for n in (live_name, legacy_name) if n]:
                 legacy_candidates.append(project_root / ln)
             legacy_dir = project_root / _LEGACY_DIR
             if legacy_dir.is_dir():
-                for ln in [n for n in (legacy_name, live_name) if n]:
+                for ln in [n for n in (live_name, legacy_name) if n]:
                     legacy_candidates.append(legacy_dir / ln)
             migrated = False
             for legacy in legacy_candidates:

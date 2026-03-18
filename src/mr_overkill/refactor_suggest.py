@@ -108,8 +108,10 @@ _ALLOWLISTED_FILES = [
     ".overkill/.overkillrc",
     ".overkill/.refactorsuggestrc",
     # Legacy paths for pre-migration users
+    ".overkillrc",
     ".reviewlooprc",
     ".refactorsuggestrc",
+    ".review-loop/.overkillrc",
     ".review-loop/.reviewlooprc",
     ".review-loop/.refactorsuggestrc",
 ]
