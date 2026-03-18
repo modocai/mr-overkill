@@ -32,9 +32,36 @@ remove_gitignore_block() {
   fi
 }
 
-echo "Uninstalling review-loop from: $TARGET_DIR"
+echo "Uninstalling overkill from: $TARGET_DIR"
 
-# Remove installer-owned files inside .review-loop/ (current layout)
+# Remove .overkill/ (current layout)
+if [[ -d "$TARGET_DIR/.overkill" ]]; then
+  _install_dir="$TARGET_DIR/.overkill"
+
+  if [[ -f "$_install_dir/.install-manifest" ]]; then
+    while IFS= read -r _entry; do
+      [[ -n "$_entry" ]] || continue
+      case "$_entry" in
+        ../*|*/../*|*/..) echo "Skipping unsafe manifest entry: $_entry" >&2; continue ;;
+      esac
+      if [[ -f "$_install_dir/$_entry" ]]; then
+        rm "$_install_dir/$_entry"
+        echo "Removed .overkill/$_entry"
+      fi
+    done < "$_install_dir/.install-manifest"
+    rm "$_install_dir/.install-manifest"
+    echo "Removed .install-manifest"
+    find "$_install_dir" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+  fi
+
+  if [[ -d "$_install_dir/logs" ]]; then
+    rm -rf "$_install_dir/logs"
+    echo "Removed .overkill/logs/"
+  fi
+  rmdir "$_install_dir" 2>/dev/null && echo "Removed empty .overkill/" || true
+fi
+
+# Remove legacy .review-loop/ (pre-migration installs)
 if [[ -d "$TARGET_DIR/.review-loop" ]]; then
   _install_dir="$TARGET_DIR/.review-loop"
 
@@ -94,7 +121,9 @@ fi
 
 # Clean up .gitignore entries
 GITIGNORE="$TARGET_DIR/.gitignore"
+remove_gitignore_block "# overkill (added by overkill init)" '^\\.overkill/$' "overkill entries"
 remove_gitignore_block "# review-loop (added by installer)" '^\\.review-loop/$' "review-loop entries"
+remove_gitignore_block "# review-loop (added by overkill init)" '^\\.review-loop/$' "review-loop entries"
 remove_gitignore_block "# AI review logs (added by review-loop installer)" '^\\.ai-review-logs/$' ".ai-review-logs/ entry"
 
-echo "Done. review-loop has been uninstalled."
+echo "Done. overkill has been uninstalled."

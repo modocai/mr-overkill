@@ -139,7 +139,7 @@ Examples:
 
 ## Usage: overkill init
 
-Initialize `.review-loop/` in a project directory. Safe to re-run — prompts are refreshed, user-edited configs are preserved.
+Initialize `.overkill/` in a project directory. Safe to re-run — prompts are refreshed, user-edited configs are preserved.
 
 ```
 overkill init [TARGET_DIR]   # default: current directory
@@ -148,9 +148,9 @@ overkill init [TARGET_DIR]   # default: current directory
 Creates:
 
 ```
-.review-loop/
+.overkill/
 ├── prompts/active/          # 10 prompt templates
-├── .reviewlooprc            # review-loop config
+├── .overkillrc              # review-loop config
 ├── .refactorsuggestrc       # refactor-suggest config
 ├── logs/                    # runtime logs
 │   └── refactor/            # refactor-suggest logs
@@ -185,9 +185,9 @@ Recommended workflow: start with `--dry-run` to review findings, then re-run wit
 
 ## Configuration
 
-After running `overkill init`, config files live in `.review-loop/`:
+After running `overkill init`, config files live in `.overkill/`:
 
-### .review-loop/.reviewlooprc
+### .overkill/.overkillrc
 
 ```bash
 TARGET_BRANCH="main"
@@ -198,9 +198,9 @@ REVIEWER_BACKEND="codex"    # or "claude"
 PROMPTS_DIR="./custom-prompts"
 ```
 
-See `.review-loop/.reviewlooprc` for all available options.
+See `.overkill/.overkillrc` for all available options.
 
-### .review-loop/.refactorsuggestrc
+### .overkill/.refactorsuggestrc
 
 ```bash
 SCOPE="auto"
@@ -221,7 +221,7 @@ PROMPTS_DIR="./custom-prompts"
 
 ```
 1. Check prerequisites (git, codex, claude, jq, envsubst, target branch)
-2. Create .review-loop/logs/ directory
+2. Create .overkill/logs/ directory
 3. Loop (iteration 1..N):
    a. Generate diff: git diff $TARGET...$CURRENT
    b. Empty diff → exit
@@ -236,14 +236,14 @@ PROMPTS_DIR="./custom-prompts"
    h. Push to remote (updates PR)
    i. Post review/fix/self-review summary as PR comment
    j. Next iteration reviews the updated committed state
-4. Write summary to .review-loop/logs/summary.md
+4. Write summary to .overkill/logs/summary.md
 ```
 
 ## Output Files
 
-All logs are git-ignored by default (inside `.review-loop/`).
+All logs are git-ignored by default (inside `.overkill/`).
 
-### review-loop logs (`.review-loop/logs/`)
+### review-loop logs (`.overkill/logs/`)
 
 | File | Description |
 |------|-------------|
@@ -255,7 +255,7 @@ All logs are git-ignored by default (inside `.review-loop/`).
 | `refix-N-M.md` | Claude re-fix log (iteration N, sub-iteration M) |
 | `summary.md` | Final summary with status and per-iteration results |
 
-### refactor-suggest logs (`.review-loop/logs/refactor/`)
+### refactor-suggest logs (`.overkill/logs/refactor/`)
 
 | File | Description |
 |------|-------------|
@@ -294,7 +294,7 @@ Go/no-go decision based on current usage percentage:
 
 ## Customizing Prompts
 
-Edit the templates in `.review-loop/prompts/active/`.
+Edit the templates in `.overkill/prompts/active/`.
 
 ### review-loop prompts
 
@@ -342,7 +342,7 @@ The loop terminates when any of these occur:
 
 ```bash
 # Quick — just nuke the directory
-rm -rf .review-loop
+rm -rf .overkill
 
 # Also remove the Python package
 pip uninstall overkill       # or: uv tool uninstall overkill / pipx uninstall overkill
