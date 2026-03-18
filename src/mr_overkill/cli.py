@@ -85,6 +85,13 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
                 "Please run 'overkill init' to migrate to .overkill/.overkillrc",
             )
             rc_path = legacy_old_name
+        elif (git_root / rc_name).is_file():
+            logging.getLogger(__name__).warning(
+                "%s found at repo root (legacy location). "
+                "Please move it to .overkill/%s",
+                rc_name, rc_name,
+            )
+            rc_path = git_root / rc_name
         elif legacy_root.is_file():
             logging.getLogger(__name__).warning(
                 "%s found at repo root (legacy location). "
