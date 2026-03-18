@@ -79,4 +79,3 @@ If there are no findings, return:
   "overall_explanation": "<brief justification>",
   "overall_confidence_score": <float 0.0-1.0>
 }
-</output>
