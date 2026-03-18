@@ -77,12 +77,12 @@ def _copy_rc_files(data: Path, dest: Path) -> list[str]:
         if not live_path.exists():
             # Check for legacy rc at repo root, then inside .review-loop/
             legacy_candidates: list[Path] = []
-            for ln in [n for n in (live_name, legacy_name) if n]:
-                legacy_candidates.append(project_root / ln)
             legacy_dir = project_root / _LEGACY_DIR
             if legacy_dir.is_dir():
                 for ln in [n for n in (live_name, legacy_name) if n]:
                     legacy_candidates.append(legacy_dir / ln)
+            for ln in [n for n in (live_name, legacy_name) if n]:
+                legacy_candidates.append(project_root / ln)
             migrated = False
             for legacy in legacy_candidates:
                 if legacy.is_file():
@@ -108,7 +108,10 @@ def _ensure_gitignore(project_root: Path) -> None:
         # Migrate legacy marker (only if legacy dir is already gone)
         legacy_dir_exists = (project_root / _LEGACY_DIR).is_dir()
         if legacy_marker in lines and marker not in lines and not legacy_dir_exists:
-            content = content.replace(legacy_marker, marker)
+            content = "\n".join(
+                marker if line == legacy_marker else line
+                for line in lines
+            ) + ("\n" if content.endswith("\n") else "")
             content = content.replace(
                 "# review-loop (added by overkill init)",
                 "# overkill (added by overkill init)",
