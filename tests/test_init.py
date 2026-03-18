@@ -129,6 +129,22 @@ class TestInitProject:
         assert (ok / ".overkillrc").read_text() == "TARGET_BRANCH=main\n"
         assert (ok / ".refactorsuggestrc").is_file()
 
+    def test_mixed_state_preserves_legacy_rc(self, tmp_path: Path) -> None:
+        """When both dirs exist, legacy .reviewlooprc should be migrated."""
+        legacy = tmp_path / ".review-loop"
+        legacy.mkdir()
+        (legacy / ".reviewlooprc").write_text("TARGET_BRANCH=develop\n")
+
+        ok = tmp_path / ".overkill"
+        ok.mkdir()
+        # .overkillrc does NOT exist yet inside .overkill/
+
+        init_project(tmp_path)
+
+        rc = ok / ".overkillrc"
+        assert rc.is_file()
+        assert rc.read_text() == "TARGET_BRANCH=develop\n"
+
     def test_migrate_gitignore_legacy_marker(self, tmp_path: Path) -> None:
         """Init replaces .review-loop/ marker with .overkill/ in .gitignore."""
         gitignore = tmp_path / ".gitignore"

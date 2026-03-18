@@ -62,8 +62,9 @@ def _copy_rc_files(data: Path, dest: Path) -> list[str]:
     """Copy RC example files as live configs, preserving user edits.
 
     If the live config already exists under ``.overkill/``, it is kept
-    as-is.  Otherwise, a legacy rc at the repo root is migrated first;
-    only when neither exists does the bundled example get copied.
+    as-is.  Otherwise, a legacy rc at the repo root or inside
+    ``.review-loop/`` is migrated first; only when neither exists does
+    the bundled example get copied.
     """
     manifest: list[str] = []
     project_root = dest.parent
@@ -74,11 +75,16 @@ def _copy_rc_files(data: Path, dest: Path) -> list[str]:
     for example_name, live_name, legacy_name in rc_pairs:
         live_path = dest / live_name
         if not live_path.exists():
-            # Check for legacy rc names at repo root
-            legacy_names = [n for n in (legacy_name, live_name) if n]
+            # Check for legacy rc at repo root, then inside .review-loop/
+            legacy_candidates: list[Path] = []
+            for ln in [n for n in (legacy_name, live_name) if n]:
+                legacy_candidates.append(project_root / ln)
+            legacy_dir = project_root / _LEGACY_DIR
+            if legacy_dir.is_dir():
+                for ln in [n for n in (legacy_name, live_name) if n]:
+                    legacy_candidates.append(legacy_dir / ln)
             migrated = False
-            for ln in legacy_names:
-                legacy = project_root / ln
+            for legacy in legacy_candidates:
                 if legacy.is_file():
                     shutil.copy2(legacy, live_path)
                     migrated = True
