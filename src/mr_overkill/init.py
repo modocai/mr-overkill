@@ -99,8 +99,9 @@ def _ensure_gitignore(project_root: Path) -> None:
         content = gitignore.read_text(encoding="utf-8")
         lines = content.splitlines()
 
-        # Migrate legacy marker
-        if legacy_marker in lines and marker not in lines:
+        # Migrate legacy marker (only if legacy dir is already gone)
+        legacy_dir_exists = (project_root / _LEGACY_DIR).is_dir()
+        if legacy_marker in lines and marker not in lines and not legacy_dir_exists:
             content = content.replace(legacy_marker, marker)
             content = content.replace(
                 "# review-loop (added by overkill init)",
@@ -139,7 +140,18 @@ def _migrate_legacy_dir(target_dir: Path) -> None:
     legacy = target_dir / _LEGACY_DIR
     dest = target_dir / _OVERKILL_DIR
 
-    if not legacy.is_dir() or dest.is_dir():
+    if not legacy.is_dir():
+        return
+
+    if dest.is_dir():
+        logger.warning(
+            "Both %s/ and %s/ exist. Please remove %s/ manually.",
+            _LEGACY_DIR, _OVERKILL_DIR, _LEGACY_DIR,
+        )
+        print(
+            f"Warning: both {_LEGACY_DIR}/ and {_OVERKILL_DIR}/ exist. "
+            f"Please remove {_LEGACY_DIR}/ manually."
+        )
         return
 
     shutil.move(str(legacy), str(dest))
