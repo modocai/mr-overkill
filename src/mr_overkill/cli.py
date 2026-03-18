@@ -366,6 +366,13 @@ def parse_review_loop_args(
         if legacy_log.is_dir():
             log_dir = legacy_log
 
+    # In mixed-state repos, fall back to legacy logs when resume metadata
+    # is missing from the preferred directory.
+    if args.resume and not (log_dir / "max-loop.txt").is_file():
+        legacy_log = git_root / ".review-loop" / "logs"
+        if (legacy_log / "max-loop.txt").is_file():
+            log_dir = legacy_log
+
     # Restore saved values on resume when not explicitly given
     if args.resume:
         if args.target is None:
@@ -617,6 +624,13 @@ def parse_refactor_suggest_args(
     if not log_dir.is_dir():
         legacy_log = git_root / ".review-loop" / "logs" / "refactor"
         if legacy_log.is_dir():
+            log_dir = legacy_log
+
+    # In mixed-state repos, fall back to legacy logs when resume metadata
+    # is missing from the preferred directory.
+    if args.resume and not (log_dir / "max-loop.txt").is_file():
+        legacy_log = git_root / ".review-loop" / "logs" / "refactor"
+        if (legacy_log / "max-loop.txt").is_file():
             log_dir = legacy_log
 
     # Restore saved values on resume when not explicitly given
