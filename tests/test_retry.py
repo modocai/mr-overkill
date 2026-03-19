@@ -230,7 +230,7 @@ class TestRetryGemini:
         mock_run.return_value = MagicMock(returncode=0)
 
         result = retry_gemini_cmd(
-            output, "test", ["gemini", "-p", "-", "--sandbox"]
+            output, "test", ["gemini", "--yolo", "-p", "-"]
         )
         assert result is True
 
@@ -243,9 +243,9 @@ class TestRetryGemini:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                stdout = kwargs.get("stdout")
-                if stdout and hasattr(stdout, "write"):
-                    stdout.write("Rate limit exceeded")
+                stderr = kwargs.get("stderr")
+                if stderr and hasattr(stderr, "write"):
+                    stderr.write("Rate limit exceeded")
                 return MagicMock(returncode=1)
             return MagicMock(returncode=0)
 
@@ -254,7 +254,7 @@ class TestRetryGemini:
         result = retry_gemini_cmd(
             output,
             "test",
-            ["gemini", "-p", "-", "--sandbox"],
+            ["gemini", "--yolo", "-p", "-"],
             _sleep_fn=sleeps.append,
         )
         assert result is True
@@ -267,13 +267,13 @@ class TestRetryGemini:
         output = tmp_path / "output.txt"
 
         def side_effect(*args: object, **kwargs: object) -> MagicMock:
-            stdout = kwargs.get("stdout")
-            if stdout and hasattr(stdout, "write"):
-                stdout.write("authentication failed")
+            stderr = kwargs.get("stderr")
+            if stderr and hasattr(stderr, "write"):
+                stderr.write("authentication failed")
             return MagicMock(returncode=1)
 
         mock_run.side_effect = side_effect
         result = retry_gemini_cmd(
-            output, "test", ["gemini", "-p", "-", "--sandbox"]
+            output, "test", ["gemini", "--yolo", "-p", "-"]
         )
         assert result is False
