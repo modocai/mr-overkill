@@ -296,7 +296,7 @@ def parse_review_loop_args(
     parser.add_argument(
         "--reviewer-backend",
         default=None,
-        choices=["claude", "codex"],
+        choices=["claude", "codex", "gemini"],
         help="Backend for code review (default: codex)",
     )
 
@@ -399,9 +399,10 @@ def parse_review_loop_args(
         parser.error("--max-loop must be a positive integer")
 
     reviewer_backend = args.reviewer_backend or rc.get("REVIEWER_BACKEND", "codex")
-    if reviewer_backend not in ("claude", "codex"):
+    if reviewer_backend not in ("claude", "codex", "gemini"):
         parser.error(
-            f"REVIEWER_BACKEND must be 'claude' or 'codex', got {reviewer_backend!r}"
+            f"REVIEWER_BACKEND must be 'claude', 'codex', or 'gemini',"
+            f" got {reviewer_backend!r}"
         )
 
     return LoopConfig(
@@ -538,7 +539,7 @@ def parse_refactor_suggest_args(
     parser.add_argument(
         "--reviewer-backend",
         default=None,
-        choices=["claude", "codex"],
+        choices=["claude", "codex", "gemini"],
         help="Backend for code review (default: codex)",
     )
 
@@ -669,9 +670,10 @@ def parse_refactor_suggest_args(
         )
 
     reviewer_backend = args.reviewer_backend or rc.get("REVIEWER_BACKEND", "codex")
-    if reviewer_backend not in ("claude", "codex"):
+    if reviewer_backend not in ("claude", "codex", "gemini"):
         parser.error(
-            f"REVIEWER_BACKEND must be 'claude' or 'codex', got {reviewer_backend!r}"
+            f"REVIEWER_BACKEND must be 'claude', 'codex', or 'gemini',"
+            f" got {reviewer_backend!r}"
         )
 
     config = LoopConfig(

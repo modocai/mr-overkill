@@ -52,6 +52,8 @@ class FinalStatus(StrEnum):
     CODEX_BUDGET_TIMEOUT = "codex_budget_timeout"
     CLAUDE_ERROR = "claude_error"
     CLAUDE_BUDGET_TIMEOUT = "claude_budget_timeout"
+    GEMINI_ERROR = "gemini_error"
+    GEMINI_BUDGET_TIMEOUT = "gemini_budget_timeout"
     PARSE_ERROR = "parse_error"
     STASH_ERROR = "stash_error"
     STASH_CONFLICT = "stash_conflict"
@@ -170,7 +172,7 @@ class LoopConfig:
     pr_number: str | None = None
 
     # Reviewer backend
-    reviewer_backend: str = "codex"  # "codex" | "claude"
+    reviewer_backend: str = "codex"  # "codex" | "claude" | "gemini"
 
     # Refactor-specific
     scope: str | None = None  # micro | module | layer | full
