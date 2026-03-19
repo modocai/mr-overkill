@@ -30,4 +30,4 @@ jobs:
         run: uv run mypy src
 
       - name: Pytest
-        run: uv run pytest
+        run: uv run pytest --cov=mr_overkill --cov-report=term-missing
