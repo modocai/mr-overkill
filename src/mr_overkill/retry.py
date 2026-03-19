@@ -251,7 +251,8 @@ def retry_gemini_cmd(
         if rc == 0:
             return True
 
-        error_class = classify_cli_error(output_path, rc)
+        stderr_path = output_path.with_suffix(".stderr")
+        error_class = classify_cli_error(stderr_path, rc)
 
         if error_class != ErrorClass.TRANSIENT:
             logger.warning(
@@ -295,13 +296,17 @@ def _run_gemini_once(
     label: str,
 ) -> int:
     """Execute a single Gemini CLI invocation. Returns the exit code."""
+    stderr_path = output_path.with_suffix(".stderr")
     try:
-        with output_path.open("w", encoding="utf-8") as of:
+        with (
+            output_path.open("w", encoding="utf-8") as of,
+            stderr_path.open("w", encoding="utf-8") as ef,
+        ):
             result = subprocess.run(
                 cmd_args,
                 input=stdin,
                 stdout=of,
-                stderr=subprocess.STDOUT,
+                stderr=ef,
                 text=True,
                 check=False,
             )
