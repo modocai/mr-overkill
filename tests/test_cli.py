@@ -280,7 +280,7 @@ class TestParseReviewLoopArgs:
     @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
     @patch(
         "mr_overkill.cli._load_rc_file",
-        return_value={"REVIEWER_BACKEND": "gemini"},
+        return_value={"REVIEWER_BACKEND": "gpt4"},
     )
     @patch("mr_overkill.cli.subprocess.run")
     def test_reviewer_backend_invalid_rc(
@@ -295,6 +295,26 @@ class TestParseReviewLoopArgs:
         )
         with pytest.raises(SystemExit):
             parse_review_loop_args(["-n", "1"])
+
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_reviewer_backend_gemini(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config = parse_review_loop_args([
+            "-n", "1", "--reviewer-backend", "gemini",
+        ])
+        assert config.reviewer_backend == "gemini"
 
 
 class TestParseRefactorSuggestArgs:
@@ -456,3 +476,20 @@ class TestParseRefactorSuggestArgs:
             "--reviewer-backend", "claude",
         ])
         assert config.reviewer_backend == "claude"
+
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_reviewer_backend_gemini(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config, _extra = parse_refactor_suggest_args([
+            "--reviewer-backend", "gemini",
+        ])
+        assert config.reviewer_backend == "gemini"

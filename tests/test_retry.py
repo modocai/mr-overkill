@@ -11,6 +11,7 @@ from mr_overkill.retry import (
     extract_result_from_stream,
     retry_claude_cmd,
     retry_codex_cmd,
+    retry_gemini_cmd,
     wait_for_budget,
 )
 
@@ -219,4 +220,60 @@ class TestRetryCodex:
 
         mock_run.side_effect = side_effect
         result = retry_codex_cmd(stderr, "test", ["codex", "exec"])
+        assert result is False
+
+
+class TestRetryGemini:
+    @patch("mr_overkill.retry.subprocess.run")
+    def test_success_first_try(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        output = tmp_path / "output.txt"
+        mock_run.return_value = MagicMock(returncode=0)
+
+        result = retry_gemini_cmd(
+            output, "test", ["gemini", "-p", "-", "--sandbox"]
+        )
+        assert result is True
+
+    @patch("mr_overkill.retry.subprocess.run")
+    def test_transient_then_success(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        output = tmp_path / "output.txt"
+        call_count = 0
+
+        def side_effect(*args: object, **kwargs: object) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                stdout = kwargs.get("stdout")
+                if stdout and hasattr(stdout, "write"):
+                    stdout.write("Rate limit exceeded")
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = side_effect
+        sleeps: list[float] = []
+        result = retry_gemini_cmd(
+            output,
+            "test",
+            ["gemini", "-p", "-", "--sandbox"],
+            _sleep_fn=sleeps.append,
+        )
+        assert result is True
+        assert len(sleeps) == 1
+
+    @patch("mr_overkill.retry.subprocess.run")
+    def test_permanent_error_gives_up(
+        self, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        output = tmp_path / "output.txt"
+
+        def side_effect(*args: object, **kwargs: object) -> MagicMock:
+            stdout = kwargs.get("stdout")
+            if stdout and hasattr(stdout, "write"):
+                stdout.write("authentication failed")
+            return MagicMock(returncode=1)
+
+        mock_run.side_effect = side_effect
+        result = retry_gemini_cmd(
+            output, "test", ["gemini", "-p", "-", "--sandbox"]
+        )
         assert result is False

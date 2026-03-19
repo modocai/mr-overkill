@@ -17,6 +17,7 @@ from pathlib import Path
 
 from mr_overkill.budget.claude import claude_budget_sufficient
 from mr_overkill.budget.codex import codex_budget_sufficient
+from mr_overkill.budget.gemini import gemini_budget_sufficient
 from mr_overkill.models import (
     BudgetCheckFn,
     BudgetScope,
@@ -28,6 +29,7 @@ from mr_overkill.models import (
 from mr_overkill.retry import (
     retry_claude_cmd,
     retry_codex_cmd,
+    retry_gemini_cmd,
     wait_for_budget,
 )
 from mr_overkill.self_review import self_review_subloop
@@ -47,6 +49,8 @@ def _budget_check(
         return claude_budget_sufficient(scope)
     if tool == "codex":
         return codex_budget_sufficient(scope)
+    if tool == "gemini":
+        return gemini_budget_sufficient(scope)
     return True
 
 
@@ -340,6 +344,100 @@ class ClaudeRefactorReviewAgent(ReviewAgent):
         )
 
 
+class GeminiReviewAgent(ReviewAgent):
+    """Gemini-based reviewer for the standard review-loop."""
+
+    def __init__(self, config: LoopConfig) -> None:
+        self._config = config
+        self._budget_fn = _make_budget_fn(config)
+
+    def __call__(self, output_path: Path, iteration: int) -> bool:
+        config = self._config
+        prompt_file = config.prompts_dir / "gemini-review.prompt.md"
+        if not prompt_file.is_file():
+            logger.error("Review prompt not found: %s", prompt_file)
+            return False
+
+        tmpl = string.Template(
+            prompt_file.read_text(encoding="utf-8")
+        )
+        prompt_text = tmpl.safe_substitute({
+            "CURRENT_BRANCH": config.current_branch,
+            "TARGET_BRANCH": config.target_branch,
+            "ITERATION": str(iteration),
+        })
+
+        if not self._budget_fn("gemini", config.budget_scope, 0):
+            raise BudgetTimeoutError(
+                f"Gemini budget timeout (iteration {iteration})."
+            )
+
+        return retry_gemini_cmd(
+            output_path,
+            "Gemini review",
+            ["gemini", "-p", "-", "--sandbox"],
+            stdin=prompt_text,
+            max_wait=config.retry_max_wait,
+            initial_wait=config.retry_initial_wait,
+        )
+
+
+class GeminiRefactorReviewAgent(ReviewAgent):
+    """Gemini-based reviewer for scope-specific refactor analysis."""
+
+    def __init__(self, config: LoopConfig, scope: str) -> None:
+        self._config = config
+        self._scope = scope
+        self._budget_fn = _make_budget_fn(config)
+
+    def __call__(self, output_path: Path, iteration: int) -> bool:
+        config = self._config
+        scope = self._scope
+
+        # Refresh source file list each iteration
+        source_files_path = config.log_dir / "source-files.txt"
+        result = subprocess.run(
+            ["git", "ls-files"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        source_files_path.write_text(result.stdout)
+
+        prompt_file = (
+            config.prompts_dir / f"gemini-refactor-{scope}.prompt.md"
+        )
+        if not prompt_file.is_file():
+            logger.error("Prompt not found: %s", prompt_file)
+            return False
+
+        tmpl = string.Template(
+            prompt_file.read_text(encoding="utf-8")
+        )
+        prompt_text = tmpl.safe_substitute({
+            "CURRENT_BRANCH": config.current_branch,
+            "TARGET_BRANCH": config.target_branch,
+            "ITERATION": str(iteration),
+            "SOURCE_FILES_PATH": str(
+                config.log_dir / "source-files.txt"
+            ),
+        })
+
+        if not self._budget_fn("gemini", config.budget_scope, 0):
+            raise BudgetTimeoutError(
+                f"Gemini budget timeout (iteration {iteration})."
+            )
+
+        return retry_gemini_cmd(
+            output_path,
+            "Gemini analysis",
+            ["gemini", "-p", "-", "--sandbox"],
+            stdin=prompt_text,
+            max_wait=config.retry_max_wait,
+            initial_wait=config.retry_initial_wait,
+        )
+
+
 class ClaudeFixAgent(FixAgent):
     """Claude-based fixer using configurable two-step fix prompts."""
 
@@ -451,9 +549,13 @@ def create_review_agent(
     if scope is not None:
         if backend == "claude":
             return ClaudeRefactorReviewAgent(config, scope)
+        if backend == "gemini":
+            return GeminiRefactorReviewAgent(config, scope)
         return CodexRefactorReviewAgent(config, scope)
     if backend == "claude":
         return ClaudeReviewAgent(config)
+    if backend == "gemini":
+        return GeminiReviewAgent(config)
     return CodexReviewAgent(config)
 
 

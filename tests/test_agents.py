@@ -15,6 +15,8 @@ from mr_overkill.agents import (
     CodexRefactorReviewAgent,
     CodexReviewAgent,
     FixAgent,
+    GeminiRefactorReviewAgent,
+    GeminiReviewAgent,
     ReviewAgent,
     SelfReviewAgent,
     _BudgetFn,
@@ -184,6 +186,95 @@ class TestClaudeRefactorReviewAgent:
 
         config = make_loop_config(prompts_dir=prompts)
         agent = ClaudeRefactorReviewAgent(config, "module")
+
+        output = tmp_path / "review.json"
+        assert agent(output, 1) is True
+        mock_retry.assert_called_once()
+
+        call_kw = mock_retry.call_args.kwargs
+        assert "feat/test" in call_kw["stdin"]
+
+
+# ── GeminiReviewAgent ────────────────────────────────────────────────
+
+
+class TestGeminiReviewAgent:
+    @patch("mr_overkill.agents._make_budget_fn")
+    @patch("mr_overkill.agents.retry_gemini_cmd", return_value=True)
+    def test_calls_gemini_with_rendered_prompt(
+        self,
+        mock_retry: MagicMock,
+        mock_budget_factory: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_budget_factory.return_value = MagicMock(
+            return_value=True
+        )
+        prompts = tmp_path / "prompts"
+        prompts.mkdir(exist_ok=True)
+        (prompts / "gemini-review.prompt.md").write_text(
+            "Review $CURRENT_BRANCH vs $TARGET_BRANCH iter $ITERATION"
+        )
+
+        config = make_loop_config(
+            prompts_dir=prompts, reviewer_backend="gemini"
+        )
+        agent = GeminiReviewAgent(config)
+
+        output = tmp_path / "review.json"
+        assert agent(output, 1) is True
+        mock_retry.assert_called_once()
+
+        call_kw = mock_retry.call_args.kwargs
+        assert "feat/test" in call_kw["stdin"]
+        assert "develop" in call_kw["stdin"]
+
+    def test_fails_on_missing_prompt(
+        self,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        prompts = tmp_path / "prompts"
+        prompts.mkdir(exist_ok=True)
+
+        config = make_loop_config(
+            prompts_dir=prompts, reviewer_backend="gemini"
+        )
+        agent = GeminiReviewAgent(config)
+
+        output = tmp_path / "review.json"
+        assert agent(output, 1) is False
+
+
+class TestGeminiRefactorReviewAgent:
+    @patch("mr_overkill.agents._make_budget_fn")
+    @patch("mr_overkill.agents.retry_gemini_cmd", return_value=True)
+    @patch("mr_overkill.agents.subprocess.run")
+    def test_calls_gemini_with_scope_prompt(
+        self,
+        mock_subprocess: MagicMock,
+        mock_retry: MagicMock,
+        mock_budget_factory: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_budget_factory.return_value = MagicMock(
+            return_value=True
+        )
+        mock_subprocess.return_value = MagicMock(
+            returncode=0, stdout="src/a.py\n"
+        )
+        prompts = tmp_path / "prompts"
+        prompts.mkdir(exist_ok=True)
+        (prompts / "gemini-refactor-module.prompt.md").write_text(
+            "Refactor $CURRENT_BRANCH scope $SOURCE_FILES_PATH"
+        )
+
+        config = make_loop_config(
+            prompts_dir=prompts, reviewer_backend="gemini"
+        )
+        agent = GeminiRefactorReviewAgent(config, "module")
 
         output = tmp_path / "review.json"
         assert agent(output, 1) is True
@@ -374,6 +465,22 @@ class TestFactories:
         agent = create_fix_agent(config, variant="nonsense")
         assert isinstance(agent, ClaudeFixAgent)
         assert agent._opinion_prompt == "claude-fix.prompt.md"
+
+    def test_create_review_agent_gemini(
+        self, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config(reviewer_backend="gemini")
+        agent = create_review_agent(config)
+        assert isinstance(agent, GeminiReviewAgent)
+        assert isinstance(agent, ReviewAgent)
+
+    def test_create_review_agent_gemini_with_scope(
+        self, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config(reviewer_backend="gemini")
+        agent = create_review_agent(config, scope="module")
+        assert isinstance(agent, GeminiRefactorReviewAgent)
+        assert isinstance(agent, ReviewAgent)
 
     def test_create_self_review_agent(
         self, make_loop_config: Callable[..., LoopConfig]

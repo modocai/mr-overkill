@@ -38,6 +38,17 @@ from mr_overkill.resume import detect_state
 
 logger = logging.getLogger(__name__)
 
+_BUDGET_TIMEOUT_STATUS: dict[str, FinalStatus] = {
+    "claude": FinalStatus.CLAUDE_BUDGET_TIMEOUT,
+    "codex": FinalStatus.CODEX_BUDGET_TIMEOUT,
+    "gemini": FinalStatus.GEMINI_BUDGET_TIMEOUT,
+}
+_ERROR_STATUS: dict[str, FinalStatus] = {
+    "claude": FinalStatus.CLAUDE_ERROR,
+    "codex": FinalStatus.CODEX_ERROR,
+    "gemini": FinalStatus.GEMINI_ERROR,
+}
+
 
 # ── Additional Protocol for the review step ──────────────────────────
 
@@ -368,16 +379,16 @@ def review_fix_loop(
                 review_ok = reviewer(review_file, i)
             except BudgetTimeoutError:
                 logger.error("Budget timeout during review (iteration %d).", i)
-                if config.reviewer_backend == "claude":
-                    final_status = FinalStatus.CLAUDE_BUDGET_TIMEOUT
-                else:
-                    final_status = FinalStatus.CODEX_BUDGET_TIMEOUT
+                final_status = _BUDGET_TIMEOUT_STATUS.get(
+                    config.reviewer_backend,
+                    FinalStatus.CODEX_BUDGET_TIMEOUT,
+                )
                 break
             if not review_ok:
-                if config.reviewer_backend == "claude":
-                    final_status = FinalStatus.CLAUDE_ERROR
-                else:
-                    final_status = FinalStatus.CODEX_ERROR
+                final_status = _ERROR_STATUS.get(
+                    config.reviewer_backend,
+                    FinalStatus.CODEX_ERROR,
+                )
                 break
 
             # Save diff hash and backend metadata after successful review
