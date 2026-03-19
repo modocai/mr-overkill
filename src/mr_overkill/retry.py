@@ -225,6 +225,98 @@ def _run_claude_once(
     return result.returncode
 
 
+def retry_gemini_cmd(
+    output_path: Path,
+    label: str,
+    cmd_args: list[str],
+    *,
+    stdin: str | None = None,
+    max_wait: int = DEFAULT_MAX_WAIT,
+    initial_wait: int = DEFAULT_INITIAL_WAIT,
+    _sleep_fn: SleepFn = time.sleep,
+) -> bool:
+    """Retry a Gemini CLI command with exponential backoff.
+
+    Pipes *stdin* to the command and writes output to *output_path*.
+
+    Returns True on success, False on permanent/unknown error or timeout.
+    """
+    wait = initial_wait
+    elapsed = 0
+    attempt = 1
+
+    while True:
+        rc = _run_gemini_once(cmd_args, stdin, output_path, label)
+
+        if rc == 0:
+            return True
+
+        stderr_path = output_path.with_suffix(".stderr")
+        error_class = classify_cli_error(stderr_path, rc)
+
+        if error_class != ErrorClass.TRANSIENT:
+            logger.warning(
+                "[%s] Non-transient error (%s, exit=%d). Giving up.",
+                label,
+                error_class,
+                rc,
+            )
+            return False
+
+        if elapsed >= max_wait:
+            logger.warning(
+                "[%s] Retry timeout (%d/%ds). Giving up.",
+                label,
+                elapsed,
+                max_wait,
+            )
+            return False
+
+        sleep_time = min(wait, MAX_SINGLE_SLEEP)
+        if elapsed + sleep_time > max_wait:
+            sleep_time = max_wait - elapsed
+
+        attempt += 1
+        logger.info(
+            "[%s] Transient error (exit=%d). Retry #%d in %ds...",
+            label,
+            rc,
+            attempt,
+            sleep_time,
+        )
+        _sleep_fn(sleep_time)
+        elapsed += sleep_time
+        wait *= 2
+
+
+def _run_gemini_once(
+    cmd_args: list[str],
+    stdin: str | None,
+    output_path: Path,
+    label: str,
+) -> int:
+    """Execute a single Gemini CLI invocation. Returns the exit code."""
+    stderr_path = output_path.with_suffix(".stderr")
+    try:
+        with (
+            output_path.open("w", encoding="utf-8") as of,
+            stderr_path.open("w", encoding="utf-8") as ef,
+        ):
+            result = subprocess.run(
+                cmd_args,
+                input=stdin,
+                stdout=of,
+                stderr=ef,
+                text=True,
+                check=False,
+            )
+    except FileNotFoundError:
+        logger.error("[%s] gemini CLI not found on PATH.", label)
+        return 1
+
+    return result.returncode
+
+
 def retry_codex_cmd(
     stderr_path: Path,
     label: str,
