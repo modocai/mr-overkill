@@ -370,12 +370,7 @@ uv run mypy src/
 ## Testing
 
 ```bash
-# Python tests
 uv run pytest --tb=short
-
-# Bash integration tests (requires bats-core)
-brew install bats-core       # one-time setup
-bats test/                   # run all tests
 ```
 
 ## License
