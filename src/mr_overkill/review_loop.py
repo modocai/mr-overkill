@@ -1,7 +1,4 @@
-"""Review-loop entry point — wires Protocol implementations to loop_engine.
-
-Wires Protocol implementations to loop_engine for the review-fix loop.
-"""
+"""Review-loop entry point — wires Protocol implementations to loop_engine."""
 
 from __future__ import annotations
 
