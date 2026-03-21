@@ -9,7 +9,7 @@
 
 ## Pull Request Rules
 
-Every PR must pass the review loop (`review-loop.sh --dry-run`) before merging. No exceptions. We eat our own dog food — if Mr. Overkill can't approve it, neither can you.
+Every PR must pass the review loop (`overkill review-loop --dry-run`) before merging. No exceptions. We eat our own dog food — if Mr. Overkill can't approve it, neither can you.
 
 ## Branch Rules
 

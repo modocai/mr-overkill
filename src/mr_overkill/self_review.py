@@ -1,6 +1,5 @@
 """Self-review sub-loop for verifying and re-fixing Claude's changes.
 
-Ports ``_self_review_subloop`` from ``bin/lib/self-review.sh``.
 Implements the :class:`SelfReviewFn` Protocol from ``loop_engine``.
 """
 

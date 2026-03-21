@@ -1,8 +1,7 @@
 """Refactor-suggest entry point.
 
-Ports ``bin/refactor-suggest.sh`` to Python: budget-aware scope resolution,
-branch creation, analysis loop, draft PR creation, and optional review-loop
-chaining.
+Budget-aware scope resolution, branch creation, analysis loop, draft PR
+creation, and optional review-loop chaining.
 """
 
 from __future__ import annotations

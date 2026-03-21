@@ -35,11 +35,11 @@ You are a refactoring advisor analyzing an entire codebase for **architecture-le
 
 ```json
 {
-  "title": "[P1] Invert dependency: review-loop.sh hardcodes AI provider details",
-  "body": "Currently `bin/review-loop.sh` directly calls OpenAI/Claude APIs with provider-specific logic scattered across lines 150-220, 340-380, and 450-490. This means:\n- Adding a new AI provider requires modifying 3 sections of a 700-line file\n- Testing with a mock provider is impossible without editing production code\n- Provider-specific retry/error logic is interleaved with review orchestration\n\n**Suggested structure**: Extract a `lib/ai-provider.sh` interface with `call_ai()` that encapsulates provider selection, API calls, and retries. `review-loop.sh` calls only `call_ai()` and doesn't know which provider is behind it.\n\n**Rollback**: If `lib/ai-provider.sh` causes issues, revert the single file and restore inline calls — the orchestration logic in review-loop.sh doesn't change.",
+  "title": "[P1] Invert dependency: loop_engine hardcodes AI provider details",
+  "body": "Currently `src/mr_overkill/loop_engine.py` directly calls AI CLI tools with provider-specific logic scattered across lines 150-220, 340-380, and 450-490. This means:\n- Adding a new AI provider requires modifying 3 sections of a 700-line file\n- Testing with a mock provider is impossible without editing production code\n- Provider-specific retry/error logic is interleaved with review orchestration\n\n**Suggested structure**: Extract a Protocol-based `AIProvider` interface with `call()` that encapsulates provider selection, API calls, and retries. `loop_engine.py` calls only the Protocol and doesn't know which provider is behind it.\n\n**Rollback**: If the Protocol abstraction causes issues, revert the single file and restore inline calls — the orchestration logic in loop_engine.py doesn't change.",
   "confidence_score": 0.8,
   "priority": 1,
-  "code_location": { "file_path": "bin/review-loop.sh", "line_range": {"start": 150, "end": 220} }
+  "code_location": { "file_path": "src/mr_overkill/loop_engine.py", "line_range": {"start": 150, "end": 220} }
 }
 ```
 
@@ -51,7 +51,7 @@ You are a refactoring advisor analyzing an entire codebase for **architecture-le
   "body": "The codebase would benefit from separating concerns into Model-View-Controller layers for better organization.",
   "confidence_score": 0.5,
   "priority": 2,
-  "code_location": { "file_path": "bin/review-loop.sh", "line_range": {"start": 1, "end": 700} }
+  "code_location": { "file_path": "src/mr_overkill/loop_engine.py", "line_range": {"start": 1, "end": 700} }
 }
 ```
 Why this is bad: no concrete impact statement, no evidence of current pain, suggests a pattern without demonstrating need, no phased migration.

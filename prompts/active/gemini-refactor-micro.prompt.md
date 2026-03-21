@@ -37,10 +37,10 @@ You are a refactoring advisor analyzing an entire codebase for **micro-level** i
 ```json
 {
   "title": "[P1] Extract duplicated validation into shared helper in process_input()",
-  "body": "Lines 42-58 and 103-119 of `bin/review-loop.sh` contain identical input validation logic (same 3 conditions, same error messages). Extracting into a `validate_input()` function eliminates the duplication and ensures future validation changes are applied consistently.",
+  "body": "Lines 55-70 and 130-145 of `src/mr_overkill/loop_engine.py` contain identical iteration-result validation logic (same 3 conditions, same error messages). Extracting into a `_validate_iteration()` helper eliminates the duplication and ensures future validation changes are applied consistently.",
   "confidence_score": 0.9,
   "priority": 1,
-  "code_location": { "file_path": "bin/review-loop.sh", "line_range": {"start": 42, "end": 58} }
+  "code_location": { "file_path": "src/mr_overkill/loop_engine.py", "line_range": {"start": 55, "end": 70} }
 }
 ```
 
@@ -52,7 +52,7 @@ You are a refactoring advisor analyzing an entire codebase for **micro-level** i
   "body": "This code could benefit from the Strategy pattern for better flexibility.",
   "confidence_score": 0.5,
   "priority": 3,
-  "code_location": { "file_path": "bin/review-loop.sh", "line_range": {"start": 1, "end": 200} }
+  "code_location": { "file_path": "src/mr_overkill/loop_engine.py", "line_range": {"start": 1, "end": 200} }
 }
 ```
 Why this is bad: vague, no specific code reference, no measurable benefit, suggests an architecture-level change.
