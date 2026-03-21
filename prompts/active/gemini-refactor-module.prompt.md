@@ -35,10 +35,10 @@ You are a refactoring advisor analyzing an entire codebase for **module-level** 
 ```json
 {
   "title": "[P1] Extract repeated JSON validation into shared validate_json()",
-  "body": "The same JSON validation logic appears in `src/mr_overkill/review_loop.py` (lines 85-100), `src/mr_overkill/refactor_suggest.py` (lines 50-65), and `src/mr_overkill/self_review.py` (lines 35-47). All three copies parse review JSON, extract `findings`, and handle parse errors — but the error messages have already diverged. Extracting to `json_extract.py:parse_review_json()` eliminates the duplication and unifies error handling.",
+  "body": "The same JSON validation logic appears in `src/example/ingest.py` (lines 12-27), `src/example/export.py` (lines 50-65), and `src/example/validate.py` (lines 8-20). All three copies parse review JSON, extract `findings`, and handle parse errors — but the error messages have already diverged. Extracting to `src/example/json_utils.py:parse_review_json()` eliminates the duplication and unifies error handling.",
   "confidence_score": 0.85,
   "priority": 1,
-  "code_location": { "file_path": "src/mr_overkill/review_loop.py", "line_range": {"start": 85, "end": 100} }
+  "code_location": { "file_path": "src/example/ingest.py", "line_range": {"start": 12, "end": 27} }
 }
 ```
 
