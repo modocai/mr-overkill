@@ -35,10 +35,10 @@ You are a refactoring advisor analyzing an entire codebase for **module-level** 
 ```json
 {
   "title": "[P1] Extract repeated JSON validation into shared validate_json()",
-  "body": "The same jq-based JSON validation logic appears in `bin/review-loop.sh` (lines 120-135), `bin/refactor-suggest.sh` (lines 45-60), and `bin/apply-fix.sh` (lines 30-42). All three copies check for valid JSON, extract `.findings`, and handle parse errors — but the error messages have already diverged (review-loop prints to stderr, the others use `log_error`). Extracting to `lib/json-utils.sh:validate_json()` eliminates the duplication and unifies error handling.",
+  "body": "The same JSON validation logic appears in `src/example/ingest.py` (lines 12-27), `src/example/export.py` (lines 50-65), and `src/example/validate.py` (lines 8-20). All three copies parse review JSON, extract `findings`, and handle parse errors — but the error messages have already diverged. Extracting to `src/example/json_utils.py:parse_review_json()` eliminates the duplication and unifies error handling.",
   "confidence_score": 0.85,
   "priority": 1,
-  "code_location": { "file_path": "bin/review-loop.sh", "line_range": {"start": 120, "end": 135} }
+  "code_location": { "file_path": "src/example/ingest.py", "line_range": {"start": 12, "end": 27} }
 }
 ```
 
@@ -50,7 +50,7 @@ You are a refactoring advisor analyzing an entire codebase for **module-level** 
   "body": "Several files handle errors similarly. Consider creating a shared error handler.",
   "confidence_score": 0.6,
   "priority": 2,
-  "code_location": { "file_path": "bin/review-loop.sh", "line_range": {"start": 1, "end": 500} }
+  "code_location": { "file_path": "src/mr_overkill/review_loop.py", "line_range": {"start": 1, "end": 500} }
 }
 ```
 Why this is bad: doesn't specify which files, doesn't cite line numbers, doesn't explain what's duplicated or how copies have diverged.

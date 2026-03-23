@@ -35,11 +35,11 @@ You are a refactoring advisor analyzing an entire codebase for **layer-level** (
 
 ```json
 {
-  "title": "[P1] Unify error exit pattern across all bin/ scripts",
-  "body": "Error exits are handled 3 different ways:\n1. `bin/review-loop.sh` uses `die()` (lines 25-28) which logs to stderr and exits 1\n2. `bin/refactor-suggest.sh` uses `log_error` + bare `exit 1` (lines 88, 142, 201)\n3. `bin/apply-fix.sh` calls `echo \"ERROR: ...\" >&2` directly (lines 33, 67)\n\nThis makes it easy to miss cleanup (temp file removal) on error paths. A coordinated change to use a shared `die()` that includes cleanup would prevent resource leaks across all scripts.",
+  "title": "[P1] Unify error handling pattern across orchestration modules",
+  "body": "Error handling is done 3 different ways:\n1. `src/mr_overkill/review_loop.py` raises `SystemExit` (lines 30-35) with stderr logging\n2. `src/mr_overkill/refactor_suggest.py` uses `logger.error` + bare `sys.exit(1)` (lines 88, 142, 201)\n3. `src/mr_overkill/retry.py` raises `RuntimeError` directly (lines 45, 78)\n\nThis makes it easy to miss cleanup (temp file removal) on error paths. A coordinated change to use a shared exception hierarchy with cleanup hooks would prevent resource leaks across all modules.",
   "confidence_score": 0.85,
   "priority": 1,
-  "code_location": { "file_path": "bin/review-loop.sh", "line_range": {"start": 25, "end": 28} }
+  "code_location": { "file_path": "src/mr_overkill/review_loop.py", "line_range": {"start": 30, "end": 35} }
 }
 ```
 
@@ -51,7 +51,7 @@ You are a refactoring advisor analyzing an entire codebase for **layer-level** (
   "body": "The codebase could benefit from more consistent error handling patterns.",
   "confidence_score": 0.5,
   "priority": 2,
-  "code_location": { "file_path": "bin/review-loop.sh", "line_range": {"start": 1, "end": 700} }
+  "code_location": { "file_path": "src/mr_overkill/loop_engine.py", "line_range": {"start": 1, "end": 700} }
 }
 ```
 Why this is bad: no specific examples of inconsistency, no file/line citations, doesn't explain why a coordinated change is needed.

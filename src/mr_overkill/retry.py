@@ -1,7 +1,4 @@
-"""Retry-with-backoff wrappers for Claude/Codex CLI calls.
-
-Ports retry logic from ``bin/lib/retry.sh`` to Python.
-"""
+"""Retry-with-backoff wrappers for Claude/Codex CLI calls."""
 
 from __future__ import annotations
 
