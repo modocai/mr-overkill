@@ -1,8 +1,4 @@
-"""Review-loop entry point — wires Protocol implementations to loop_engine.
-
-Ports the argument parsing and orchestration from ``bin/review-loop.sh``,
-delegating the actual loop to :func:`loop_engine.review_fix_loop`.
-"""
+"""Review-loop entry point — wires Protocol implementations to loop_engine."""
 
 from __future__ import annotations
 

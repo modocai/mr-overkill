@@ -1,7 +1,4 @@
-"""Error classification for CLI command failures.
-
-Ports ``_classify_cli_error`` from ``bin/lib/retry.sh`` to Python.
-"""
+"""Error classification for CLI command failures."""
 
 from __future__ import annotations
 

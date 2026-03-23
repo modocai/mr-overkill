@@ -1,8 +1,5 @@
 """Unified review-fix loop engine.
 
-Consolidates the common loop pattern from review-loop.sh,
-refactor-suggest.sh, and self-review.sh into a single reusable engine.
-
 Uses Protocol-based DI for external operations (fix, review, budget)
 and imports Wave 1 modules directly for JSON parsing, git ops, and reporting.
 """
@@ -613,7 +610,7 @@ def _no_diff(target: str, current: str, cwd: Path | None) -> bool:
 def _clean_stale_logs(log_dir: Path) -> None:
     """Remove iteration artifacts from prior runs.
 
-    Mirrors the cleanup in ``bin/review-loop.sh`` so that fresh runs
+    Cleanup stale log files from previous runs so that fresh runs
     do not mix stale review/fix/summary files into new results.
     """
     patterns = [
