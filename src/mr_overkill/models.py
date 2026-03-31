@@ -22,7 +22,14 @@ class BudgetTimeoutError(Exception):
 # ── Enums ────────────────────────────────────────────────────────────
 
 
-class ErrorClass(str, Enum):
+class _StrEnum(str, Enum):
+    """Python 3.10-compatible base that preserves StrEnum value-style str()."""
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class ErrorClass(_StrEnum):
     """Classification of a CLI error for retry decisions."""
 
     TRANSIENT = "transient"
@@ -30,7 +37,7 @@ class ErrorClass(str, Enum):
     UNKNOWN = "unknown"
 
 
-class BudgetScope(str, Enum):
+class BudgetScope(_StrEnum):
     """Granularity of a budget check — determines the usage threshold."""
 
     MICRO = "micro"
@@ -39,7 +46,7 @@ class BudgetScope(str, Enum):
     FULL = "full"
 
 
-class FinalStatus(str, Enum):
+class FinalStatus(_StrEnum):
     """Terminal states for a review/refactor loop run."""
 
     ALL_CLEAR = "all_clear"
