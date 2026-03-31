@@ -50,7 +50,7 @@ You need these to participate in the madness:
 
 **Runtime**:
 
-- [Python](https://www.python.org/) 3.12+ — for the `overkill` CLI
+- [Python](https://www.python.org/) 3.11+ — for the `overkill` CLI
 - [Node.js](https://nodejs.org/) v18+ — Codex and Claude Code CLI are npm packages, so yes, you need this
 - A fast credit card — essential
 
