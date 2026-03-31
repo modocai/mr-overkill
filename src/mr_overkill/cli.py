@@ -400,6 +400,10 @@ def parse_review_loop_args(
             saved = log_dir / "reviewer-backend.txt"
             if saved.is_file():
                 args.reviewer_backend = saved.read_text().strip()
+        if args.context is None:
+            saved = log_dir / "reviewer-context.txt"
+            if saved.is_file():
+                args.context = saved.read_text().strip()
 
     if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")
@@ -411,7 +415,9 @@ def parse_review_loop_args(
             f" got {reviewer_backend!r}"
         )
 
-    reviewer_context = args.context or rc.get("REVIEWER_CONTEXT", "")
+    reviewer_context = (
+        args.context if args.context is not None else rc.get("REVIEWER_CONTEXT", "")
+    )
 
     return LoopConfig(
         current_branch=current_branch,
