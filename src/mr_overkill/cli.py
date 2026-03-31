@@ -108,13 +108,14 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "RETRY_INITIAL_WAIT", "BUDGET_SCOPE", "DIAGNOSTIC_LOG",
         "SCOPE", "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
         "REVIEW_LOOPS", "FIX_NITS", "REVIEWER_BACKEND",
+        "REVIEWER_CONTEXT",
     }
     boolean_keys = {
         "DRY_RUN", "AUTO_COMMIT", "DIAGNOSTIC_LOG",
         "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW", "FIX_NITS",
     }
     kv_re = re.compile(
-        r"^\s*(\w+)=[\"']?([^\"']*)[\"']?\s*$"
+        r"""^\s*(\w+)=(?:"([^"]*)"|'([^']*)'|(.*?))\s*$"""
     )
     values: dict[str, str] = {}
 
@@ -124,7 +125,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
             continue
         m = kv_re.match(line)
         if m and m.group(1) in allowed_keys:
-            key, val = m.group(1), m.group(2).strip()
+            key, val = m.group(1), (m.group(2) or m.group(3) or m.group(4) or "").strip()
             if key in boolean_keys and val.lower() not in ("true", "false"):
                 msg = f"{rc_path.name}: {key} must be 'true' or 'false', got '{val}'."
                 raise SystemExit(f"Error: {msg}")
@@ -299,6 +300,11 @@ def parse_review_loop_args(
         choices=["claude", "codex", "gemini"],
         help="Backend for code review (default: codex)",
     )
+    parser.add_argument(
+        "--context",
+        default=None,
+        help="Additional context for the reviewer (e.g. design intent, constraints)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -394,6 +400,10 @@ def parse_review_loop_args(
             saved = log_dir / "reviewer-backend.txt"
             if saved.is_file():
                 args.reviewer_backend = saved.read_text().strip()
+        if args.context is None:
+            saved = log_dir / "reviewer-context.txt"
+            if saved.is_file():
+                args.context = saved.read_text().strip()
 
     if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")
@@ -404,6 +414,10 @@ def parse_review_loop_args(
             f"REVIEWER_BACKEND must be 'claude', 'codex', or 'gemini',"
             f" got {reviewer_backend!r}"
         )
+
+    reviewer_context = (
+        args.context if args.context is not None else rc.get("REVIEWER_CONTEXT", "")
+    )
 
     return LoopConfig(
         current_branch=current_branch,
@@ -425,6 +439,7 @@ def parse_review_loop_args(
         prompts_dir=prompts_dir,
         pr_number=pr_number,
         reviewer_backend=reviewer_backend,
+        reviewer_context=reviewer_context,
     )
 
 

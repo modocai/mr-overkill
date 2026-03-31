@@ -38,6 +38,13 @@ from mr_overkill.two_step_fix import claude_two_step_fix
 logger = logging.getLogger(__name__)
 
 
+def _format_reviewer_context(raw: str) -> str:
+    """Wrap non-empty reviewer context in a markdown section."""
+    if not raw:
+        return ""
+    return f"## Author Context\n\n{raw}"
+
+
 # ── Budget / retry helpers (moved from review_loop.py) ───────────────
 
 
@@ -167,6 +174,7 @@ class CodexReviewAgent(ReviewAgent):
             "CURRENT_BRANCH": config.current_branch,
             "TARGET_BRANCH": config.target_branch,
             "ITERATION": str(iteration),
+            "REVIEWER_CONTEXT": _format_reviewer_context(config.reviewer_context),
         })
 
         if not self._budget_fn("codex", config.budget_scope, 0):
@@ -268,6 +276,7 @@ class ClaudeReviewAgent(ReviewAgent):
             "CURRENT_BRANCH": config.current_branch,
             "TARGET_BRANCH": config.target_branch,
             "ITERATION": str(iteration),
+            "REVIEWER_CONTEXT": _format_reviewer_context(config.reviewer_context),
         })
 
         if not self._budget_fn("claude", config.budget_scope, 0):
@@ -365,6 +374,7 @@ class GeminiReviewAgent(ReviewAgent):
             "CURRENT_BRANCH": config.current_branch,
             "TARGET_BRANCH": config.target_branch,
             "ITERATION": str(iteration),
+            "REVIEWER_CONTEXT": _format_reviewer_context(config.reviewer_context),
         })
 
         if not self._budget_fn("gemini", config.budget_scope, 0):
