@@ -6,6 +6,8 @@ You are a code reviewer analyzing a proposed change.
 - **Target branch**: ${TARGET_BRANCH}
 - **Review iteration**: ${ITERATION}
 
+${REVIEWER_CONTEXT}
+
 ## Instructions
 
 Run the following command to get the diff:
