@@ -108,6 +108,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "RETRY_INITIAL_WAIT", "BUDGET_SCOPE", "DIAGNOSTIC_LOG",
         "SCOPE", "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
         "REVIEW_LOOPS", "FIX_NITS", "REVIEWER_BACKEND",
+        "REVIEWER_CONTEXT",
     }
     boolean_keys = {
         "DRY_RUN", "AUTO_COMMIT", "DIAGNOSTIC_LOG",
@@ -299,6 +300,11 @@ def parse_review_loop_args(
         choices=["claude", "codex", "gemini"],
         help="Backend for code review (default: codex)",
     )
+    parser.add_argument(
+        "--context",
+        default=None,
+        help="Additional context for the reviewer (e.g. design intent, constraints)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -405,6 +411,8 @@ def parse_review_loop_args(
             f" got {reviewer_backend!r}"
         )
 
+    reviewer_context = args.context or rc.get("REVIEWER_CONTEXT", "")
+
     return LoopConfig(
         current_branch=current_branch,
         target_branch=target,
@@ -425,6 +433,7 @@ def parse_review_loop_args(
         prompts_dir=prompts_dir,
         pr_number=pr_number,
         reviewer_backend=reviewer_backend,
+        reviewer_context=reviewer_context,
     )
 
 

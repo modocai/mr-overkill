@@ -174,6 +174,9 @@ class LoopConfig:
     # Reviewer backend
     reviewer_backend: str = "codex"  # "codex" | "claude" | "gemini"
 
+    # Additional context for the reviewer
+    reviewer_context: str = ""
+
     # Refactor-specific
     scope: str | None = None  # micro | module | layer | full
     skip_initial_no_diff: bool = False  # refactor: 1st iteration has no diff
