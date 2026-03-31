@@ -635,6 +635,7 @@ def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
     (log_dir / "target-branch.txt").write_text(config.target_branch)
     (log_dir / "max-loop.txt").write_text(str(config.max_loop))
     (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
+    (log_dir / "reviewer-context.txt").write_text(config.reviewer_context)
     if config.scope:
         (log_dir / "scope.txt").write_text(config.scope)
 
