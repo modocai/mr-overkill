@@ -115,7 +115,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW", "FIX_NITS",
     }
     kv_re = re.compile(
-        r"^\s*(\w+)=[\"']?([^\"']*)[\"']?\s*$"
+        r"""^\s*(\w+)=(?:"([^"]*)"|'([^']*)'|(.*?))\s*$"""
     )
     values: dict[str, str] = {}
 
@@ -125,7 +125,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
             continue
         m = kv_re.match(line)
         if m and m.group(1) in allowed_keys:
-            key, val = m.group(1), m.group(2).strip()
+            key, val = m.group(1), (m.group(2) or m.group(3) or m.group(4) or "").strip()
             if key in boolean_keys and val.lower() not in ("true", "false"):
                 msg = f"{rc_path.name}: {key} must be 'true' or 'false', got '{val}'."
                 raise SystemExit(f"Error: {msg}")
