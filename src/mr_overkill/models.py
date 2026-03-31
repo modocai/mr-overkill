@@ -8,7 +8,7 @@ in Wave 2 (retry, two_step_fix, loop_engine) without mutual imports.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import Enum
 from pathlib import Path
 from typing import Protocol
 
@@ -22,7 +22,7 @@ class BudgetTimeoutError(Exception):
 # ── Enums ────────────────────────────────────────────────────────────
 
 
-class ErrorClass(StrEnum):
+class ErrorClass(str, Enum):
     """Classification of a CLI error for retry decisions."""
 
     TRANSIENT = "transient"
@@ -30,7 +30,7 @@ class ErrorClass(StrEnum):
     UNKNOWN = "unknown"
 
 
-class BudgetScope(StrEnum):
+class BudgetScope(str, Enum):
     """Granularity of a budget check — determines the usage threshold."""
 
     MICRO = "micro"
@@ -39,7 +39,7 @@ class BudgetScope(StrEnum):
     FULL = "full"
 
 
-class FinalStatus(StrEnum):
+class FinalStatus(str, Enum):
     """Terminal states for a review/refactor loop run."""
 
     ALL_CLEAR = "all_clear"
