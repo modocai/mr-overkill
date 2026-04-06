@@ -61,6 +61,7 @@ git log HEAD..origin/<target-branch> --oneline
    - `git fetch origin`
    - `git checkout develop && git pull origin develop`
    - `git merge origin/main && git push origin develop`
+   - This must be a fast-forward merge (no new commits on main outside of releases). If it isn't, something went wrong — investigate before forcing.
 
 ## Commit Messages
 
