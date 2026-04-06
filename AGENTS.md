@@ -51,7 +51,7 @@ git log HEAD..origin/<target-branch> --oneline
    - Bump version in `pyproject.toml` (`[project] version`)
    - Commit: `chore: bump version to x.y.z`
    - Push and open PR targeting `main`
-   - Run review loop — if the review produces fix commits, these must also be merged back into `develop` (step 4 handles this)
+   - Run review loop — if the review produces fix commits, merge them into `develop` first (via PR) before merging the release PR into `main`
    - Merge PR (`gh pr merge --merge --delete-branch`)
 
 3. **Publish to PyPI**
@@ -61,8 +61,8 @@ git log HEAD..origin/<target-branch> --oneline
 4. **Sync develop**
    - `git fetch origin`
    - `git checkout develop && git pull origin develop`
-   - `git merge origin/main && git push origin develop`
-   - The only changes coming from main should be version bumps and review fixes from the release branch. If there are unexpected conflicts, investigate before proceeding.
+   - `git merge --ff-only origin/main && git push origin develop`
+   - This should always be fast-forward since release fixes are already merged into `develop` in step 2. If it fails, investigate — `main` and `develop` have diverged unexpectedly.
 
 ## Commit Messages
 
