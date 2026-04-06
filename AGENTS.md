@@ -15,6 +15,7 @@ Every PR must pass the review loop (`overkill review-loop --dry-run`) before mer
 
 Always commit and push before ending work on any branch other than develop.
 Never commit directly to `main` or `develop`. All changes must go through branch → PR → review before merge.
+Exception: syncing `main` into `develop` after a release does not require a PR (see Release Process step 4).
 Never rebase or force-push `main` or `develop` — this destroys shared history.
 
 ## PR Merge Process
@@ -37,6 +38,31 @@ git log HEAD..origin/<target-branch> --oneline
    - Feature branch → target: `gh pr merge --merge --delete-branch`
    - `develop` → `main`: `gh pr merge --merge` (**never** `--delete-branch` — `develop` is a long-lived branch)
 2. Switch to the target branch, pull, and delete the local feature branch (if applicable)
+
+## Release Process
+
+1. **Feature PR → develop**
+   - Create a feature branch, make changes, push
+   - Run `overkill review-loop --dry-run -n 3` — must pass
+   - Merge PR into `develop` (`gh pr merge --merge --delete-branch`)
+
+2. **Release branch → main**
+   - Create `release/x.y.z` from `develop`
+   - Bump version in `pyproject.toml` (`[project] version`)
+   - Commit: `chore: bump version to x.y.z`
+   - Push and open PR targeting `main`
+   - Run review loop — if the review produces fix commits, merge them into `develop` first (via PR) before merging the release PR into `main`
+   - Merge PR (`gh pr merge --merge --delete-branch`)
+
+3. **Publish to PyPI**
+   - Tag the merge commit explicitly: `gh release create vx.y.z --target <merge-commit-sha> --generate-notes`
+   - This triggers `publish.yml` → automatic PyPI publish
+
+4. **Sync develop**
+   - `git fetch origin`
+   - `git checkout develop && git pull origin develop`
+   - `git merge origin/main && git push origin develop`
+   - Release fixes are already in `develop` from step 2, so the only new commit from `main` is the release merge itself. If there are unexpected conflicts, investigate — `main` and `develop` have diverged.
 
 ## Commit Messages
 
