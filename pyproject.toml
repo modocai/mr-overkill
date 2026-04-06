@@ -1,6 +1,6 @@
 [project]
 name = "overkill"
-version = "0.5.3"
+version = "0.5.4"
 description = "AI-powered code review loop — automates Codex review + Claude fix cycles"
 readme = "README.md"
 license = { text = "MIT" }
