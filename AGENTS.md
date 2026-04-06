@@ -50,7 +50,8 @@ git log HEAD..origin/<target-branch> --oneline
    - Bump version in `pyproject.toml` (`[project] version`)
    - Commit: `chore: bump version to x.y.z`
    - Push and open PR targeting `main`
-   - Run review loop, then merge (`gh pr merge --merge --delete-branch`)
+   - Run review loop — if the review produces fix commits, these must also be merged back into `develop` (step 4 handles this)
+   - Merge PR (`gh pr merge --merge --delete-branch`)
 
 3. **Publish to PyPI**
    - Create a GitHub Release: `gh release create vx.y.z --target main --generate-notes`
