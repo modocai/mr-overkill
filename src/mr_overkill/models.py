@@ -165,7 +165,7 @@ class LoopConfig:
     # Retry / budget
     retry_max_wait: int = 7200
     retry_initial_wait: int = 30
-    budget_scope: BudgetScope = BudgetScope.MODULE
+    budget_scope: BudgetScope = BudgetScope.MICRO
     diagnostic_log: bool = False
 
     # Paths
