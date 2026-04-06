@@ -1,3 +1,8 @@
 """Mr. Overkill — AI-powered code review loop."""
 
-__version__ = "0.2.1"
+try:
+    from importlib.metadata import version as _v
+
+    __version__ = _v("overkill")
+except Exception:
+    __version__ = "0.0.0-dev"
