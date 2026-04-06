@@ -54,10 +54,11 @@ git log HEAD..origin/<target-branch> --oneline
    - Merge PR (`gh pr merge --merge --delete-branch`)
 
 3. **Publish to PyPI**
-   - Create a GitHub Release: `gh release create vx.y.z --target main --generate-notes`
+   - Tag the merge commit explicitly: `gh release create vx.y.z --target <merge-commit-sha> --generate-notes`
    - This triggers `publish.yml` → automatic PyPI publish
 
 4. **Sync develop**
+   - `git fetch origin`
    - `git checkout develop && git pull origin develop`
    - `git merge origin/main && git push origin develop`
 
