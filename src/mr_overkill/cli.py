@@ -350,7 +350,7 @@ def parse_review_loop_args(
         parser.error("RETRY_MAX_WAIT must be a positive integer")
     if retry_initial_wait < 1:
         parser.error("RETRY_INITIAL_WAIT must be a positive integer")
-    budget_scope_str = rc.get("BUDGET_SCOPE", "module")
+    budget_scope_str = rc.get("BUDGET_SCOPE", "micro")
 
     prompts_dir = _resolve_prompts_dir(
         rc.get("PROMPTS_DIR", ".overkill/prompts/active")
