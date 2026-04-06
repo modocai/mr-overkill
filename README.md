@@ -27,6 +27,13 @@ This tool is designed to:
 # Install the package
 pip install overkill          # or: uv tool install overkill / pipx install overkill
 
+# As a project dependency (uv)
+uv add overkill
+
+# Upgrade
+pip install --upgrade overkill
+uv lock --upgrade-package overkill   # uv projects
+
 # Initialize your project
 overkill init /path/to/your-project
 ```

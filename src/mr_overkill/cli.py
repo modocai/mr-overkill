@@ -125,7 +125,8 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
             continue
         m = kv_re.match(line)
         if m and m.group(1) in allowed_keys:
-            key, val = m.group(1), (m.group(2) or m.group(3) or m.group(4) or "").strip()
+            raw = m.group(2) or m.group(3) or m.group(4) or ""
+            key, val = m.group(1), raw.strip()
             if key in boolean_keys and val.lower() not in ("true", "false"):
                 msg = f"{rc_path.name}: {key} must be 'true' or 'false', got '{val}'."
                 raise SystemExit(f"Error: {msg}")

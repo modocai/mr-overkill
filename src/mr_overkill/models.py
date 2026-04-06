@@ -8,7 +8,7 @@ in Wave 2 (retry, two_step_fix, loop_engine) without mutual imports.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
@@ -22,11 +22,8 @@ class BudgetTimeoutError(Exception):
 # ── Enums ────────────────────────────────────────────────────────────
 
 
-class _StrEnum(str, Enum):
-    """Python 3.10-compatible base that preserves StrEnum value-style str()."""
-
-    def __str__(self) -> str:
-        return self.value
+class _StrEnum(StrEnum):
+    """Thin base so all project enums share a single parent."""
 
 
 class ErrorClass(_StrEnum):
