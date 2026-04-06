@@ -38,6 +38,28 @@ git log HEAD..origin/<target-branch> --oneline
    - `develop` → `main`: `gh pr merge --merge` (**never** `--delete-branch` — `develop` is a long-lived branch)
 2. Switch to the target branch, pull, and delete the local feature branch (if applicable)
 
+## Release Process
+
+1. **Feature PR → develop**
+   - Create a feature branch, make changes, push
+   - Run `overkill review-loop --dry-run -n 3` — must pass
+   - Merge PR into `develop` (`gh pr merge --merge --delete-branch`)
+
+2. **Release branch → main**
+   - Create `release/x.y.z` from `develop`
+   - Bump version in `pyproject.toml` (`[project] version`)
+   - Commit: `chore: bump version to x.y.z`
+   - Push and open PR targeting `main`
+   - Run review loop, then merge (`gh pr merge --merge --delete-branch`)
+
+3. **Publish to PyPI**
+   - Create a GitHub Release: `gh release create vx.y.z --target main --generate-notes`
+   - This triggers `publish.yml` → automatic PyPI publish
+
+4. **Sync develop**
+   - `git checkout develop && git pull origin develop`
+   - `git merge origin/main && git push origin develop`
+
 ## Commit Messages
 
 Principles:
