@@ -61,8 +61,8 @@ git log HEAD..origin/<target-branch> --oneline
 4. **Sync develop**
    - `git fetch origin`
    - `git checkout develop && git pull origin develop`
-   - `git merge --ff-only origin/main && git push origin develop`
-   - This should always be fast-forward since release fixes are already merged into `develop` in step 2. If it fails, investigate — `main` and `develop` have diverged unexpectedly.
+   - `git merge origin/main && git push origin develop`
+   - Release fixes are already in `develop` from step 2, so the only new commit from `main` is the release merge itself. If there are unexpected conflicts, investigate — `main` and `develop` have diverged.
 
 ## Commit Messages
 
