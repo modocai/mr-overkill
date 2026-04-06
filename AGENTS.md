@@ -15,7 +15,7 @@ Every PR must pass the review loop (`overkill review-loop --dry-run`) before mer
 
 Always commit and push before ending work on any branch other than develop.
 Never commit directly to `main` or `develop`. All changes must go through branch → PR → review before merge.
-Exception: fast-forward sync from `main` to `develop` after a release does not require a PR (see Release Process step 4).
+Exception: syncing `main` into `develop` after a release does not require a PR (see Release Process step 4).
 Never rebase or force-push `main` or `develop` — this destroys shared history.
 
 ## PR Merge Process
