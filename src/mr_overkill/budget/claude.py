@@ -132,13 +132,13 @@ def check_oauth() -> BudgetStatus | None:
             timeout=5,
         )
         if result.returncode != 0 or not result.stdout.strip():
-            logger.warning("OAuth: keychain access failed (rc=%d)", result.returncode)
+            logger.debug("OAuth: keychain access failed (rc=%d)", result.returncode)
             return None
 
         creds = json.loads(result.stdout.strip())
         token = creds.get("claudeAiOauth", {}).get("accessToken")
         if not token:
-            logger.warning("OAuth: no access token in credentials")
+            logger.debug("OAuth: no access token in credentials")
             return None
 
         resp = subprocess.run(
@@ -158,7 +158,7 @@ def check_oauth() -> BudgetStatus | None:
             timeout=15,
         )
         if resp.returncode != 0 or not resp.stdout.strip():
-            logger.warning("OAuth: API request failed (rc=%d)", resp.returncode)
+            logger.debug("OAuth: API request failed (rc=%d)", resp.returncode)
             return None
 
         data = json.loads(resp.stdout)
@@ -176,7 +176,7 @@ def check_oauth() -> BudgetStatus | None:
         five_hour = data.get("five_hour", {})
         utilization = five_hour.get("utilization")
         if utilization is None:
-            logger.warning("OAuth: no utilization in response")
+            logger.debug("OAuth: no utilization in response")
             return None
 
         tier = detect_tier()
@@ -198,7 +198,7 @@ def check_oauth() -> BudgetStatus | None:
         KeyError,
         OSError,
     ) as exc:
-        logger.warning("OAuth: %s", exc)
+        logger.debug("OAuth: %s", exc)
         return None
 
 
@@ -340,21 +340,24 @@ def check_token_budget() -> BudgetStatus:
     result = check_oauth()
     if result is not None:
         _save_cache(result)
-        # Also run local estimate for calibration logging
-        try:
-            local = check_local()
-            if local.five_hour_used_pct is not None:
-                logger.info(
-                    "Budget calibration: oauth=%d%% local=%d%% "
-                    "(diff=%+dpp, %d weighted tokens, tier=%s)",
-                    result.five_hour_used_pct or 0,
-                    local.five_hour_used_pct,
-                    (local.five_hour_used_pct) - (result.five_hour_used_pct or 0),
-                    local.tokens_used,
-                    local.tier,
-                )
-        except Exception:
-            logger.debug("Calibration check_local() failed", exc_info=True)
+        # Run local estimate for calibration only when debug logging is active;
+        # check_local() does a full rglob scan which is too expensive for the
+        # normal OAuth fast path.
+        if logger.isEnabledFor(logging.DEBUG):
+            try:
+                local = check_local()
+                if local.five_hour_used_pct is not None:
+                    logger.debug(
+                        "Budget calibration: oauth=%d%% local=%d%% "
+                        "(diff=%+dpp, %d weighted tokens, tier=%s)",
+                        result.five_hour_used_pct or 0,
+                        local.five_hour_used_pct,
+                        (local.five_hour_used_pct) - (result.five_hour_used_pct or 0),
+                        local.tokens_used,
+                        local.tier,
+                    )
+            except Exception:
+                logger.debug("Calibration check_local() failed", exc_info=True)
         return result
 
     cached = _load_cache()
