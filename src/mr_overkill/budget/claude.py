@@ -34,11 +34,14 @@ def _sum_usage(usage: dict[str, int]) -> float:
     )
 
 
-# Rough 5-hour token limits per tier (empirical estimates).
+# Approximate 5-hour token limits per tier.
+# Derived from comparing local weighted-token sums against OAuth utilization
+# percentages (e.g. 5.4M weighted tokens ≈ 60% → ~9-10M limit for max5).
+# These are best-effort estimates; the authoritative value comes from OAuth.
 _TIER_LIMITS: dict[str, int] = {
-    "pro": 1_000_000,
-    "max5": 5_000_000,
-    "max20": 20_000_000,
+    "pro": 2_000_000,
+    "max5": 10_000_000,
+    "max20": 40_000_000,
 }
 
 _TIER_MAP: dict[str, str] = {
@@ -129,11 +132,13 @@ def check_oauth() -> BudgetStatus | None:
             timeout=5,
         )
         if result.returncode != 0 or not result.stdout.strip():
+            logger.debug("OAuth: keychain access failed (rc=%d)", result.returncode)
             return None
 
         creds = json.loads(result.stdout.strip())
         token = creds.get("claudeAiOauth", {}).get("accessToken")
         if not token:
+            logger.debug("OAuth: no access token in credentials")
             return None
 
         resp = subprocess.run(
@@ -153,12 +158,25 @@ def check_oauth() -> BudgetStatus | None:
             timeout=15,
         )
         if resp.returncode != 0 or not resp.stdout.strip():
+            logger.debug("OAuth: API request failed (rc=%d)", resp.returncode)
             return None
 
         data = json.loads(resp.stdout)
+
+        # Check for API error response (e.g. rate_limit_error)
+        if "error" in data:
+            err = data["error"]
+            logger.warning(
+                "OAuth: API error — %s: %s",
+                err.get("type", "unknown"),
+                err.get("message", ""),
+            )
+            return None
+
         five_hour = data.get("five_hour", {})
         utilization = five_hour.get("utilization")
         if utilization is None:
+            logger.debug("OAuth: no utilization in response")
             return None
 
         tier = detect_tier()
@@ -179,7 +197,8 @@ def check_oauth() -> BudgetStatus | None:
         json.JSONDecodeError,
         KeyError,
         OSError,
-    ):
+    ) as exc:
+        logger.debug("OAuth: %s", exc)
         return None
 
 
@@ -242,6 +261,16 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
         total_tokens += _sum_usage(usage)
 
     pct = (int(total_tokens) * 100 // limit) if total_tokens > 0 and limit > 0 else 0
+
+    logger.info(
+        "Local estimate: %d%% (%d weighted tokens / %d limit, "
+        "tier=%s, %d deduplicated messages)",
+        pct,
+        int(total_tokens),
+        limit,
+        tier,
+        len(seen_ids),
+    )
 
     return BudgetStatus(
         five_hour_used_pct=pct,
@@ -311,6 +340,24 @@ def check_token_budget() -> BudgetStatus:
     result = check_oauth()
     if result is not None:
         _save_cache(result)
+        # Run local estimate for calibration only when debug logging is active;
+        # check_local() does a full rglob scan which is too expensive for the
+        # normal OAuth fast path.
+        if logger.isEnabledFor(logging.DEBUG):
+            try:
+                local = check_local()
+                if local.five_hour_used_pct is not None:
+                    logger.debug(
+                        "Budget calibration: oauth=%d%% local=%d%% "
+                        "(diff=%+dpp, %d weighted tokens, tier=%s)",
+                        result.five_hour_used_pct or 0,
+                        local.five_hour_used_pct,
+                        (local.five_hour_used_pct) - (result.five_hour_used_pct or 0),
+                        local.tokens_used,
+                        local.tier,
+                    )
+            except Exception:
+                logger.debug("Calibration check_local() failed", exc_info=True)
         return result
 
     cached = _load_cache()
