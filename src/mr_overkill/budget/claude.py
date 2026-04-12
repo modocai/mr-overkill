@@ -341,17 +341,20 @@ def check_token_budget() -> BudgetStatus:
     if result is not None:
         _save_cache(result)
         # Also run local estimate for calibration logging
-        local = check_local()
-        if local.five_hour_used_pct is not None:
-            logger.info(
-                "Budget calibration: oauth=%d%% local=%d%% "
-                "(diff=%+dpp, %d weighted tokens, tier=%s)",
-                result.five_hour_used_pct or 0,
-                local.five_hour_used_pct,
-                (local.five_hour_used_pct) - (result.five_hour_used_pct or 0),
-                local.tokens_used,
-                local.tier,
-            )
+        try:
+            local = check_local()
+            if local.five_hour_used_pct is not None:
+                logger.info(
+                    "Budget calibration: oauth=%d%% local=%d%% "
+                    "(diff=%+dpp, %d weighted tokens, tier=%s)",
+                    result.five_hour_used_pct or 0,
+                    local.five_hour_used_pct,
+                    (local.five_hour_used_pct) - (result.five_hour_used_pct or 0),
+                    local.tokens_used,
+                    local.tier,
+                )
+        except Exception:
+            logger.debug("Calibration check_local() failed", exc_info=True)
         return result
 
     cached = _load_cache()
