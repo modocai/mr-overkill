@@ -49,6 +49,7 @@ git log HEAD..origin/<target-branch> --oneline
 2. **Release branch → main**
    - Create `release/x.y.z` from `develop`
    - Bump version in `pyproject.toml` (`[project] version`)
+   - Run `uv lock` to sync `uv.lock` with the new version
    - Commit: `chore: bump version to x.y.z`
    - Push and open PR targeting `main`
    - Run review loop — if the review produces fix commits, merge them into `develop` first (via PR) before merging the release PR into `main`
