@@ -1,1 +1,0 @@
-codex-refactor-full.prompt.md

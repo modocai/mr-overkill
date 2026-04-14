@@ -1,7 +1,7 @@
 [project]
 name = "overkill"
-version = "0.5.5"
-description = "AI-powered code review loop — automates Codex review + Claude fix cycles"
+version = "0.6.1"
+description = "AI-powered code review loop — automates Codex/Gemini review + Claude fix cycles"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
