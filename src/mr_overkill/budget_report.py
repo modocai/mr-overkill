@@ -58,10 +58,17 @@ def _print_codex(status: BudgetStatus) -> None:
     print()
 
 
+def _print_gemini() -> None:
+    print("Gemini Budget")
+    print(_HEADER)
+    print("  No local budget data (API-key billing).")
+    print()
+
+
 def _print_scope_table(claude_st: BudgetStatus, codex_st: BudgetStatus) -> None:
     print("Scope Thresholds")
     print(_HEADER)
-    print("           Claude  Codex")
+    print("           Claude  Codex   Gemini")
     scopes = (
         BudgetScope.MICRO, BudgetScope.MODULE,
         BudgetScope.LAYER, BudgetScope.FULL,
@@ -72,7 +79,7 @@ def _print_scope_table(claude_st: BudgetStatus, codex_st: BudgetStatus) -> None:
             x_label = "GO" if budget_sufficient(scope, codex_st) else "NOGO"
         else:
             c_label = x_label = "—"
-        print(f"  {scope.value:<8} {c_label:<7} {x_label}")
+        print(f"  {scope.value:<8} {c_label:<7} {x_label:<7} —")
 
 
 def print_budget_report(*, json_mode: bool = False) -> int:
@@ -88,11 +95,13 @@ def print_budget_report(*, json_mode: bool = False) -> int:
         payload = {
             "claude": asdict(claude_st),
             "codex": asdict(codex_st),
+            "gemini": {"mode": "api-key", "note": "no local budget data"},
         }
         print(json.dumps(payload, indent=2))
         return 0
 
     _print_claude(claude_st)
     _print_codex(codex_st)
+    _print_gemini()
     _print_scope_table(claude_st, codex_st)
     return 0

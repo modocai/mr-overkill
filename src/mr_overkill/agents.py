@@ -385,7 +385,7 @@ class GeminiReviewAgent(ReviewAgent):
         return retry_gemini_cmd(
             output_path,
             "Gemini review",
-            ["gemini", "--sandbox", "--approval-mode", "plan", "-p", "-"],
+            ["gemini", "--sandbox", "--approval-mode", "yolo", "-p", "-"],
             stdin=prompt_text,
             max_wait=config.retry_max_wait,
             initial_wait=config.retry_initial_wait,
@@ -441,7 +441,7 @@ class GeminiRefactorReviewAgent(ReviewAgent):
         return retry_gemini_cmd(
             output_path,
             "Gemini analysis",
-            ["gemini", "--sandbox", "--approval-mode", "plan", "-p", "-"],
+            ["gemini", "--sandbox", "--approval-mode", "yolo", "-p", "-"],
             stdin=prompt_text,
             max_wait=config.retry_max_wait,
             initial_wait=config.retry_initial_wait,

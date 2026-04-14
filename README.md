@@ -50,10 +50,11 @@ git clone --depth 1 https://github.com/modocai/mr-overkill.git /tmp/overkill \
 
 You need these to participate in the madness:
 
-**Accounts** (yes, you need both — that's the point):
+**Accounts** (yes, you need all three — that's the point):
 
 - [OpenAI](https://platform.openai.com/) account (paid plan) — because free tier is for weak code
 - [Anthropic](https://console.anthropic.com/) account (Pro/Max plan or API credits) — because Claude needs to think *deeply* about your variable names
+- [Google AI](https://aistudio.google.com/) account (API key) — because Gemini wants in on the overkill too
 
 **Runtime**:
 
@@ -64,8 +65,9 @@ You need these to participate in the madness:
 **CLI Tools**:
 
 ```bash
-npm install -g @openai/codex        # Codex CLI
+npm install -g @openai/codex             # Codex CLI
 npm install -g @anthropic-ai/claude-code  # Claude Code CLI
+npm install -g @google/gemini-cli         # Gemini CLI
 ```
 
 - [jq](https://jqlang.github.io/jq/) — JSON processor
