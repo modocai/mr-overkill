@@ -8,6 +8,9 @@
 # Legacy directory (pre-migration)
 .review-loop/
 
+# Environment
+.env
+
 # Python
 __pycache__/
 *.py[cod]
