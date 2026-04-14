@@ -11,7 +11,7 @@ from mr_overkill.budget.claude import check_token_budget as claude_check
 from mr_overkill.budget.codex import check_token_budget as codex_check
 from mr_overkill.models import BudgetScope, BudgetStatus
 
-_HEADER = "\u2550" * 24  # ════════════════════════
+_HEADER = "\u2550" * 33  # ═════════════════════════════════
 
 
 def _fmt_pct(pct: int | None) -> str:
