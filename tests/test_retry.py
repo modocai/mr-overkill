@@ -46,6 +46,17 @@ class TestExtractResultFromStream:
         f.write_text(f"not json with result\n{ok_line}")
         assert extract_result_from_stream(f) == "ok"
 
+    def test_prefers_structured_output(self, tmp_path: Path) -> None:
+        f = tmp_path / "stream.jsonl"
+        structured = {"findings": [], "overall_correctness": "patch is correct"}
+        line = json.dumps({
+            "type": "result",
+            "result": "plain text summary",
+            "structured_output": structured,
+        })
+        f.write_text(line)
+        assert json.loads(extract_result_from_stream(f)) == structured
+
 
 class TestWaitForBudget:
     def test_budget_ok_immediately(self) -> None:

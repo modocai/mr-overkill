@@ -53,7 +53,7 @@ Output all findings that the original author would fix if they knew about them. 
 
 ## Output Format
 
-Output **only** valid JSON matching this schema exactly. Do NOT wrap in markdown fences or add any text outside the JSON.
+Output **only** valid JSON matching this schema exactly. Do NOT wrap in markdown fences or add any text outside the JSON. Begin your response with the `{` character — no prose, no commentary, no preamble.
 
 {
   "findings": [

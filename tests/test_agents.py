@@ -60,6 +60,12 @@ class TestCodexReviewAgent:
         assert "feat/test" in prompt_text
         assert "develop" in prompt_text
 
+        # Structured output: schema flag must point at the bundled review schema.
+        assert "--output-schema" in cmd_args
+        schema_path = cmd_args[cmd_args.index("--output-schema") + 1]
+        assert Path(schema_path).name == "review.schema.json"
+        assert Path(schema_path).is_file()
+
     def test_fails_on_missing_prompt(
         self,
         tmp_path: Path,
@@ -142,6 +148,68 @@ class TestClaudeReviewAgent:
         call_kw = mock_retry.call_args.kwargs
         assert "feat/test" in call_kw["stdin"]
         assert "develop" in call_kw["stdin"]
+
+        # Structured output: --output-format json + --json-schema with the
+        # bundled review schema text inlined into argv.
+        cmd_args = mock_retry.call_args[0][2]
+        assert "--output-format" in cmd_args
+        assert cmd_args[cmd_args.index("--output-format") + 1] == "json"
+        assert "--json-schema" in cmd_args
+        schema_text = cmd_args[cmd_args.index("--json-schema") + 1]
+        schema = json.loads(schema_text)
+        assert schema["title"] == "ReviewResult"
+        assert "findings" in schema["properties"]
+
+    def test_unwraps_claude_structured_output(
+        self,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        """Wrapper produced by ``--output-format json`` is unwrapped on disk.
+
+        Regression for the Claude CLI emitting
+        ``{"type":"result", ..., "structured_output": {<review>}}`` — the
+        downstream parser expects the review object, not the wrapper.
+        """
+        review = {
+            "findings": [],
+            "overall_correctness": "patch is correct",
+            "overall_confidence_score": 0.9,
+        }
+        wrapper = {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "Done.",
+            "structured_output": review,
+        }
+
+        prompts = tmp_path / "prompts"
+        prompts.mkdir(exist_ok=True)
+        (prompts / "claude-review.prompt.md").write_text("prompt body")
+        config = make_loop_config(prompts_dir=prompts)
+
+        output = tmp_path / "review.json"
+
+        def fake_retry(
+            out_path: Path,
+            _label: str,
+            _argv: list[str],
+            **_kw: object,
+        ) -> bool:
+            out_path.write_text(json.dumps(wrapper))
+            return True
+
+        with (
+            patch("mr_overkill.agents._make_budget_fn") as mb,
+            patch("mr_overkill.agents._make_retry_fn") as mr,
+        ):
+            mb.return_value = MagicMock(return_value=True)
+            mr.return_value = fake_retry
+            agent = ClaudeReviewAgent(config)
+            assert agent(output, 1) is True
+
+        assert json.loads(output.read_text()) == review
 
     def test_fails_on_missing_prompt(
         self,
