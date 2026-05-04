@@ -2,7 +2,12 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ReviewResult",
   "type": "object",
-  "required": ["findings", "overall_correctness", "overall_confidence_score"],
+  "required": [
+    "findings",
+    "overall_correctness",
+    "overall_explanation",
+    "overall_confidence_score"
+  ],
   "additionalProperties": false,
   "properties": {
     "findings": {
