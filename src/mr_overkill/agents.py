@@ -13,6 +13,7 @@ import logging
 import string
 import subprocess
 from abc import ABC, abstractmethod
+from importlib.resources import as_file, files
 from pathlib import Path
 
 from mr_overkill.budget.claude import claude_budget_sufficient
@@ -43,6 +44,41 @@ def _format_reviewer_context(raw: str) -> str:
     if not raw:
         return ""
     return f"## Author Context\n\n{raw}"
+
+
+# ── Review schema (single source of truth for structured output) ─────
+
+
+def _review_schema_text() -> str:
+    """Read the bundled review JSON Schema as a string."""
+    return files("mr_overkill.data").joinpath("review.schema.json").read_text(
+        encoding="utf-8"
+    )
+
+
+def _unwrap_claude_structured_output(output_path: Path) -> None:
+    """Replace Claude's ``--output-format json`` wrapper with its inner schema object.
+
+    Claude CLI emits ``{"type":"result", ..., "structured_output": {...}, ...}``
+    when both ``--output-format json`` and ``--json-schema`` are set. The
+    schema-conforming object lives under ``structured_output``. Downstream
+    consumers expect the file to contain that object directly. If the file does
+    not match the wrapper shape (older Claude versions, error responses), it is
+    left untouched so the parser's fallback tiers can still try.
+    """
+    try:
+        raw = output_path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    try:
+        wrapper = json.loads(raw)
+    except json.JSONDecodeError:
+        return
+    if not isinstance(wrapper, dict):
+        return
+    inner = wrapper.get("structured_output")
+    if isinstance(inner, dict):
+        output_path.write_text(json.dumps(inner), encoding="utf-8")
 
 
 # ── Budget / retry helpers (moved from review_loop.py) ───────────────
@@ -183,16 +219,20 @@ class CodexReviewAgent(ReviewAgent):
             )
 
         stderr_path = output_path.with_suffix(".stderr")
-        return retry_codex_cmd(
-            stderr_path,
-            "Codex review",
-            [
-                "codex", "exec", "--sandbox", "read-only",
-                "-o", str(output_path), prompt_text,
-            ],
-            max_wait=config.retry_max_wait,
-            initial_wait=config.retry_initial_wait,
-        )
+        with as_file(
+            files("mr_overkill.data").joinpath("review.schema.json")
+        ) as schema_path:
+            return retry_codex_cmd(
+                stderr_path,
+                "Codex review",
+                [
+                    "codex", "exec", "--sandbox", "read-only",
+                    "--output-schema", str(schema_path),
+                    "-o", str(output_path), prompt_text,
+                ],
+                max_wait=config.retry_max_wait,
+                initial_wait=config.retry_initial_wait,
+            )
 
 
 class CodexRefactorReviewAgent(ReviewAgent):
@@ -284,15 +324,20 @@ class ClaudeReviewAgent(ReviewAgent):
                 f"Claude budget timeout (iteration {iteration})."
             )
 
-        return self._retry_fn(
+        ok = self._retry_fn(
             output_path,
             "Claude review",
             [
                 "claude", "-p", "-",
                 "--allowedTools", "Bash,Read,Glob,Grep",
+                "--output-format", "json",
+                "--json-schema", _review_schema_text(),
             ],
             stdin=prompt_text,
         )
+        if ok:
+            _unwrap_claude_structured_output(output_path)
+        return ok
 
 
 class ClaudeRefactorReviewAgent(ReviewAgent):

@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReviewResult",
+  "type": "object",
+  "required": ["findings", "overall_correctness", "overall_confidence_score"],
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "body", "confidence_score", "priority", "code_location"],
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "P-tag + imperative description (max 80 chars)"
+          },
+          "body": {
+            "type": "string",
+            "description": "Markdown explanation; cite files/lines/functions"
+          },
+          "confidence_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "code_location": {
+            "type": "object",
+            "required": ["file_path", "line_range"],
+            "additionalProperties": false,
+            "properties": {
+              "file_path": {
+                "type": "string",
+                "description": "Repo-relative file path"
+              },
+              "line_range": {
+                "type": "object",
+                "required": ["start", "end"],
+                "additionalProperties": false,
+                "properties": {
+                  "start": {"type": "integer", "minimum": 0},
+                  "end": {"type": "integer", "minimum": 0}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "overall_correctness": {
+      "type": "string",
+      "enum": ["patch is correct", "patch is incorrect"]
+    },
+    "overall_explanation": {
+      "type": "string",
+      "description": "1-3 sentence justification"
+    },
+    "overall_confidence_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  }
+}
