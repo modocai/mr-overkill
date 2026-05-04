@@ -26,9 +26,13 @@ BUDGET_POLL_MAX = 1200
 
 
 def extract_result_from_stream(stream_path: Path) -> str:
-    """Extract final result text from a Claude stream-json event log.
+    """Extract final result from a Claude stream-json event log.
 
-    Returns empty string if the file is empty or no result event found.
+    When the ``result`` event includes a ``structured_output`` object
+    (set by ``--json-schema``), the JSON-encoded structured object is
+    returned so downstream parsers receive schema-conforming JSON.
+    Otherwise the plain ``result`` text is returned. Returns empty
+    string if the file is empty or no result event is found.
     """
     if not stream_path.is_file() or stream_path.stat().st_size == 0:
         return ""
@@ -39,10 +43,13 @@ def extract_result_from_stream(stream_path: Path) -> str:
             continue
         try:
             data = json.loads(line)
-            if data.get("result"):
-                last_result = data["result"]
-        except (json.JSONDecodeError, KeyError):
+        except json.JSONDecodeError:
             continue
+        structured = data.get("structured_output")
+        if isinstance(structured, dict):
+            last_result = json.dumps(structured)
+        elif data.get("result"):
+            last_result = data["result"]
     return last_result
 
 
