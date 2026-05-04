@@ -57,13 +57,55 @@ class TestExtractJsonFromFile:
         p.write_text(content)
         assert extract_json_from_file(p) == data
 
-    def test_regex_fallback(self, tmp_path: Path) -> None:
-        """Tier 3: JSON embedded in free text is extracted via regex."""
+    def test_balanced_scan_fallback(self, tmp_path: Path) -> None:
+        """Tier 3: JSON embedded in free text is extracted by the balanced scan."""
         data = {"found": True}
         content = "Random preamble text\n" + json.dumps(data) + "\nmore text\n"
         p = tmp_path / "mixed.txt"
         p.write_text(content)
         assert extract_json_from_file(p) == data
+
+    def test_balanced_scan_with_prose_braces(self, tmp_path: Path) -> None:
+        """Tier 3: prose containing ``{`` does not derail extraction.
+
+        Regression for parse_error encountered when a Claude reviewer prefixed
+        its JSON with prose that mentioned schema fields like ``{user_id}``.
+        """
+        review = {
+            "findings": [],
+            "overall_correctness": "patch is correct",
+            "overall_confidence_score": 0.88,
+        }
+        content = (
+            "Based on my analysis of the iteration 2 review of this diff, "
+            "I've examined:\n"
+            "- The schema additions like {user_id} and {created_at}\n"
+            "- The JSON shape `{findings: [], overall_correctness: ...}`\n"
+            "- IAM permissions for s3 access\n"
+            "\n"
+            "Here is the review:\n"
+            f"{json.dumps(review, indent=2)}\n"
+        )
+        p = tmp_path / "prose.json"
+        p.write_text(content)
+        assert extract_json_from_file(p) == review
+
+    def test_balanced_scan_picks_largest_dict(self, tmp_path: Path) -> None:
+        """Tier 3: when several ``{...}`` candidates parse, prefer the largest."""
+        small = {"k": 1}
+        big = {
+            "findings": [],
+            "overall_correctness": "patch is correct",
+            "overall_confidence_score": 0.9,
+        }
+        content = (
+            f"first candidate: {json.dumps(small)}\n"
+            "more prose\n"
+            f"actual review: {json.dumps(big)}\n"
+        )
+        p = tmp_path / "multi.txt"
+        p.write_text(content)
+        assert extract_json_from_file(p) == big
 
     def test_empty_file_returns_none(self, tmp_path: Path) -> None:
         """Empty (or whitespace-only) file returns None."""

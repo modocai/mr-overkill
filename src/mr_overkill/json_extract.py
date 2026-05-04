@@ -1,7 +1,7 @@
 """JSON extraction utilities ported from common.sh and self-review.sh.
 
 Provides a 3-tier extraction pipeline (direct parse -> fenced code block ->
-regex fallback) that mirrors _extract_json_from_file in the shell codebase,
+balanced-brace scan) that mirrors _extract_json_from_file in the shell codebase,
 plus helpers for path normalisation and refactoring-plan injection.
 """
 
@@ -24,7 +24,9 @@ def extract_json_from_file(path: Path) -> dict[str, Any] | None:
     Tier 2: Look for a fenced code block (`` ```json ... ``` ``) and parse its
     content.
 
-    Tier 3: Use a greedy regex to extract the outermost ``{ ... }`` and parse.
+    Tier 3: Scan every ``{`` position with ``json.JSONDecoder().raw_decode()``
+    and return the largest valid dict found. Robust to prose with embedded
+    braces (e.g. preambles that mention schemas).
 
     Returns
     -------
@@ -53,8 +55,8 @@ def extract_json_from_file(path: Path) -> dict[str, Any] | None:
     if result is not None:
         return result
 
-    # ── Tier 3: regex fallback ────────────────────────────────────────
-    return _try_regex_fallback(content)
+    # ── Tier 3: balanced-brace scan ───────────────────────────────────
+    return _try_balanced_scan(content)
 
 
 def parse_review_json(
@@ -188,18 +190,28 @@ def _try_fenced_block(content: str) -> dict[str, Any] | None:
     return None
 
 
-_BRACE_RE = re.compile(r"\{.*\}", re.DOTALL)
+def _try_balanced_scan(content: str) -> dict[str, Any] | None:
+    """Tier 3: try ``raw_decode`` from each ``{`` position, keep the largest dict.
 
-
-def _try_regex_fallback(content: str) -> dict[str, Any] | None:
-    """Tier 3: greedy regex for the outermost ``{ ... }``."""
-    match = _BRACE_RE.search(content)
-    if match is None:
-        return None
-    try:
-        obj = json.loads(match.group(0))
-        if isinstance(obj, dict):
-            return obj
-    except json.JSONDecodeError:
-        pass
-    return None
+    Greedy regex (``\\{.*\\}``) breaks when prose preceding the JSON contains
+    its own ``{`` — the match starts at the prose brace and consumes the rest
+    of the file as one invalid string. ``raw_decode`` walks the JSON grammar
+    and stops at the matching brace, so each candidate is parsed correctly.
+    """
+    decoder = json.JSONDecoder()
+    best: dict[str, Any] | None = None
+    best_len = 0
+    idx = 0
+    while True:
+        idx = content.find("{", idx)
+        if idx < 0:
+            break
+        try:
+            obj, end = decoder.raw_decode(content, idx)
+        except json.JSONDecodeError:
+            idx += 1
+            continue
+        if isinstance(obj, dict) and (end - idx) > best_len:
+            best, best_len = obj, end - idx
+        idx = end if end > idx else idx + 1
+    return best

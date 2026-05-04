@@ -62,7 +62,7 @@ We only want findings where you are confident the issue is real. **If you are no
 
 ## Output Format
 
-Output **only** valid JSON matching this schema exactly. Do NOT wrap in markdown fences or add any text outside the JSON.
+Output **only** valid JSON matching this schema exactly. Do NOT wrap in markdown fences or add any text outside the JSON. Begin your response with the `{` character — no prose, no commentary, no preamble.
 
 {
   "findings": [
