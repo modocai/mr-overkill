@@ -204,6 +204,126 @@ class TestLoopEngineFixFlow:
         assert result.final_status == FinalStatus.CLAUDE_ERROR
 
 
+class TestLoopEngineCITriggerSuffix:
+    """`ci_trigger_mode` controls whether iteration commits carry [skip ci]."""
+
+    @staticmethod
+    def _commit_subject(mock_commit: MagicMock) -> str:
+        # commit_and_push(snapshot, message, branch, cwd=...)
+        message: str = mock_commit.call_args.args[1]
+        return message.splitlines()[0]
+
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
+    @patch("mr_overkill.loop_engine.commit_and_push", return_value=True)
+    @patch("mr_overkill.loop_engine.unstash_allowlisted", return_value=True)
+    @patch("mr_overkill.loop_engine.stash_allowlisted", return_value=False)
+    @patch("mr_overkill.loop_engine.snapshot_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._no_diff", return_value=False)
+    @patch("mr_overkill.loop_engine._save_metadata")
+    def test_every_mode_no_skip_marker(
+        self,
+        mock_save: MagicMock,
+        mock_diff: MagicMock,
+        mock_snap: MagicMock,
+        mock_stash: MagicMock,
+        mock_unstash: MagicMock,
+        mock_commit: MagicMock,
+        mock_validate: MagicMock,
+        mock_dirty: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        config = make_loop_config(max_loop=2, ci_trigger_mode="every")
+        reviewer = _mock_reviewer([
+            {
+                "findings": [{"title": "Bug"}],
+                "overall_correctness": "patch is incorrect",
+            },
+            {"findings": [], "overall_correctness": "patch is correct"},
+        ])
+        review_fix_loop(
+            config, reviewer=reviewer, fixer=MagicMock(return_value=True),
+            cwd=tmp_path,
+        )
+        subject = self._commit_subject(mock_commit)
+        assert "[skip ci]" not in subject
+        assert subject == "fix(ai-review): apply iteration 1 fixes"
+
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
+    @patch("mr_overkill.loop_engine.commit_and_push", return_value=True)
+    @patch("mr_overkill.loop_engine.unstash_allowlisted", return_value=True)
+    @patch("mr_overkill.loop_engine.stash_allowlisted", return_value=False)
+    @patch("mr_overkill.loop_engine.snapshot_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._no_diff", return_value=False)
+    @patch("mr_overkill.loop_engine._save_metadata")
+    def test_last_only_mode_appends_skip_marker(
+        self,
+        mock_save: MagicMock,
+        mock_diff: MagicMock,
+        mock_snap: MagicMock,
+        mock_stash: MagicMock,
+        mock_unstash: MagicMock,
+        mock_commit: MagicMock,
+        mock_validate: MagicMock,
+        mock_dirty: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        config = make_loop_config(max_loop=2, ci_trigger_mode="last-only")
+        reviewer = _mock_reviewer([
+            {
+                "findings": [{"title": "Bug"}],
+                "overall_correctness": "patch is incorrect",
+            },
+            {"findings": [], "overall_correctness": "patch is correct"},
+        ])
+        review_fix_loop(
+            config, reviewer=reviewer, fixer=MagicMock(return_value=True),
+            cwd=tmp_path,
+        )
+        subject = self._commit_subject(mock_commit)
+        assert subject.endswith(" [skip ci]")
+        assert subject == "fix(ai-review): apply iteration 1 fixes [skip ci]"
+
+    @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)
+    @patch("mr_overkill.loop_engine.commit_and_push", return_value=True)
+    @patch("mr_overkill.loop_engine.unstash_allowlisted", return_value=True)
+    @patch("mr_overkill.loop_engine.stash_allowlisted", return_value=False)
+    @patch("mr_overkill.loop_engine.snapshot_worktree", return_value=[])
+    @patch("mr_overkill.loop_engine._no_diff", return_value=False)
+    @patch("mr_overkill.loop_engine._save_metadata")
+    def test_none_mode_appends_skip_marker(
+        self,
+        mock_save: MagicMock,
+        mock_diff: MagicMock,
+        mock_snap: MagicMock,
+        mock_stash: MagicMock,
+        mock_unstash: MagicMock,
+        mock_commit: MagicMock,
+        mock_validate: MagicMock,
+        mock_dirty: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        config = make_loop_config(max_loop=2, ci_trigger_mode="none")
+        reviewer = _mock_reviewer([
+            {
+                "findings": [{"title": "Bug"}],
+                "overall_correctness": "patch is incorrect",
+            },
+            {"findings": [], "overall_correctness": "patch is correct"},
+        ])
+        review_fix_loop(
+            config, reviewer=reviewer, fixer=MagicMock(return_value=True),
+            cwd=tmp_path,
+        )
+        subject = self._commit_subject(mock_commit)
+        assert subject.endswith(" [skip ci]")
+
+
 class TestLoopEngineMaxIterations:
     @patch("mr_overkill.loop_engine._reject_dirty_worktree", return_value=[])
     @patch("mr_overkill.loop_engine._validate_target_branch", return_value=True)

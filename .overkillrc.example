@@ -17,6 +17,14 @@
 # Enable auto-commit of fixes (default: true)
 # AUTO_COMMIT=true
 
+# CI trigger policy for iteration commits (default: last-only)
+#   last-only — append "[skip ci]" to each iteration commit; push a single
+#               empty "chore: trigger CI" commit only when the loop ends
+#               with all_clear (saves CI cost on long iteration runs)
+#   every     — each iteration commit triggers CI (pre-0.3 behaviour)
+#   none      — append "[skip ci]"; no trigger commit (forks / CI-less repos)
+# CI_TRIGGER_MODE="last-only"
+
 # Path to active prompt templates (default: <script_dir>/../prompts/active)
 # PROMPTS_DIR="./custom-prompts"
 
