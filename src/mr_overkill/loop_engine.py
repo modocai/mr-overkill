@@ -218,10 +218,19 @@ def review_fix_loop(
         # Already-completed runs can short-circuit after branch validation
         if state.status == "completed":
             resolved_status = FinalStatus(state.prev_status or "max_iterations_reached")
+            # Re-attempt the CI trigger push: a prior run may have written
+            # the terminal summary but failed (or been interrupted) before
+            # pushing the trigger commit, leaving the remote on a [skip ci]
+            # commit. push_trigger_commit is idempotent.
+            needs_trigger = (
+                resolved_status == FinalStatus.ALL_CLEAR
+                and config.ci_trigger_mode in ("last-only", "none")
+            )
             return LoopResult(
                 final_status=resolved_status,
                 iterations_run=0,
                 summary_path=_generate_summary_safe(config, resolved_status),
+                made_skipped_fix_commit=needs_trigger,
             )
 
         resume_from = state.resume_from

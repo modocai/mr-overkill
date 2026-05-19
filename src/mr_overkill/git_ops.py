@@ -272,7 +272,17 @@ def push_trigger_commit(branch: str = "", cwd: Path | None = None) -> bool:
     iteration commits that were each tagged with ``[skip ci]``. Returns
     ``True`` on success, ``False`` if the empty commit could not be created
     (e.g. repo has no HEAD yet). Raises ``RuntimeError`` if ``git push`` fails.
+
+    Idempotent: if HEAD already lacks ``[skip ci]`` (a prior call succeeded
+    locally but the push may not have reached the remote), skip creating
+    another empty commit and just retry the push.
     """
+    head_msg = _run(["git", "log", "-1", "--pretty=%B"], cwd=cwd).stdout
+    if head_msg and "[skip ci]" not in head_msg:
+        logger.info("HEAD already triggers CI — retrying push only.")
+        _push_current_branch(branch=branch, cwd=cwd)
+        return True
+
     result = _run(
         ["git", "commit", "--allow-empty", "-m", "chore: trigger CI"],
         cwd=cwd,
