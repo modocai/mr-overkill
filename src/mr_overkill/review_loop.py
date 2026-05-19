@@ -48,6 +48,7 @@ def run(config: LoopConfig) -> int:
         and config.ci_trigger_mode == "last-only"
         and config.auto_commit
         and not config.dry_run
+        and result.made_skipped_fix_commit
     ):
         try:
             push_trigger_commit(branch=config.current_branch)

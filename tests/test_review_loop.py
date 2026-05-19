@@ -80,10 +80,30 @@ class TestCITriggerCommit:
         mock_loop.return_value = LoopResult(
             final_status=FinalStatus.ALL_CLEAR,
             iterations_run=2,
+            made_skipped_fix_commit=True,
         )
         config = make_loop_config(ci_trigger_mode="last-only")
         run(config)
         mock_trigger.assert_called_once_with(branch=config.current_branch)
+
+    @patch("mr_overkill.review_loop.push_trigger_commit")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    def test_no_trigger_commit_when_no_skipped_fix_commit(
+        self,
+        mock_loop: MagicMock,
+        mock_trigger: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        """ALL_CLEAR without any [skip ci] fix commit (clean branch / resume
+        of completed run) must not emit a trigger commit."""
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR,
+            iterations_run=1,
+            made_skipped_fix_commit=False,
+        )
+        config = make_loop_config(ci_trigger_mode="last-only")
+        run(config)
+        mock_trigger.assert_not_called()
 
     @patch("mr_overkill.review_loop.push_trigger_commit")
     @patch("mr_overkill.review_loop.review_fix_loop")
@@ -197,6 +217,7 @@ class TestCITriggerCommit:
         mock_loop.return_value = LoopResult(
             final_status=FinalStatus.ALL_CLEAR,
             iterations_run=2,
+            made_skipped_fix_commit=True,
         )
         mock_trigger.side_effect = RuntimeError("git push failed: no remote")
         config = make_loop_config(ci_trigger_mode="last-only")

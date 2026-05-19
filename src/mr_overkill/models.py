@@ -201,6 +201,7 @@ class LoopResult:
     final_status: FinalStatus
     iterations_run: int
     summary_path: Path | None = None
+    made_skipped_fix_commit: bool = False
 
 
 # ── Protocols (DI contracts) ─────────────────────────────────────────

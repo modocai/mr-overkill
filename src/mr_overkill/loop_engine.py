@@ -285,6 +285,7 @@ def review_fix_loop(
     allowed_stashed = False
     had_findings = False
     fix_committed = False
+    made_skipped_fix_commit = False
 
     for i in range(1, config.max_loop + 1):
         logger.info("── Iteration %d / %d ──", i, config.max_loop)
@@ -512,6 +513,8 @@ def review_fix_loop(
                     final_status = FinalStatus.COMMIT_PUSH_ERROR
                     iterations_run = i
                     break
+                if fix_committed and config.ci_trigger_mode in ("last-only", "none"):
+                    made_skipped_fix_commit = True
             else:
                 logger.info("AUTO_COMMIT is disabled — skipping commit and push.")
         finally:
@@ -555,6 +558,7 @@ def review_fix_loop(
         final_status=final_status,
         iterations_run=iterations_run,
         summary_path=summary_path,
+        made_skipped_fix_commit=made_skipped_fix_commit,
     )
 
 
