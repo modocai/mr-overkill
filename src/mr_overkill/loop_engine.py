@@ -225,6 +225,7 @@ def review_fix_loop(
             needs_trigger = (
                 resolved_status == FinalStatus.ALL_CLEAR
                 and config.ci_trigger_mode in ("last-only", "none")
+                and _has_skipped_fix_commit(commit_pattern, log_dir, cwd)
             )
             return LoopResult(
                 final_status=resolved_status,
@@ -579,6 +580,30 @@ def review_fix_loop(
 
 
 # ── Private helpers ──────────────────────────────────────────────────
+
+
+def _has_skipped_fix_commit(
+    commit_pattern: str, log_dir: Path, cwd: Path | None
+) -> bool:
+    """Return True if any [skip ci] fix commit exists since the run started."""
+    start_file = log_dir / "start-commit.txt"
+    if not start_file.is_file():
+        return False
+    start = start_file.read_text().strip()
+    if not start:
+        return False
+    result = subprocess.run(
+        [
+            "git", "log", "--fixed-strings",
+            f"--grep={commit_pattern}", "--grep=[skip ci]", "--all-match",
+            "--oneline", f"{start}..HEAD",
+        ],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def _validate_target_branch(target: str, cwd: Path | None) -> bool:
