@@ -741,6 +741,7 @@ def parse_refactor_suggest_args(
         prompts_dir=prompts_dir,
         scope=scope,
         reviewer_backend=reviewer_backend,
+        ci_trigger_mode="every",
     )
 
     extra = _RefactorExtra(

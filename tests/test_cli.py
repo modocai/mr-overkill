@@ -430,6 +430,9 @@ class TestParseRefactorSuggestArgs:
         assert config.max_loop == 1
         assert extra.create_pr is False
         assert extra.with_review is False
+        # refactor-suggest does not push a trigger commit, so iteration
+        # commits must trigger CI directly — never inherit "last-only".
+        assert config.ci_trigger_mode == "every"
 
     @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
     @patch("mr_overkill.cli._load_rc_file", return_value={})
