@@ -329,7 +329,7 @@ class TestParseReviewLoopArgs:
     ) -> None:
         mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
         config = parse_review_loop_args(["-n", "1"])
-        assert config.ci_trigger_mode == "every"
+        assert config.ci_trigger_mode == "last-only"
 
     @patch("mr_overkill.cli._detect_pr_number", return_value=None)
     @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
