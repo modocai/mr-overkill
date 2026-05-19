@@ -285,7 +285,14 @@ def review_fix_loop(
     allowed_stashed = False
     had_findings = False
     fix_committed = False
-    made_skipped_fix_commit = False
+    # On resume, prior iteration commits already exist; in last-only/none
+    # modes those carry [skip ci], so a final trigger commit is still needed
+    # even if no new fix commit is made in this process.
+    made_skipped_fix_commit = (
+        config.resume
+        and resume_from > 1
+        and config.ci_trigger_mode in ("last-only", "none")
+    )
 
     for i in range(1, config.max_loop + 1):
         logger.info("── Iteration %d / %d ──", i, config.max_loop)
