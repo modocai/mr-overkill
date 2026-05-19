@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from mr_overkill.git_ops import (
     changed_files_since_snapshot,
     diff_hash,
     gen_uuid,
     git_all_dirty,
+    push_trigger_commit,
     sha256,
     snapshot_worktree,
 )
@@ -126,3 +128,76 @@ class TestChangedFilesSinceSnapshot:
         )
         assert "src.txt" in changed
         assert not any(f.startswith("logs/") for f in changed)
+
+
+class TestPushTriggerCommit:
+    """Empty trigger commit used by ``--ci-trigger-mode last-only``."""
+
+    @patch("mr_overkill.git_ops._run")
+    def test_creates_empty_commit_and_pushes(self, mock_run: MagicMock) -> None:
+        # 1) HEAD message has [skip ci], 2) commit succeeds,
+        # 3) upstream check succeeds, 4) push succeeds
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="fix: something [skip ci]\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="origin/feat/x", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+        ]
+        assert push_trigger_commit() is True
+
+        commit_call = mock_run.call_args_list[1]
+        assert commit_call.args[0] == [
+            "git", "commit", "--allow-empty", "-m", "chore: trigger CI",
+        ]
+        push_call = mock_run.call_args_list[3]
+        assert push_call.args[0] == ["git", "push"]
+
+    @patch("mr_overkill.git_ops._run")
+    def test_commit_failure_returns_false_without_push(
+        self, mock_run: MagicMock,
+    ) -> None:
+        # HEAD has [skip ci]; then commit attempt fails — no push should follow.
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="fix: something [skip ci]\n", stderr=""),
+            MagicMock(returncode=1, stdout="", stderr="nothing to commit"),
+        ]
+        assert push_trigger_commit() is False
+        assert mock_run.call_count == 2
+
+    @patch("mr_overkill.git_ops._run")
+    def test_sets_upstream_when_no_upstream_yet(
+        self, mock_run: MagicMock,
+    ) -> None:
+        # HEAD has [skip ci], commit ok, upstream check fails,
+        # remote check returns 'origin', push -u ok
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="fix: x [skip ci]\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=128, stdout="", stderr="no upstream"),
+            MagicMock(returncode=0, stdout="origin\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+        ]
+        assert push_trigger_commit(branch="feat/x") is True
+        push_call = mock_run.call_args_list[4]
+        assert push_call.args[0] == [
+            "git", "push", "-u", "origin", "feat/x",
+        ]
+
+    @patch("mr_overkill.git_ops._run")
+    def test_skips_extra_commit_when_head_already_triggers_ci(
+        self, mock_run: MagicMock,
+    ) -> None:
+        # HEAD lacks [skip ci] (trigger commit already exists from a prior
+        # run that failed before pushing); only the push should be retried.
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="chore: trigger CI\n", stderr=""),
+            MagicMock(returncode=0, stdout="origin/feat/x", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+        ]
+        assert push_trigger_commit() is True
+        # No new commit attempted; HEAD check + upstream check + push only.
+        assert mock_run.call_count == 3
+        assert mock_run.call_args_list[1].args[0] == [
+            "git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}",
+        ]
+        assert mock_run.call_args_list[2].args[0] == ["git", "push"]

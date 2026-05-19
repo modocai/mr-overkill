@@ -102,6 +102,10 @@ Options:
   --no-auto-commit         Fix but do not commit/push (single iteration)
   --resume                 Resume from a previously interrupted run (reuses existing logs)
   --reviewer-backend <be>  Reviewer backend: claude|codex (default: codex)
+  --ci-trigger-mode <m>    CI trigger policy: every|last-only|none (default: every).
+                           'last-only' tags each iteration commit with [skip ci]
+                           and pushes a single empty trigger commit on PASS —
+                           CI runs once instead of once per iteration.
   --diagnostic-log         Save full Claude event stream to sidecar files
 
 Examples:
@@ -111,6 +115,7 @@ Examples:
   overkill review-loop -n 3 --no-self-review # disable self-review sub-loop
   overkill review-loop --resume              # resume an interrupted run
   overkill review-loop -n 2 --reviewer-backend claude  # use Claude as reviewer
+  overkill review-loop -n 10 --ci-trigger-mode last-only  # CI fires once on PASS
 ```
 
 ## Usage: overkill refactor-suggest
