@@ -316,6 +316,100 @@ class TestParseReviewLoopArgs:
         ])
         assert config.reviewer_backend == "gemini"
 
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_ci_trigger_mode_default(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
+        config = parse_review_loop_args(["-n", "1"])
+        assert config.ci_trigger_mode == "every"
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_ci_trigger_mode_cli(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
+        config = parse_review_loop_args([
+            "-n", "1", "--ci-trigger-mode", "last-only",
+        ])
+        assert config.ci_trigger_mode == "last-only"
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch(
+        "mr_overkill.cli._load_rc_file",
+        return_value={"CI_TRIGGER_MODE": "none"},
+    )
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_ci_trigger_mode_rc(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
+        config = parse_review_loop_args(["-n", "1"])
+        assert config.ci_trigger_mode == "none"
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch(
+        "mr_overkill.cli._load_rc_file",
+        return_value={"CI_TRIGGER_MODE": "none"},
+    )
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_ci_trigger_mode_cli_overrides_rc(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
+        config = parse_review_loop_args([
+            "-n", "1", "--ci-trigger-mode", "every",
+        ])
+        assert config.ci_trigger_mode == "every"
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch(
+        "mr_overkill.cli._load_rc_file",
+        return_value={"CI_TRIGGER_MODE": "bogus"},
+    )
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_ci_trigger_mode_invalid_rc(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
+        with pytest.raises(SystemExit):
+            parse_review_loop_args(["-n", "1"])
+
+    def test_ci_trigger_mode_invalid_cli(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_review_loop_args([
+                "-n", "1", "--ci-trigger-mode", "bogus",
+            ])
+
 
 class TestParseRefactorSuggestArgs:
     @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")

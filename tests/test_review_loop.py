@@ -64,3 +64,141 @@ class TestReviewLoopRun:
         )
         config = make_loop_config()
         assert run(config) == 0
+
+
+class TestCITriggerCommit:
+    """`--ci-trigger-mode last-only` emits one empty CI trigger commit on PASS."""
+
+    @patch("mr_overkill.review_loop.push_trigger_commit")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    def test_trigger_commit_emitted_on_all_clear_last_only(
+        self,
+        mock_loop: MagicMock,
+        mock_trigger: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR,
+            iterations_run=2,
+        )
+        config = make_loop_config(ci_trigger_mode="last-only")
+        run(config)
+        mock_trigger.assert_called_once_with(branch=config.current_branch)
+
+    @patch("mr_overkill.review_loop.push_trigger_commit")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    def test_no_trigger_commit_in_every_mode(
+        self,
+        mock_loop: MagicMock,
+        mock_trigger: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR,
+            iterations_run=2,
+        )
+        config = make_loop_config(ci_trigger_mode="every")
+        run(config)
+        mock_trigger.assert_not_called()
+
+    @patch("mr_overkill.review_loop.push_trigger_commit")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    def test_no_trigger_commit_in_none_mode(
+        self,
+        mock_loop: MagicMock,
+        mock_trigger: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR,
+            iterations_run=2,
+        )
+        config = make_loop_config(ci_trigger_mode="none")
+        run(config)
+        mock_trigger.assert_not_called()
+
+    @patch("mr_overkill.review_loop.push_trigger_commit")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    def test_no_trigger_commit_on_max_iterations(
+        self,
+        mock_loop: MagicMock,
+        mock_trigger: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.MAX_ITERATIONS_REACHED,
+            iterations_run=5,
+        )
+        config = make_loop_config(ci_trigger_mode="last-only")
+        run(config)
+        mock_trigger.assert_not_called()
+
+    @patch("mr_overkill.review_loop.push_trigger_commit")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    def test_no_trigger_commit_on_error(
+        self,
+        mock_loop: MagicMock,
+        mock_trigger: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.CLAUDE_ERROR,
+            iterations_run=1,
+        )
+        config = make_loop_config(ci_trigger_mode="last-only")
+        run(config)
+        mock_trigger.assert_not_called()
+
+    @patch("mr_overkill.review_loop.push_trigger_commit")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    def test_no_trigger_commit_with_no_auto_commit(
+        self,
+        mock_loop: MagicMock,
+        mock_trigger: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR,
+            iterations_run=2,
+        )
+        config = make_loop_config(
+            ci_trigger_mode="last-only", auto_commit=False,
+        )
+        run(config)
+        mock_trigger.assert_not_called()
+
+    @patch("mr_overkill.review_loop.push_trigger_commit")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    def test_no_trigger_commit_in_dry_run(
+        self,
+        mock_loop: MagicMock,
+        mock_trigger: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR,
+            iterations_run=2,
+        )
+        config = make_loop_config(
+            ci_trigger_mode="last-only", dry_run=True,
+        )
+        run(config)
+        mock_trigger.assert_not_called()
+
+    @patch("mr_overkill.review_loop.push_trigger_commit")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    def test_trigger_commit_push_failure_does_not_raise(
+        self,
+        mock_loop: MagicMock,
+        mock_trigger: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        """A failed CI trigger push should not crash the run() exit path."""
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR,
+            iterations_run=2,
+        )
+        mock_trigger.side_effect = RuntimeError("git push failed: no remote")
+        config = make_loop_config(ci_trigger_mode="last-only")
+        # Should still return 0 since the loop itself succeeded.
+        assert run(config) == 0

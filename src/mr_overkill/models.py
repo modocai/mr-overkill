@@ -162,6 +162,14 @@ class LoopConfig:
     resume: bool = False
     auto_approve: bool = False
 
+    # CI trigger policy for iteration commits:
+    #   "every"     — current behaviour: each commit triggers CI.
+    #   "last-only" — append "[skip ci]" to iteration commits; push a single
+    #                 empty "chore: trigger CI" commit only on ALL_CLEAR.
+    #   "none"      — append "[skip ci]" to iteration commits; never emit a
+    #                 trigger commit (forks / CI-less repos).
+    ci_trigger_mode: str = "every"
+
     # Retry / budget
     retry_max_wait: int = 7200
     retry_initial_wait: int = 30

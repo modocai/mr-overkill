@@ -234,7 +234,12 @@ def commit_and_push(
 
     logger.info("Committed.")
 
-    # Push if upstream exists
+    _push_current_branch(branch=branch, cwd=cwd)
+    return True
+
+
+def _push_current_branch(branch: str = "", cwd: Path | None = None) -> None:
+    """Push the current branch, setting upstream on first push if needed."""
     upstream_check = _run(
         ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
         cwd=cwd,
@@ -244,7 +249,8 @@ def commit_and_push(
         if push_result.returncode != 0:
             raise RuntimeError(f"git push failed: {push_result.stderr.strip()}")
         logger.info("Pushed.")
-    elif branch:
+        return
+    if branch:
         remote_check = _run(["git", "remote"], cwd=cwd)
         remotes = remote_check.stdout.strip().splitlines()
         remote = "origin" if "origin" in remotes else (remotes[0] if remotes else "")
@@ -253,9 +259,30 @@ def commit_and_push(
             if push_result.returncode != 0:
                 raise RuntimeError(f"git push failed: {push_result.stderr.strip()}")
             logger.info("Pushed (upstream set).")
-        else:
-            logger.info("No upstream/remote set — skipping push.")
-    else:
-        logger.info("No upstream set — skipping push.")
+            return
+        logger.info("No upstream/remote set — skipping push.")
+        return
+    logger.info("No upstream set — skipping push.")
 
+
+def push_trigger_commit(branch: str = "", cwd: Path | None = None) -> bool:
+    """Push an empty ``chore: trigger CI`` commit.
+
+    Used by ``--ci-trigger-mode last-only`` to fire CI once after a run of
+    iteration commits that were each tagged with ``[skip ci]``. Returns
+    ``True`` on success, ``False`` if the empty commit could not be created
+    (e.g. repo has no HEAD yet). Raises ``RuntimeError`` if ``git push`` fails.
+    """
+    result = _run(
+        ["git", "commit", "--allow-empty", "-m", "chore: trigger CI"],
+        cwd=cwd,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "trigger commit failed: %s",
+            result.stderr.strip() or result.stdout.strip(),
+        )
+        return False
+    logger.info("Created CI trigger commit.")
+    _push_current_branch(branch=branch, cwd=cwd)
     return True

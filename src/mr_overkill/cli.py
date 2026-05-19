@@ -108,7 +108,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "RETRY_INITIAL_WAIT", "BUDGET_SCOPE", "DIAGNOSTIC_LOG",
         "SCOPE", "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
         "REVIEW_LOOPS", "FIX_NITS", "REVIEWER_BACKEND",
-        "REVIEWER_CONTEXT",
+        "REVIEWER_CONTEXT", "CI_TRIGGER_MODE",
     }
     boolean_keys = {
         "DRY_RUN", "AUTO_COMMIT", "DIAGNOSTIC_LOG",
@@ -306,6 +306,18 @@ def parse_review_loop_args(
         default=None,
         help="Additional context for the reviewer (e.g. design intent, constraints)",
     )
+    parser.add_argument(
+        "--ci-trigger-mode",
+        default=None,
+        choices=["every", "last-only", "none"],
+        help=(
+            "CI trigger policy for iteration commits. "
+            "'every' (default): every commit triggers CI. "
+            "'last-only': append [skip ci] to iteration commits and push a "
+            "single empty 'chore: trigger CI' commit only on PASS. "
+            "'none': append [skip ci] with no trigger commit."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -420,6 +432,17 @@ def parse_review_loop_args(
         args.context if args.context is not None else rc.get("REVIEWER_CONTEXT", "")
     )
 
+    ci_trigger_mode = (
+        args.ci_trigger_mode
+        if args.ci_trigger_mode is not None
+        else rc.get("CI_TRIGGER_MODE", "every")
+    )
+    if ci_trigger_mode not in ("every", "last-only", "none"):
+        parser.error(
+            f"CI_TRIGGER_MODE must be 'every', 'last-only', or 'none',"
+            f" got {ci_trigger_mode!r}"
+        )
+
     return LoopConfig(
         current_branch=current_branch,
         target_branch=target,
@@ -441,6 +464,7 @@ def parse_review_loop_args(
         pr_number=pr_number,
         reviewer_backend=reviewer_backend,
         reviewer_context=reviewer_context,
+        ci_trigger_mode=ci_trigger_mode,
     )
 
 

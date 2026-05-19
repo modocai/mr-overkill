@@ -9,6 +9,7 @@ from mr_overkill.agents import (
     create_review_agent,
     create_self_review_agent,
 )
+from mr_overkill.git_ops import push_trigger_commit
 from mr_overkill.loop_engine import review_fix_loop
 from mr_overkill.models import (
     FinalStatus,
@@ -41,6 +42,17 @@ def run(config: LoopConfig) -> int:
     logger.info("Done. Status: %s", result.final_status)
     if result.summary_path:
         logger.info("Summary: %s", result.summary_path)
+
+    if (
+        result.final_status == FinalStatus.ALL_CLEAR
+        and config.ci_trigger_mode == "last-only"
+        and config.auto_commit
+        and not config.dry_run
+    ):
+        try:
+            push_trigger_commit(branch=config.current_branch)
+        except RuntimeError as exc:
+            logger.warning("Could not push CI trigger commit: %s", exc)
 
     success_statuses = {
         FinalStatus.ALL_CLEAR,
