@@ -102,10 +102,11 @@ Options:
   --no-auto-commit         Fix but do not commit/push (single iteration)
   --resume                 Resume from a previously interrupted run (reuses existing logs)
   --reviewer-backend <be>  Reviewer backend: claude|codex (default: codex)
-  --ci-trigger-mode <m>    CI trigger policy: every|last-only|none (default: every).
+  --ci-trigger-mode <m>    CI trigger policy: every|last-only|none (default: last-only).
                            'last-only' tags each iteration commit with [skip ci]
                            and pushes a single empty trigger commit on PASS —
                            CI runs once instead of once per iteration.
+                           Use 'every' to restore pre-0.3 per-commit CI.
   --diagnostic-log         Save full Claude event stream to sidecar files
 
 Examples:

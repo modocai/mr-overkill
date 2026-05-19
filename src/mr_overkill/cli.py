@@ -312,9 +312,9 @@ def parse_review_loop_args(
         choices=["every", "last-only", "none"],
         help=(
             "CI trigger policy for iteration commits. "
-            "'every' (default): every commit triggers CI. "
-            "'last-only': append [skip ci] to iteration commits and push a "
-            "single empty 'chore: trigger CI' commit only on PASS. "
+            "'last-only' (default): append [skip ci] to iteration commits and "
+            "push a single empty 'chore: trigger CI' commit only on PASS. "
+            "'every': every commit triggers CI. "
             "'none': append [skip ci] with no trigger commit."
         ),
     )
@@ -439,7 +439,7 @@ def parse_review_loop_args(
     ci_trigger_mode = (
         args.ci_trigger_mode
         if args.ci_trigger_mode is not None
-        else rc.get("CI_TRIGGER_MODE", "every")
+        else rc.get("CI_TRIGGER_MODE", "last-only")
     )
     if ci_trigger_mode not in ("every", "last-only", "none"):
         parser.error(
