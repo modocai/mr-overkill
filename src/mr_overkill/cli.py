@@ -417,6 +417,10 @@ def parse_review_loop_args(
             saved = log_dir / "reviewer-context.txt"
             if saved.is_file():
                 args.context = saved.read_text().strip()
+        if args.ci_trigger_mode is None:
+            saved = log_dir / "ci-trigger-mode.txt"
+            if saved.is_file():
+                args.ci_trigger_mode = saved.read_text().strip()
 
     if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")

@@ -650,6 +650,7 @@ def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
     (log_dir / "max-loop.txt").write_text(str(config.max_loop))
     (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
     (log_dir / "reviewer-context.txt").write_text(config.reviewer_context)
+    (log_dir / "ci-trigger-mode.txt").write_text(config.ci_trigger_mode)
     if config.scope:
         (log_dir / "scope.txt").write_text(config.scope)
 
