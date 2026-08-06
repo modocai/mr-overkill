@@ -292,9 +292,11 @@ All logs are git-ignored by default (inside `.overkill/`).
 The budget checker verifies Claude Code's 5-hour rate limit **before** starting expensive loops.
 
 Codex is checked too, but only when it authenticates through a ChatGPT plan.
-Auth mode is read from `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`);
-under API-key auth there are no plan rate-limit windows, so the gate is skipped
-entirely and stale session logs from a previous plan login are ignored.
+Auth mode is read from `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`),
+falling back to the login method in `config.toml` when Codex keeps credentials
+in the OS keyring instead; under API-key auth there are no plan rate-limit
+windows, so the gate is skipped entirely and stale session logs from a previous
+plan login are ignored.
 
 ### How it estimates usage
 

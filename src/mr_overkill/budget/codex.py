@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tomllib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -28,6 +29,14 @@ AUTH_MODE_APIKEY = "apikey"
 AUTH_MODE_CHATGPT = "chatgpt"
 AUTH_MODE_UNKNOWN = "unknown"
 
+# ``config.toml`` keys that record the login method Codex was set up with.
+# ``forced_login_method`` is the current name; ``preferred_auth_method`` is the
+# older one and still sits in configs written by earlier versions.
+_CONFIG_AUTH_KEYS = ("forced_login_method", "preferred_auth_method")
+
+# Spellings of API-key auth seen across auth.json and config.toml.
+_APIKEY_ALIASES = frozenset({"apikey", "api_key", "api-key"})
+
 
 def codex_home() -> Path:
     """Return the Codex config directory (``$CODEX_HOME`` or ``~/.codex``)."""
@@ -35,14 +44,35 @@ def codex_home() -> Path:
     return Path(raw) if raw else Path.home() / ".codex"
 
 
+def _config_auth_mode(home: Path) -> str | None:
+    """Return the login method declared in ``config.toml``, or ``None``.
+
+    Only API-key auth is reported: every other value leaves the plan-based
+    budget gate active, which is what the caller already defaults to.
+    """
+    try:
+        with (home / "config.toml").open("rb") as handle:
+            config = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+    for key in _CONFIG_AUTH_KEYS:
+        value = config.get(key)
+        if isinstance(value, str) and value.strip().lower() in _APIKEY_ALIASES:
+            return AUTH_MODE_APIKEY
+
+    return None
+
+
 def detect_auth_mode(home: Path | None = None) -> str:
     """Detect how the Codex CLI authenticates.
 
     ``CODEX_API_KEY`` wins outright: Codex sends it even when ``auth.json``
     holds a ChatGPT login.  Otherwise ``auth.json`` is authoritative, since it
-    records the mode chosen by the last ``codex login``.  Falls back to
-    ``OPENAI_API_KEY`` in the environment, then to ``unknown`` (which keeps the
-    plan-based budget gate active).
+    records the mode chosen by the last ``codex login``.  Falls back to the
+    login method declared in ``config.toml``, then to ``OPENAI_API_KEY`` in the
+    environment, then to ``unknown`` (which keeps the plan-based budget gate
+    active).
     """
     if home is None:
         home = codex_home()
@@ -66,6 +96,12 @@ def detect_auth_mode(home: Path | None = None) -> str:
             return AUTH_MODE_CHATGPT
         if auth.get("OPENAI_API_KEY"):
             return AUTH_MODE_APIKEY
+
+    # auth.json can be missing entirely when Codex keeps credentials in the OS
+    # keyring (``cli_auth_credentials_store``); config.toml still records the
+    # login method, so consult it before giving up on the file layout.
+    if _config_auth_mode(home) == AUTH_MODE_APIKEY:
+        return AUTH_MODE_APIKEY
 
     if os.environ.get("OPENAI_API_KEY", "").strip():
         return AUTH_MODE_APIKEY

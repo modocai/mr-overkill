@@ -186,6 +186,47 @@ class TestDetectAuthMode:
         (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt"}))
         assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
 
+    def test_config_login_method_when_credentials_are_in_the_keyring(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No auth.json at all: Codex stored the login in the OS keyring.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "config.toml").write_text(
+            'cli_auth_credentials_store = "keyring"\nforced_login_method = "apikey"\n'
+        )
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+
+    def test_legacy_config_auth_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "config.toml").write_text('preferred_auth_method = "apikey"\n')
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+
+    def test_config_chatgpt_login_keeps_gate_active(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "config.toml").write_text('forced_login_method = "chatgpt"\n')
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
+    def test_auth_file_wins_over_config_login_method(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # config.toml only records intent; a cached ChatGPT login is what Codex
+        # actually sends, so plan rate limits still apply.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt"}))
+        (tmp_path / "config.toml").write_text('forced_login_method = "apikey"\n')
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
+
+    def test_malformed_config_falls_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "config.toml").write_text("not = = toml")
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
     def test_malformed_auth_file_falls_back(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
