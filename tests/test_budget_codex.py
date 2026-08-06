@@ -170,6 +170,22 @@ class TestDetectAuthMode:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
 
+    def test_codex_api_key_overrides_chatgpt_auth_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("CODEX_API_KEY", "sk-test")
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt"}))
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+
+    def test_openai_api_key_loses_to_chatgpt_auth_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Codex keeps using the cached ChatGPT login here, so plan rate limits
+        # still apply and the gate has to stay active.
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt"}))
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
+
     def test_malformed_auth_file_falls_back(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

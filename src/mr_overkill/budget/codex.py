@@ -38,12 +38,19 @@ def codex_home() -> Path:
 def detect_auth_mode(home: Path | None = None) -> str:
     """Detect how the Codex CLI authenticates.
 
-    ``auth.json`` is authoritative: it records the mode chosen by the last
-    ``codex login``.  Falls back to ``OPENAI_API_KEY`` in the environment,
-    then to ``unknown`` (which keeps the plan-based budget gate active).
+    ``CODEX_API_KEY`` wins outright: Codex sends it even when ``auth.json``
+    holds a ChatGPT login.  Otherwise ``auth.json`` is authoritative, since it
+    records the mode chosen by the last ``codex login``.  Falls back to
+    ``OPENAI_API_KEY`` in the environment, then to ``unknown`` (which keeps the
+    plan-based budget gate active).
     """
     if home is None:
         home = codex_home()
+
+    # Checked before auth.json — and unlike OPENAI_API_KEY below, which loses
+    # to a cached ChatGPT login and so must stay a last resort.
+    if os.environ.get("CODEX_API_KEY", "").strip():
+        return AUTH_MODE_APIKEY
 
     try:
         auth = json.loads((home / "auth.json").read_text(encoding="utf-8"))
