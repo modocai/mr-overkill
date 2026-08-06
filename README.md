@@ -108,6 +108,8 @@ Options:
                            CI runs once instead of once per iteration.
                            Use 'every' to restore pre-0.3 per-commit CI.
   --diagnostic-log         Save full Claude event stream to sidecar files
+  --no-budget-gate         Skip token-budget checks and run regardless
+                           (same as OVERKILL_SKIP_BUDGET=1)
 
 Examples:
   overkill review-loop -t main -n 3          # diff against main, max 3 loops
@@ -141,6 +143,8 @@ Options:
   --with-review-loops <N>  Set review-loop iteration count (implies --with-review)
   --reviewer-backend <be>  Reviewer backend: claude|codex (default: codex)
   --diagnostic-log         Save full Claude event stream to sidecar files
+  --no-budget-gate         Skip token-budget checks and run regardless
+                           (same as OVERKILL_SKIP_BUDGET=1)
 
 Examples:
   overkill refactor-suggest -n 3                             # auto scope (budget-aware)
@@ -287,6 +291,13 @@ All logs are git-ignored by default (inside `.overkill/`).
 
 The budget checker verifies Claude Code's 5-hour rate limit **before** starting expensive loops.
 
+Codex is checked too, but only when it authenticates through a ChatGPT plan.
+Auth mode is read from `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`),
+falling back to the login method in `config.toml` when Codex keeps credentials
+in the OS keyring instead; under API-key auth there are no plan rate-limit
+windows, so the gate is skipped entirely and stale session logs from a previous
+plan login are ignored.
+
 ### How it estimates usage
 
 | Mode | Data source | Accuracy |
@@ -306,6 +317,18 @@ Go/no-go decision based on current usage percentage:
 | `module` | 75% | Multi-file refactoring |
 | `layer` | TBD | Cross-cutting changes |
 | `full` | TBD | Full architecture review |
+
+### Bypassing the gate
+
+Budget data is an estimate read from local CLI logs, so it can be wrong — stale
+logs, a changed auth mode, or a new rate-limit payload shape. To run anyway:
+
+```bash
+overkill review-loop -n 3 --no-budget-gate   # per run
+OVERKILL_SKIP_BUDGET=1 overkill review-loop -n 3   # env var, covers every gate
+```
+
+`NO_BUDGET_GATE=true` in `.overkillrc` / `.refactorsuggestrc` makes it the default.
 
 ## Customizing Prompts
 

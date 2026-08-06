@@ -62,6 +62,31 @@ class TestLoadRcFile:
         assert result["REVIEWER_BACKEND"] == "claude"
         assert "INVALID_KEY" not in result
 
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_parses_no_budget_gate(
+        self, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=str(tmp_path)
+        )
+        (tmp_path / ".overkill").mkdir()
+        rc = tmp_path / ".overkill" / ".overkillrc"
+        rc.write_text("NO_BUDGET_GATE=True\n")
+        assert _load_rc_file(".overkillrc")["NO_BUDGET_GATE"] == "true"
+
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_rejects_non_boolean_no_budget_gate(
+        self, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=str(tmp_path)
+        )
+        (tmp_path / ".overkill").mkdir()
+        rc = tmp_path / ".overkill" / ".overkillrc"
+        rc.write_text("NO_BUDGET_GATE=yes\n")
+        with pytest.raises(SystemExit):
+            _load_rc_file(".overkillrc")
+
 
 class TestParseReviewLoopArgs:
     @patch("mr_overkill.cli._detect_pr_number", return_value=None)
@@ -100,6 +125,54 @@ class TestParseReviewLoopArgs:
         )
         config = parse_review_loop_args(["-n", "1", "--dry-run"])
         assert config.dry_run is True
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_budget_gate_enabled_by_default(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
+        config = parse_review_loop_args(["-n", "1"])
+        assert config.skip_budget_gate is False
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_no_budget_gate_flag(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
+        config = parse_review_loop_args(["-n", "1", "--no-budget-gate"])
+        assert config.skip_budget_gate is True
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value=None)
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch(
+        "mr_overkill.cli._load_rc_file",
+        return_value={"NO_BUDGET_GATE": "true"},
+    )
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_no_budget_gate_from_rc(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
+        config = parse_review_loop_args(["-n", "1"])
+        assert config.skip_budget_gate is True
 
     @patch("mr_overkill.cli._detect_pr_number", return_value=None)
     @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
@@ -430,6 +503,7 @@ class TestParseRefactorSuggestArgs:
         assert config.max_loop == 1
         assert extra.create_pr is False
         assert extra.with_review is False
+        assert config.skip_budget_gate is False
         # refactor-suggest does not push a trigger commit, so iteration
         # commits must trigger CI directly — never inherit "last-only".
         assert config.ci_trigger_mode == "every"
@@ -452,6 +526,21 @@ class TestParseRefactorSuggestArgs:
         assert config.scope == "module"
         assert config.max_loop == 3
         assert config.target_branch == "main"
+
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_no_budget_gate_flag(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="/tmp/repo"
+        )
+        config, _extra = parse_refactor_suggest_args(["--no-budget-gate"])
+        assert config.skip_budget_gate is True
 
     @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
     @patch("mr_overkill.cli._load_rc_file", return_value={})

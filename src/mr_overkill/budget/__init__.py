@@ -7,6 +7,7 @@ Ports ``_budget_sufficient`` from ``common.sh`` and
 from __future__ import annotations
 
 import logging
+import os
 
 from mr_overkill.models import BudgetScope, BudgetStatus
 from mr_overkill.time_utils import codex_ts_to_iso
@@ -20,6 +21,28 @@ _THRESHOLDS: dict[BudgetScope, int | None] = {
     BudgetScope.LAYER: None,  # no threshold established
     BudgetScope.FULL: None,
 }
+
+# Rate-limit window kinds, keyed by the field they map onto in BudgetStatus.
+FIVE_HOUR_WINDOW = "five_hour"
+SEVEN_DAY_WINDOW = "seven_day"
+
+# Any window declared as one day or shorter counts as the short ("5-hour")
+# window; anything longer is the rolling weekly window.
+_SHORT_WINDOW_MAX_MINUTES = 24 * 60
+
+# Env escape hatch: set to 1/true/yes/on to bypass every budget gate.
+SKIP_BUDGET_ENV_VAR = "OVERKILL_SKIP_BUDGET"
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def budget_gate_disabled() -> bool:
+    """Return True if the user has disabled budget gating via the environment.
+
+    Local budget data is an estimate derived from CLI logs; when it is wrong
+    (stale logs, changed auth mode, new rate-limit shapes) the loop would
+    otherwise block with no way out.
+    """
+    return os.environ.get(SKIP_BUDGET_ENV_VAR, "").strip().lower() in _TRUTHY
 
 
 def has_threshold(scope: BudgetScope) -> bool:
@@ -71,6 +94,36 @@ def budget_sufficient(scope: BudgetScope, status: BudgetStatus) -> bool:
         threshold,
     )
     return False
+
+
+def codex_window_kind(window: dict[str, object] | None) -> str | None:
+    """Classify a Codex ``rate_limits`` window by its declared length.
+
+    Codex does not guarantee that ``primary`` is the short window — on some
+    plans ``primary`` carries the weekly (``window_minutes: 10080``) limit.
+    Returns ``None`` when the window omits ``window_minutes``, leaving the
+    caller to fall back to positional assignment.
+    """
+    if not window:
+        return None
+
+    raw = window.get("window_minutes")
+    if raw is None:
+        return None
+
+    try:
+        minutes = float(str(raw))
+    except ValueError:
+        return None
+
+    if minutes <= 0:
+        return None
+
+    return (
+        FIVE_HOUR_WINDOW
+        if minutes <= _SHORT_WINDOW_MAX_MINUTES
+        else SEVEN_DAY_WINDOW
+    )
 
 
 def codex_parse_window(

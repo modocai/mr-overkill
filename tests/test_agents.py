@@ -7,6 +7,8 @@ from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from mr_overkill.agents import (
     ClaudeFixAgent,
     ClaudeRefactorReviewAgent,
@@ -19,6 +21,7 @@ from mr_overkill.agents import (
     GeminiReviewAgent,
     ReviewAgent,
     SelfReviewAgent,
+    _budget_check,
     _BudgetFn,
     create_fix_agent,
     create_review_agent,
@@ -469,6 +472,42 @@ class TestBudgetFn:
 
         _, _, _, actual_wait = mock_wait.call_args[0]
         assert actual_wait == 9999
+
+    @patch("mr_overkill.agents.wait_for_budget", return_value=False)
+    def test_skip_budget_gate_bypasses_wait(
+        self,
+        mock_wait: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        config = make_loop_config(skip_budget_gate=True)
+        fn = _BudgetFn(config)
+
+        assert fn("codex", BudgetScope.MICRO, 0) is True
+        mock_wait.assert_not_called()
+
+
+class TestBudgetCheckEnvOverride:
+    @patch("mr_overkill.agents.codex_budget_sufficient", return_value=False)
+    def test_env_var_bypasses_check(
+        self,
+        mock_codex: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("OVERKILL_SKIP_BUDGET", "1")
+
+        assert _budget_check("codex", BudgetScope.MICRO, 0) is True
+        mock_codex.assert_not_called()
+
+    @patch("mr_overkill.agents.codex_budget_sufficient", return_value=False)
+    def test_check_runs_without_env_var(
+        self,
+        mock_codex: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("OVERKILL_SKIP_BUDGET", raising=False)
+
+        assert _budget_check("codex", BudgetScope.MICRO, 0) is False
+        mock_codex.assert_called_once()
 
 
 # ── Factory functions ────────────────────────────────────────────────

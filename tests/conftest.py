@@ -12,6 +12,23 @@ import pytest
 from mr_overkill.models import LoopConfig
 
 
+@pytest.fixture(autouse=True)
+def _isolate_budget_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep budget detection independent of the developer's own environment.
+
+    ``CODEX_API_KEY``/``OPENAI_API_KEY``/``CODEX_HOME`` change which auth mode
+    is detected and ``OVERKILL_SKIP_BUDGET`` bypasses the gate entirely, so
+    tests would pass or fail depending on the shell they run in.
+    """
+    for var in (
+        "CODEX_API_KEY",
+        "OPENAI_API_KEY",
+        "CODEX_HOME",
+        "OVERKILL_SKIP_BUDGET",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
 @pytest.fixture()
 def tmp_git_repo(tmp_path: Path) -> Path:
     """Create a minimal git repository in a temporary directory.

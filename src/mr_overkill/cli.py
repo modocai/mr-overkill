@@ -108,11 +108,12 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "RETRY_INITIAL_WAIT", "BUDGET_SCOPE", "DIAGNOSTIC_LOG",
         "SCOPE", "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
         "REVIEW_LOOPS", "FIX_NITS", "REVIEWER_BACKEND",
-        "REVIEWER_CONTEXT", "CI_TRIGGER_MODE",
+        "REVIEWER_CONTEXT", "CI_TRIGGER_MODE", "NO_BUDGET_GATE",
     }
     boolean_keys = {
         "DRY_RUN", "AUTO_COMMIT", "DIAGNOSTIC_LOG",
         "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW", "FIX_NITS",
+        "NO_BUDGET_GATE",
     }
     kv_re = re.compile(
         r"""^\s*(\w+)=(?:"([^"]*)"|'([^']*)'|(.*?))\s*$"""
@@ -296,6 +297,16 @@ def parse_review_loop_args(
         help="Save full event stream to sidecar files",
     )
     parser.add_argument(
+        "--no-budget-gate",
+        action="store_true",
+        default=None,
+        help=(
+            "Skip token-budget checks and run the CLI backends regardless. "
+            "Use when local budget data is stale or wrong "
+            "(same as OVERKILL_SKIP_BUDGET=1)"
+        ),
+    )
+    parser.add_argument(
         "--reviewer-backend",
         default=None,
         choices=["claude", "codex", "gemini"],
@@ -355,6 +366,9 @@ def parse_review_loop_args(
     diagnostic_log = args.diagnostic_log or rc.get(
         "DIAGNOSTIC_LOG", "false"
     ) == "true"
+    skip_budget_gate = _resolve_bool(
+        args.no_budget_gate, rc.get("NO_BUDGET_GATE"), False
+    )
 
     retry_max_wait = _int_from_rc(rc, "RETRY_MAX_WAIT", "7200", parser)
     retry_initial_wait = _int_from_rc(rc, "RETRY_INITIAL_WAIT", "30", parser)
@@ -462,6 +476,7 @@ def parse_review_loop_args(
             budget_scope_str, parser,
             allowed=frozenset({BudgetScope.MICRO, BudgetScope.MODULE}),
         ),
+        skip_budget_gate=skip_budget_gate,
         diagnostic_log=diagnostic_log,
         log_dir=log_dir,
         prompts_dir=prompts_dir,
@@ -569,6 +584,16 @@ def parse_refactor_suggest_args(
         help="Save full event stream to sidecar files",
     )
     parser.add_argument(
+        "--no-budget-gate",
+        action="store_true",
+        default=None,
+        help=(
+            "Skip token-budget checks and run the CLI backends regardless. "
+            "Use when local budget data is stale or wrong "
+            "(same as OVERKILL_SKIP_BUDGET=1)"
+        ),
+    )
+    parser.add_argument(
         "--with-review",
         action="store_true",
         default=None,
@@ -626,6 +651,9 @@ def parse_refactor_suggest_args(
     diagnostic_log = args.diagnostic_log or rc.get(
         "DIAGNOSTIC_LOG", "false"
     ) == "true"
+    skip_budget_gate = _resolve_bool(
+        args.no_budget_gate, rc.get("NO_BUDGET_GATE"), False
+    )
 
     with_review = _resolve_bool(args.with_review, rc.get("WITH_REVIEW"), False)
     review_loops = (
@@ -736,6 +764,7 @@ def parse_refactor_suggest_args(
             budget_scope_str, parser,
             allowed=frozenset({BudgetScope.MICRO, BudgetScope.MODULE}),
         ),
+        skip_budget_gate=skip_budget_gate,
         diagnostic_log=diagnostic_log,
         log_dir=log_dir,
         prompts_dir=prompts_dir,

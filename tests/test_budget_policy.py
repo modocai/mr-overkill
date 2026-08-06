@@ -6,7 +6,16 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from mr_overkill.budget import budget_sufficient, codex_parse_window
+import pytest
+
+from mr_overkill.budget import (
+    FIVE_HOUR_WINDOW,
+    SEVEN_DAY_WINDOW,
+    budget_gate_disabled,
+    budget_sufficient,
+    codex_parse_window,
+    codex_window_kind,
+)
 from mr_overkill.budget.claude import (
     _load_cache,
     _save_cache,
@@ -113,6 +122,62 @@ class TestCodexParseWindow:
         pct, resets = codex_parse_window(window, 1000)
         assert pct == 30
         assert resets is None
+
+
+# ── codex_window_kind ───────────────────────────────────────────────
+
+
+class TestCodexWindowKind:
+    def test_five_hour_window(self) -> None:
+        assert codex_window_kind({"window_minutes": 300}) == FIVE_HOUR_WINDOW
+
+    def test_weekly_window(self) -> None:
+        assert codex_window_kind({"window_minutes": 10080}) == SEVEN_DAY_WINDOW
+
+    def test_daily_boundary_counts_as_short(self) -> None:
+        assert codex_window_kind({"window_minutes": 1440}) == FIVE_HOUR_WINDOW
+
+    def test_just_over_daily_counts_as_weekly(self) -> None:
+        assert codex_window_kind({"window_minutes": 1441}) == SEVEN_DAY_WINDOW
+
+    def test_string_minutes(self) -> None:
+        assert codex_window_kind({"window_minutes": "10080"}) == SEVEN_DAY_WINDOW
+
+    def test_missing_minutes_is_unclassified(self) -> None:
+        assert codex_window_kind({"used_percent": 50.0}) is None
+
+    def test_malformed_minutes_is_unclassified(self) -> None:
+        assert codex_window_kind({"window_minutes": "soon"}) is None
+
+    def test_non_positive_minutes_is_unclassified(self) -> None:
+        assert codex_window_kind({"window_minutes": 0}) is None
+
+    def test_empty_window(self) -> None:
+        assert codex_window_kind(None) is None
+        assert codex_window_kind({}) is None
+
+
+# ── budget_gate_disabled ────────────────────────────────────────────
+
+
+class TestBudgetGateDisabled:
+    def test_unset_is_enabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("OVERKILL_SKIP_BUDGET", raising=False)
+        assert budget_gate_disabled() is False
+
+    @pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", " on "])
+    def test_truthy_values(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv("OVERKILL_SKIP_BUDGET", value)
+        assert budget_gate_disabled() is True
+
+    @pytest.mark.parametrize("value", ["", "0", "false", "no"])
+    def test_falsy_values(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv("OVERKILL_SKIP_BUDGET", value)
+        assert budget_gate_disabled() is False
 
 
 # ── _sum_usage: rate-limit weights ───────────────────────────────

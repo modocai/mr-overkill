@@ -16,6 +16,7 @@ from abc import ABC, abstractmethod
 from importlib.resources import as_file, files
 from pathlib import Path
 
+from mr_overkill.budget import SKIP_BUDGET_ENV_VAR, budget_gate_disabled
 from mr_overkill.budget.claude import claude_budget_sufficient
 from mr_overkill.budget.codex import codex_budget_sufficient
 from mr_overkill.budget.gemini import gemini_budget_sufficient
@@ -88,6 +89,13 @@ def _budget_check(
     tool: str, scope: BudgetScope, max_wait: int
 ) -> bool:
     """Direct budget check without waiting."""
+    if budget_gate_disabled():
+        logger.info(
+            "Budget gate disabled via %s — skipping %s check.",
+            SKIP_BUDGET_ENV_VAR,
+            tool,
+        )
+        return True
     if tool == "claude":
         return claude_budget_sufficient(scope)
     if tool == "codex":
@@ -109,6 +117,12 @@ class _BudgetFn:
     def __call__(
         self, tool: str, scope: BudgetScope, max_wait: int
     ) -> bool:
+        if self._config.skip_budget_gate:
+            logger.info(
+                "Budget gate disabled (--no-budget-gate) — running %s anyway.",
+                tool,
+            )
+            return True
         actual = (
             max_wait if max_wait > 0 else self._config.retry_max_wait
         )
