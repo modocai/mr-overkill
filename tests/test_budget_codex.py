@@ -166,12 +166,16 @@ class TestDetectAuthMode:
         )
         assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
 
-    @pytest.mark.parametrize("spelling", ["api_key", "api-key", "APIKEY"])
+    @pytest.mark.parametrize(
+        "spelling", ["api_key", "api-key", "APIKEY", "bedrockApiKey"]
+    )
     def test_apikey_spellings_are_normalized(
         self, tmp_path: Path, spelling: str
     ) -> None:
         # The gate compares against the canonical mode, so every spelling Codex
-        # may write has to arrive there normalized.
+        # may write has to arrive there normalized.  A Bedrock login is one of
+        # them: auth.json short-circuits the login-status probe that already
+        # recognises it, so the bypass has to be reachable from disk too.
         (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": spelling}))
         assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
 

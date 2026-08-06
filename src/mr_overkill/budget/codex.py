@@ -39,12 +39,17 @@ _CONFIG_AUTH_KEYS = ("forced_login_method",)
 # Login-method spellings seen across auth.json and config.toml, mapped to the
 # canonical mode the budget gate compares against.  ``api`` is the only value
 # current Codex accepts for ``forced_login_method`` — it rejects the ``apikey``
-# spellings outright — while auth.json writes ``apikey``.
+# spellings outright — while auth.json writes ``apikey``.  An Amazon Bedrock
+# login is stored as ``bedrockApiKey`` and is billed per token through AWS, so
+# it carries no plan windows either and maps to the same API-key mode.
 _AUTH_MODE_ALIASES = {
     "api": AUTH_MODE_APIKEY,
     "apikey": AUTH_MODE_APIKEY,
     "api_key": AUTH_MODE_APIKEY,
     "api-key": AUTH_MODE_APIKEY,
+    "bedrockapikey": AUTH_MODE_APIKEY,
+    "bedrock_api_key": AUTH_MODE_APIKEY,
+    "bedrock-api-key": AUTH_MODE_APIKEY,
     "chatgpt": AUTH_MODE_CHATGPT,
 }
 
