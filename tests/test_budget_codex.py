@@ -333,6 +333,18 @@ class TestLoginStatusProbe:
         _stub_login_status(monkeypatch, status, stream=stream)
         assert detect_auth_mode(tmp_path) == expected
 
+    def test_a_warning_ahead_of_the_status_line_is_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Codex may print a warning first; the status line still has to be read.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        _stub_login_status(
+            monkeypatch,
+            "warning: config.toml: unknown key `foo`\n"
+            "Logged in using an API key - sk-proj-***abcde",
+        )
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+
     def test_chatgpt_login_beats_an_ambient_openai_api_key(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

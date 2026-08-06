@@ -109,12 +109,14 @@ def _login_status_auth_mode(home: Path) -> str | None:
         return None
 
     # Codex prints the status line on stderr; stdout is checked too so a later
-    # version moving it there keeps working.
+    # version moving it there keeps working.  Every line is examined because a
+    # warning or banner ahead of the status line must not hide it.
     for stream in (result.stderr, result.stdout):
-        status = stream.strip().lower()
-        for prefix, mode in _LOGIN_STATUS_MODES:
-            if status.startswith(prefix):
-                return mode
+        for line in stream.splitlines():
+            status = line.strip().lower()
+            for prefix, mode in _LOGIN_STATUS_MODES:
+                if status.startswith(prefix):
+                    return mode
 
     return None
 
