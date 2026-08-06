@@ -31,9 +31,10 @@ AUTH_MODE_CHATGPT = "chatgpt"
 AUTH_MODE_UNKNOWN = "unknown"
 
 # ``config.toml`` keys that record the login method Codex was set up with.
-# ``forced_login_method`` is the current name; ``preferred_auth_method`` is the
-# older one and still sits in configs written by earlier versions.
-_CONFIG_AUTH_KEYS = ("forced_login_method", "preferred_auth_method")
+# Only ``forced_login_method`` is read: the older ``preferred_auth_method`` is
+# gone from current Codex, which silently ignores it, so a stale copy left in a
+# config would misreport the login Codex actually uses.
+_CONFIG_AUTH_KEYS = ("forced_login_method",)
 
 # Login-method spellings seen across auth.json and config.toml, mapped to the
 # canonical mode the budget gate compares against.  ``api`` is the only value
@@ -128,14 +129,14 @@ def detect_auth_mode(home: Path | None = None) -> str:
     holds a ChatGPT login.  Otherwise ``auth.json`` is authoritative, since it
     records the mode chosen by the last ``codex login``.  Falls back to the
     login method declared in ``config.toml``, then to what ``codex login
-    status`` reports, then to ``OPENAI_API_KEY`` in the environment, then to
-    ``unknown`` (which keeps the plan-based budget gate active).
+    status`` reports, then to ``unknown`` (which keeps the plan-based budget
+    gate active).
     """
     if home is None:
         home = codex_home()
 
-    # Checked before auth.json — and unlike OPENAI_API_KEY below, which loses
-    # to a cached ChatGPT login and so must stay a last resort.
+    # Checked before auth.json: Codex authenticates with this key regardless of
+    # what the last login stored.
     if os.environ.get("CODEX_API_KEY", "").strip():
         return AUTH_MODE_APIKEY
 
@@ -160,21 +161,17 @@ def detect_auth_mode(home: Path | None = None) -> str:
     # auth.json can be missing entirely when Codex keeps credentials in the OS
     # keyring (``cli_auth_credentials_store``); config.toml may still declare
     # the login method, so consult it before giving up on the file layout.
-    # ``forced_login_method`` constrains which login Codex will use, so it
-    # outranks an ambient OPENAI_API_KEY left there for other tools.
     config_mode = _config_auth_mode(home)
     if config_mode is not None:
         return config_mode
 
     # Nothing on disk names the login, which is normal for a keyring-backed
-    # one.  Ask Codex itself before falling back to guessing from the
-    # environment.
+    # one.  Ask Codex itself as a last resort.  An ambient OPENAI_API_KEY is
+    # deliberately not consulted: Codex does not authenticate with it, so a key
+    # left in the environment for other tools must not switch the gate off.
     status_mode = _login_status_auth_mode(home)
     if status_mode is not None:
         return status_mode
-
-    if os.environ.get("OPENAI_API_KEY", "").strip():
-        return AUTH_MODE_APIKEY
 
     return AUTH_MODE_UNKNOWN
 

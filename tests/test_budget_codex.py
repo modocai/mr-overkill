@@ -189,11 +189,14 @@ class TestDetectAuthMode:
         (tmp_path / "auth.json").write_text(json.dumps({"OPENAI_API_KEY": "sk-test"}))
         assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
 
-    def test_env_fallback_when_no_auth_file(
+    def test_env_openai_key_alone_is_not_an_active_login(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Codex does not authenticate with OPENAI_API_KEY, so a key left in the
+        # environment for other tools says nothing about the Codex login and
+        # must leave the plan-based gate active.
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
 
     def test_codex_api_key_overrides_chatgpt_auth_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -221,12 +224,14 @@ class TestDetectAuthMode:
         )
         assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
 
-    def test_legacy_config_auth_key(
+    def test_removed_legacy_config_auth_key_is_ignored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Current Codex dropped preferred_auth_method and ignores it silently,
+        # so a stale copy left in a config must not name the login either.
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         (tmp_path / "config.toml").write_text('preferred_auth_method = "apikey"\n')
-        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
 
     def test_config_chatgpt_login_keeps_gate_active(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
