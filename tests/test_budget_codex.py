@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from mr_overkill.budget import codex as codex_budget
 from mr_overkill.budget.codex import (
     AUTH_MODE_APIKEY,
     AUTH_MODE_CHATGPT,
@@ -19,6 +21,20 @@ from mr_overkill.budget.codex import (
     find_latest_token_count,
 )
 from mr_overkill.models import BudgetScope
+
+# Captured before any test patches it, so the probe's own tests can restore it.
+_REAL_LOGIN_STATUS_PROBE = codex_budget._login_status_auth_mode
+
+
+@pytest.fixture(autouse=True)
+def _no_login_status_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep ``codex login status`` out of the tests that predate the probe.
+
+    Detection falls through to it whenever nothing on disk names the login, so
+    without this every such test would spawn the real CLI.  Tests that cover
+    the probe restore it explicitly.
+    """
+    monkeypatch.setattr(codex_budget, "_login_status_auth_mode", lambda home: None)
 
 
 def _write_session(
@@ -201,7 +217,7 @@ class TestDetectAuthMode:
         # No auth.json at all: Codex stored the login in the OS keyring.
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         (tmp_path / "config.toml").write_text(
-            'cli_auth_credentials_store = "keyring"\nforced_login_method = "apikey"\n'
+            'cli_auth_credentials_store = "keyring"\nforced_login_method = "api"\n'
         )
         assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
 
@@ -238,7 +254,7 @@ class TestDetectAuthMode:
         # actually sends, so plan rate limits still apply.
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt"}))
-        (tmp_path / "config.toml").write_text('forced_login_method = "apikey"\n')
+        (tmp_path / "config.toml").write_text('forced_login_method = "api"\n')
         assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
 
     def test_malformed_config_falls_back(
@@ -258,6 +274,131 @@ class TestDetectAuthMode:
     def test_codex_home_respects_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CODEX_HOME", "/custom/codex")
         assert codex_home() == Path("/custom/codex")
+
+
+# ── keyring logins, read back from ``codex login status`` ────────────
+
+
+def _stub_login_status(
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+    returncode: int = 0,
+    stream: str = "stderr",
+) -> None:
+    """Make ``codex login status`` report ``status`` without running Codex.
+
+    Real Codex prints the status line on stderr, so that is the default.
+    """
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert cmd == ["codex", "login", "status"]
+        return subprocess.CompletedProcess(
+            cmd,
+            returncode,
+            status if stream == "stdout" else "",
+            status if stream == "stderr" else "",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+
+class TestLoginStatusProbe:
+    @pytest.fixture(autouse=True)
+    def _use_real_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Put the real probe back: these tests are about the probe itself, and
+        # stub ``subprocess.run`` instead of the function under test.
+        monkeypatch.setattr(
+            codex_budget, "_login_status_auth_mode", _REAL_LOGIN_STATUS_PROBE
+        )
+
+    @pytest.mark.parametrize("stream", ["stderr", "stdout"])
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            ("Logged in using an API key - sk-proj-***abcde", AUTH_MODE_APIKEY),
+            ("Logged in using Amazon Bedrock API key", AUTH_MODE_APIKEY),
+            ("Logged in using ChatGPT", AUTH_MODE_CHATGPT),
+        ],
+    )
+    def test_reports_the_active_login(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        status: str,
+        expected: str,
+        stream: str,
+    ) -> None:
+        # A keyring-backed login leaves nothing on disk to read.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        _stub_login_status(monkeypatch, status, stream=stream)
+        assert detect_auth_mode(tmp_path) == expected
+
+    def test_chatgpt_login_beats_an_ambient_openai_api_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The gate must not be switched off by the environment when Codex
+        # itself says the keyring holds a ChatGPT login.
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        _stub_login_status(monkeypatch, "Logged in using ChatGPT")
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
+
+    @pytest.mark.parametrize(
+        ("status", "returncode"),
+        [
+            ("Not logged in", 1),
+            ("Logged in using access token", 0),
+            ("", 0),
+        ],
+    )
+    def test_unreadable_logins_keep_the_gate_active(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        status: str,
+        returncode: int,
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        _stub_login_status(monkeypatch, status, returncode)
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
+    def test_missing_codex_binary_keeps_the_gate_active(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        def raise_oserror(cmd: list[str], **kwargs: object) -> None:
+            raise OSError("codex not found")
+
+        monkeypatch.setattr(subprocess, "run", raise_oserror)
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
+    def test_config_login_method_wins_over_the_probe(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # config.toml forces the login method, so there is nothing to ask.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "config.toml").write_text('forced_login_method = "chatgpt"\n')
+        _stub_login_status(monkeypatch, "Logged in using an API key - sk-x")
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
+
+    def test_probe_runs_against_the_given_codex_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        seen: dict[str, str] = {}
+
+        def fake_run(
+            cmd: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            env = kwargs["env"]
+            assert isinstance(env, dict)
+            seen.update(env)
+            return subprocess.CompletedProcess(cmd, 0, "", "Logged in using ChatGPT")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        detect_auth_mode(tmp_path)
+
+        assert seen["CODEX_HOME"] == str(tmp_path)
 
 
 class TestApiKeyMode:

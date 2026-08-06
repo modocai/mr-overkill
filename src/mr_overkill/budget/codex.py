@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 import tomllib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,13 +36,25 @@ AUTH_MODE_UNKNOWN = "unknown"
 _CONFIG_AUTH_KEYS = ("forced_login_method", "preferred_auth_method")
 
 # Login-method spellings seen across auth.json and config.toml, mapped to the
-# canonical mode the budget gate compares against.
+# canonical mode the budget gate compares against.  ``api`` is the only value
+# current Codex accepts for ``forced_login_method`` — it rejects the ``apikey``
+# spellings outright — while auth.json writes ``apikey``.
 _AUTH_MODE_ALIASES = {
+    "api": AUTH_MODE_APIKEY,
     "apikey": AUTH_MODE_APIKEY,
     "api_key": AUTH_MODE_APIKEY,
     "api-key": AUTH_MODE_APIKEY,
     "chatgpt": AUTH_MODE_CHATGPT,
 }
+
+# Prefixes of ``codex login status`` output, mapped to the canonical mode.
+# Anything else (access tokens, "Not logged in") stays ``unknown`` so the
+# plan-based gate keeps running.
+_LOGIN_STATUS_MODES = (
+    ("logged in using an api key", AUTH_MODE_APIKEY),
+    ("logged in using amazon bedrock api key", AUTH_MODE_APIKEY),
+    ("logged in using chatgpt", AUTH_MODE_CHATGPT),
+)
 
 
 def codex_home() -> Path:
@@ -73,15 +86,48 @@ def _config_auth_mode(home: Path) -> str | None:
     return None
 
 
+def _login_status_auth_mode(home: Path) -> str | None:
+    """Return the mode reported by ``codex login status``, or ``None``.
+
+    This is the only way to read a keyring-backed login: the credential never
+    touches disk, so neither auth.json nor config.toml has to mention it.
+    ``None`` means the probe told us nothing — Codex is missing from PATH, it
+    failed, or it named a login we deliberately do not treat as API-key auth.
+    """
+    try:
+        result = subprocess.run(
+            ["codex", "login", "status"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "CODEX_HOME": str(home)},
+        )
+    except OSError:
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    # Codex prints the status line on stderr; stdout is checked too so a later
+    # version moving it there keeps working.
+    for stream in (result.stderr, result.stdout):
+        status = stream.strip().lower()
+        for prefix, mode in _LOGIN_STATUS_MODES:
+            if status.startswith(prefix):
+                return mode
+
+    return None
+
+
 def detect_auth_mode(home: Path | None = None) -> str:
     """Detect how the Codex CLI authenticates.
 
     ``CODEX_API_KEY`` wins outright: Codex sends it even when ``auth.json``
     holds a ChatGPT login.  Otherwise ``auth.json`` is authoritative, since it
     records the mode chosen by the last ``codex login``.  Falls back to the
-    login method declared in ``config.toml``, then to ``OPENAI_API_KEY`` in the
-    environment, then to ``unknown`` (which keeps the plan-based budget gate
-    active).
+    login method declared in ``config.toml``, then to what ``codex login
+    status`` reports, then to ``OPENAI_API_KEY`` in the environment, then to
+    ``unknown`` (which keeps the plan-based budget gate active).
     """
     if home is None:
         home = codex_home()
@@ -110,13 +156,20 @@ def detect_auth_mode(home: Path | None = None) -> str:
             return AUTH_MODE_APIKEY
 
     # auth.json can be missing entirely when Codex keeps credentials in the OS
-    # keyring (``cli_auth_credentials_store``); config.toml still records the
-    # login method, so consult it before giving up on the file layout.  A mode
-    # declared here is as authoritative as auth.json — an ambient
-    # OPENAI_API_KEY must not override a keyring-backed ChatGPT login.
+    # keyring (``cli_auth_credentials_store``); config.toml may still declare
+    # the login method, so consult it before giving up on the file layout.
+    # ``forced_login_method`` constrains which login Codex will use, so it
+    # outranks an ambient OPENAI_API_KEY left there for other tools.
     config_mode = _config_auth_mode(home)
     if config_mode is not None:
         return config_mode
+
+    # Nothing on disk names the login, which is normal for a keyring-backed
+    # one.  Ask Codex itself before falling back to guessing from the
+    # environment.
+    status_mode = _login_status_auth_mode(home)
+    if status_mode is not None:
+        return status_mode
 
     if os.environ.get("OPENAI_API_KEY", "").strip():
         return AUTH_MODE_APIKEY
