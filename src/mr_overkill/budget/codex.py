@@ -34,8 +34,14 @@ AUTH_MODE_UNKNOWN = "unknown"
 # older one and still sits in configs written by earlier versions.
 _CONFIG_AUTH_KEYS = ("forced_login_method", "preferred_auth_method")
 
-# Spellings of API-key auth seen across auth.json and config.toml.
-_APIKEY_ALIASES = frozenset({"apikey", "api_key", "api-key"})
+# Login-method spellings seen across auth.json and config.toml, mapped to the
+# canonical mode the budget gate compares against.
+_AUTH_MODE_ALIASES = {
+    "apikey": AUTH_MODE_APIKEY,
+    "api_key": AUTH_MODE_APIKEY,
+    "api-key": AUTH_MODE_APIKEY,
+    "chatgpt": AUTH_MODE_CHATGPT,
+}
 
 
 def codex_home() -> Path:
@@ -47,8 +53,9 @@ def codex_home() -> Path:
 def _config_auth_mode(home: Path) -> str | None:
     """Return the login method declared in ``config.toml``, or ``None``.
 
-    Only API-key auth is reported: every other value leaves the plan-based
-    budget gate active, which is what the caller already defaults to.
+    Only recognised spellings are reported, so ``None`` means "the config
+    declares no login method we know" — which is what lets the caller tell an
+    explicit ChatGPT setup apart from a config that says nothing at all.
     """
     try:
         with (home / "config.toml").open("rb") as handle:
@@ -58,8 +65,10 @@ def _config_auth_mode(home: Path) -> str | None:
 
     for key in _CONFIG_AUTH_KEYS:
         value = config.get(key)
-        if isinstance(value, str) and value.strip().lower() in _APIKEY_ALIASES:
-            return AUTH_MODE_APIKEY
+        if isinstance(value, str):
+            mode = _AUTH_MODE_ALIASES.get(value.strip().lower())
+            if mode is not None:
+                return mode
 
     return None
 
@@ -90,7 +99,10 @@ def detect_auth_mode(home: Path | None = None) -> str:
     if isinstance(auth, dict):
         mode = auth.get("auth_mode")
         if isinstance(mode, str) and mode.strip():
-            return mode.strip().lower()
+            # Unrecognised spellings pass through as-is: they are not the
+            # API-key mode the gate bypasses, so the gate stays active.
+            spelling = mode.strip().lower()
+            return _AUTH_MODE_ALIASES.get(spelling, spelling)
         # Older Codex versions omit auth_mode; infer from the stored payload.
         if auth.get("tokens"):
             return AUTH_MODE_CHATGPT
@@ -99,9 +111,12 @@ def detect_auth_mode(home: Path | None = None) -> str:
 
     # auth.json can be missing entirely when Codex keeps credentials in the OS
     # keyring (``cli_auth_credentials_store``); config.toml still records the
-    # login method, so consult it before giving up on the file layout.
-    if _config_auth_mode(home) == AUTH_MODE_APIKEY:
-        return AUTH_MODE_APIKEY
+    # login method, so consult it before giving up on the file layout.  A mode
+    # declared here is as authoritative as auth.json — an ambient
+    # OPENAI_API_KEY must not override a keyring-backed ChatGPT login.
+    config_mode = _config_auth_mode(home)
+    if config_mode is not None:
+        return config_mode
 
     if os.environ.get("OPENAI_API_KEY", "").strip():
         return AUTH_MODE_APIKEY

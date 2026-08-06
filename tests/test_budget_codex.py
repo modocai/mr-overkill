@@ -150,6 +150,15 @@ class TestDetectAuthMode:
         )
         assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
 
+    @pytest.mark.parametrize("spelling", ["api_key", "api-key", "APIKEY"])
+    def test_apikey_spellings_are_normalized(
+        self, tmp_path: Path, spelling: str
+    ) -> None:
+        # The gate compares against the canonical mode, so every spelling Codex
+        # may write has to arrive there normalized.
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": spelling}))
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+
     def test_explicit_chatgpt_mode(self, tmp_path: Path) -> None:
         (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt"}))
         assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
@@ -208,7 +217,19 @@ class TestDetectAuthMode:
     ) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         (tmp_path / "config.toml").write_text('forced_login_method = "chatgpt"\n')
-        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
+
+    def test_openai_api_key_loses_to_config_chatgpt_login(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Keyring-backed ChatGPT login: the config declares it explicitly, so
+        # an OPENAI_API_KEY left in the environment for other tools must not
+        # switch the gate off.
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        (tmp_path / "config.toml").write_text(
+            'cli_auth_credentials_store = "keyring"\nforced_login_method = "chatgpt"\n'
+        )
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
 
     def test_auth_file_wins_over_config_login_method(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
