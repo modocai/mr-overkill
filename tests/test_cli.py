@@ -62,6 +62,31 @@ class TestLoadRcFile:
         assert result["REVIEWER_BACKEND"] == "claude"
         assert "INVALID_KEY" not in result
 
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_parses_no_budget_gate(
+        self, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=str(tmp_path)
+        )
+        (tmp_path / ".overkill").mkdir()
+        rc = tmp_path / ".overkill" / ".overkillrc"
+        rc.write_text("NO_BUDGET_GATE=True\n")
+        assert _load_rc_file(".overkillrc")["NO_BUDGET_GATE"] == "true"
+
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_rejects_non_boolean_no_budget_gate(
+        self, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=str(tmp_path)
+        )
+        (tmp_path / ".overkill").mkdir()
+        rc = tmp_path / ".overkill" / ".overkillrc"
+        rc.write_text("NO_BUDGET_GATE=yes\n")
+        with pytest.raises(SystemExit):
+            _load_rc_file(".overkillrc")
+
 
 class TestParseReviewLoopArgs:
     @patch("mr_overkill.cli._detect_pr_number", return_value=None)
