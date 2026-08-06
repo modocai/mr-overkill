@@ -389,6 +389,20 @@ class TestLoginStatusProbe:
         monkeypatch.setattr(subprocess, "run", raise_oserror)
         assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
 
+    def test_a_hung_probe_keeps_the_gate_active(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A keychain prompt on a non-interactive run would otherwise block the
+        # budget poll forever, so the probe must be bounded and give up quietly.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        def raise_timeout(cmd: list[str], **kwargs: object) -> None:
+            assert kwargs["timeout"]
+            raise subprocess.TimeoutExpired(cmd, 5)
+
+        monkeypatch.setattr(subprocess, "run", raise_timeout)
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
     def test_config_login_method_wins_over_the_probe(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

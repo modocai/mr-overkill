@@ -94,6 +94,10 @@ def _login_status_auth_mode(home: Path) -> str | None:
     touches disk, so neither auth.json nor config.toml has to mention it.
     ``None`` means the probe told us nothing — Codex is missing from PATH, it
     failed, or it named a login we deliberately do not treat as API-key auth.
+
+    A keyring-backed login is exactly the setup that can make Codex block on an
+    OS keychain prompt, and this runs on the pre-flight path re-entered by every
+    budget poll, so the probe is bounded rather than allowed to stall the loop.
     """
     try:
         result = subprocess.run(
@@ -101,9 +105,10 @@ def _login_status_auth_mode(home: Path) -> str | None:
             capture_output=True,
             text=True,
             check=False,
+            timeout=5,
             env={**os.environ, "CODEX_HOME": str(home)},
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return None
 
     if result.returncode != 0:
