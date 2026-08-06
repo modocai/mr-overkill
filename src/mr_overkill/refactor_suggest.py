@@ -35,12 +35,14 @@ logger = logging.getLogger(__name__)
 
 def resolve_auto_scope(
     tools: list[str] | None = None,
+    *,
+    skip_gate: bool = False,
 ) -> str | None:
     """Resolve 'auto' scope based on current budget levels.
 
     Returns ``'module'``, ``'micro'``, or ``None`` if budget is too low.
     """
-    if budget_gate_disabled():
+    if skip_gate or budget_gate_disabled():
         logger.info("Budget gate disabled — resolving 'auto' scope to 'module'.")
         return "module"
 
@@ -320,7 +322,9 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
             tools = ["claude"]
             if config.reviewer_backend in ("codex", "gemini"):
                 tools.append(config.reviewer_backend)
-        resolved = resolve_auto_scope(tools=tools)
+        resolved = resolve_auto_scope(
+            tools=tools, skip_gate=config.skip_budget_gate,
+        )
         if resolved is None:
             logger.error("Budget too low for any refactor scope.")
             return 1
