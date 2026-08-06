@@ -15,7 +15,7 @@ from mr_overkill.agents import (
     create_review_agent,
     create_self_review_agent,
 )
-from mr_overkill.budget import budget_sufficient
+from mr_overkill.budget import budget_gate_disabled, budget_sufficient
 from mr_overkill.budget.claude import check_token_budget as claude_budget
 from mr_overkill.budget.codex import check_token_budget as codex_budget
 from mr_overkill.git_ops import git_all_dirty, stash_allowlisted, unstash_allowlisted
@@ -40,6 +40,10 @@ def resolve_auto_scope(
 
     Returns ``'module'``, ``'micro'``, or ``None`` if budget is too low.
     """
+    if budget_gate_disabled():
+        logger.info("Budget gate disabled — resolving 'auto' scope to 'module'.")
+        return "module"
+
     if tools is None:
         tools = ["claude", "codex"]
 
