@@ -58,6 +58,14 @@ class TestResolveAutoScope:
         mock_bs.return_value = _budget(95, 95)
         assert resolve_auto_scope(["claude"]) is None
 
+    @patch("mr_overkill.refactor_suggest._get_budget_status")
+    def test_skip_gate_resolves_module_when_exhausted(
+        self, mock_bs: MagicMock
+    ) -> None:
+        mock_bs.return_value = _budget(100, 100)
+        assert resolve_auto_scope(["claude"], skip_gate=True) == "module"
+        mock_bs.assert_not_called()
+
 
 # ── _get_budget_status ──────────────────────────────────────────────
 
@@ -131,6 +139,33 @@ class TestCreateDraftPr:
 
 
 class TestRun:
+    @patch("mr_overkill.refactor_suggest.git_all_dirty", return_value=[])
+    @patch("mr_overkill.refactor_suggest.review_fix_loop")
+    @patch("mr_overkill.refactor_suggest.resolve_auto_scope")
+    @patch("mr_overkill.refactor_suggest.subprocess.run")
+    def test_auto_scope_receives_skip_budget_gate(
+        self,
+        mock_run: MagicMock,
+        mock_scope: MagicMock,
+        mock_loop: MagicMock,
+        _mock_dirty: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="src/a.py\n"
+        )
+        mock_scope.return_value = "module"
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR,
+            iterations_run=1,
+        )
+        config = make_loop_config(
+            current_branch="refactor/module-20260301",
+            skip_budget_gate=True,
+        )
+        assert run(config, "auto") == 0
+        assert mock_scope.call_args.kwargs["skip_gate"] is True
+
     @patch("mr_overkill.refactor_suggest.git_all_dirty", return_value=[])
     @patch("mr_overkill.refactor_suggest.review_fix_loop")
     @patch("mr_overkill.refactor_suggest.git_all_dirty", return_value=[])

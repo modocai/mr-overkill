@@ -44,6 +44,12 @@
 # Pre-flight budget check scope: micro (<90%) or module (<75%) (default: module)
 # BUDGET_SCOPE="module"
 
+# ── Budget Gate ─────────────────────────────────────────────────────
+# Skip token-budget checks entirely. Use when local budget data is stale or
+# wrong (e.g. Codex session logs left over from a previous login).
+# Equivalent to --no-budget-gate / OVERKILL_SKIP_BUDGET=1. (default: false)
+# NO_BUDGET_GATE=false
+
 # ── Diagnostic Logging ──────────────────────────────────────────────
 # Save full Claude event stream (tool calls, reasoning) to .stream.jsonl files.
 # Useful for debugging missed findings. (default: false)

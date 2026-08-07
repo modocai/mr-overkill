@@ -79,7 +79,7 @@ class BudgetStatus:
     five_hour_used_pct: int | None
     seven_day_used_pct: int | None
     tokens_used: int  # weighted sum for local estimation (not raw count)
-    mode: str  # "oauth" | "local" | "session_log" | "no_data"
+    mode: str  # "oauth" | "local" | "session_log" | "apikey" | "no_data"
     tier: str  # "pro" | "max5" | "max20"
     resets_at: str | None
     seven_day_resets_at: str | None = None
@@ -174,6 +174,7 @@ class LoopConfig:
     retry_max_wait: int = 7200
     retry_initial_wait: int = 30
     budget_scope: BudgetScope = BudgetScope.MICRO
+    skip_budget_gate: bool = False
     diagnostic_log: bool = False
 
     # Paths

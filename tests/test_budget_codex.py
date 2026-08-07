@@ -6,7 +6,35 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mr_overkill.budget.codex import check_token_budget, find_latest_token_count
+import pytest
+
+from mr_overkill.budget.codex import (
+    AUTH_MODE_APIKEY,
+    AUTH_MODE_CHATGPT,
+    AUTH_MODE_UNKNOWN,
+    check_token_budget,
+    codex_budget_sufficient,
+    codex_home,
+    detect_auth_mode,
+    find_latest_token_count,
+)
+from mr_overkill.models import BudgetScope
+
+
+def _write_session(
+    sessions: Path,
+    rate_limits: dict[str, object],
+    timestamp: object = 1000,
+) -> None:
+    """Write a single token_count event into today's session directory."""
+    day_dir = sessions / datetime.now(tz=UTC).strftime("%Y/%m/%d")
+    day_dir.mkdir(parents=True, exist_ok=True)
+    event = {
+        "type": "event_msg",
+        "timestamp": timestamp,
+        "payload": {"type": "token_count", "rate_limits": rate_limits},
+    }
+    (day_dir / "session.jsonl").write_text(json.dumps(event) + "\n")
 
 
 class TestFindLatestTokenCount:
@@ -104,3 +132,326 @@ class TestCheckTokenBudget:
         assert status.mode == "session_log"
         assert status.five_hour_used_pct == 45
         assert status.resets_at is not None
+
+
+# ── auth-mode detection ──────────────────────────────────────────────
+
+
+class TestDetectAuthMode:
+    def test_no_auth_file_without_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
+    def test_explicit_apikey_mode(self, tmp_path: Path) -> None:
+        (tmp_path / "auth.json").write_text(
+            json.dumps({"auth_mode": "apikey", "OPENAI_API_KEY": "sk-test"})
+        )
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+
+    @pytest.mark.parametrize("spelling", ["api_key", "api-key", "APIKEY"])
+    def test_apikey_spellings_are_normalized(
+        self, tmp_path: Path, spelling: str
+    ) -> None:
+        # The gate compares against the canonical mode, so every spelling Codex
+        # may write has to arrive there normalized.
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": spelling}))
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+
+    def test_explicit_chatgpt_mode(self, tmp_path: Path) -> None:
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt"}))
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
+
+    def test_infers_chatgpt_from_tokens(self, tmp_path: Path) -> None:
+        (tmp_path / "auth.json").write_text(
+            json.dumps({"tokens": {"access_token": "x"}})
+        )
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
+
+    def test_infers_apikey_from_stored_key(self, tmp_path: Path) -> None:
+        (tmp_path / "auth.json").write_text(json.dumps({"OPENAI_API_KEY": "sk-test"}))
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+
+    def test_env_openai_key_alone_is_not_an_active_login(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Codex does not authenticate with OPENAI_API_KEY, so a key left in the
+        # environment for other tools says nothing about the Codex login and
+        # must leave the plan-based gate active.
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
+    def test_codex_api_key_overrides_chatgpt_auth_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("CODEX_API_KEY", "sk-test")
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt"}))
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+
+    def test_openai_api_key_loses_to_chatgpt_auth_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Codex keeps using the cached ChatGPT login here, so plan rate limits
+        # still apply and the gate has to stay active.
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt"}))
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
+
+    def test_config_login_method_when_credentials_are_in_the_keyring(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No auth.json at all: Codex stored the login in the OS keyring.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "config.toml").write_text(
+            'cli_auth_credentials_store = "keyring"\nforced_login_method = "api"\n'
+        )
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_APIKEY
+
+    def test_removed_legacy_config_auth_key_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Current Codex dropped preferred_auth_method and ignores it silently,
+        # so a stale copy left in a config must not name the login either.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "config.toml").write_text('preferred_auth_method = "apikey"\n')
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
+    def test_config_chatgpt_login_keeps_gate_active(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "config.toml").write_text('forced_login_method = "chatgpt"\n')
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
+
+    def test_openai_api_key_loses_to_config_chatgpt_login(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Keyring-backed ChatGPT login: the config declares it explicitly, so
+        # an OPENAI_API_KEY left in the environment for other tools must not
+        # switch the gate off.
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        (tmp_path / "config.toml").write_text(
+            'cli_auth_credentials_store = "keyring"\nforced_login_method = "chatgpt"\n'
+        )
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
+
+    def test_auth_file_wins_over_config_login_method(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # config.toml only records intent; a cached ChatGPT login is what Codex
+        # actually sends, so plan rate limits still apply.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt"}))
+        (tmp_path / "config.toml").write_text('forced_login_method = "api"\n')
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_CHATGPT
+
+    def test_malformed_config_falls_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "config.toml").write_text("not = = toml")
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
+    def test_malformed_auth_file_falls_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "auth.json").write_text("{not json")
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
+    def test_non_utf8_config_falls_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "config.toml").write_bytes(b'forced_login_method = "\xff api"')
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
+    def test_non_utf8_auth_file_falls_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "auth.json").write_bytes(b'{"auth_mode": "\xffapikey"}')
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
+    def test_codex_home_respects_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CODEX_HOME", "/custom/codex")
+        assert codex_home() == Path("/custom/codex")
+
+
+class TestApiKeyMode:
+    def test_ignores_stale_session_logs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A pre-API-key ChatGPT session log must not gate API-key runs."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "apikey"}))
+        sessions = tmp_path / "sessions"
+        now = int(datetime.now(tz=UTC).timestamp())
+        _write_session(
+            sessions,
+            {
+                "primary": {
+                    "used_percent": 90.0,
+                    "window_minutes": 10080,
+                    "resets_at": now + 86400,
+                },
+            },
+        )
+
+        status = check_token_budget(sessions)
+
+        assert status.mode == AUTH_MODE_APIKEY
+        assert status.five_hour_used_pct is None
+        assert status.seven_day_used_pct is None
+        assert codex_budget_sufficient(BudgetScope.MICRO, status) is True
+        assert codex_budget_sufficient(BudgetScope.MODULE, status) is True
+
+    @pytest.mark.parametrize(
+        "rate_limits",
+        [{}, {"primary": None, "secondary": None}],
+        ids=["no_windows", "null_windows"],
+    )
+    def test_unnamed_login_without_plan_windows_still_runs(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        rate_limits: dict[str, object],
+    ) -> None:
+        """Detection does not have to name every login for the gate to be right.
+
+        Bedrock, keyring-stored credentials and access tokens all land on
+        ``unknown``, which keeps the gate active — but a login billed per token
+        reports no rate-limit windows either, so there is nothing for the gate
+        to fail on.  This is why naming those logins is not worth the code.
+        """
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "auth.json").write_text(
+            json.dumps({"auth_mode": "bedrockApiKey"})
+        )
+        sessions = tmp_path / "sessions"
+        _write_session(sessions, rate_limits)
+
+        assert detect_auth_mode(tmp_path) != AUTH_MODE_APIKEY
+        status = check_token_budget(sessions)
+
+        assert status.five_hour_used_pct is None
+        assert codex_budget_sufficient(BudgetScope.MICRO, status) is True
+        assert codex_budget_sufficient(BudgetScope.MODULE, status) is True
+
+    def test_chatgpt_mode_still_reads_session_logs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt"}))
+        sessions = tmp_path / "sessions"
+        now = int(datetime.now(tz=UTC).timestamp())
+        _write_session(
+            sessions,
+            {
+                "primary": {
+                    "used_percent": 80.0,
+                    "window_minutes": 300,
+                    "resets_at": now + 3600,
+                },
+            },
+        )
+
+        status = check_token_budget(sessions)
+
+        assert status.mode == "session_log"
+        assert status.five_hour_used_pct == 80
+
+
+# ── window mapping by declared length ────────────────────────────────
+
+
+class TestWindowMapping:
+    def test_weekly_primary_maps_to_seven_day(self, tmp_path: Path) -> None:
+        """Codex sends the weekly limit as `primary` on some plans."""
+        sessions = tmp_path / "sessions"
+        now = int(datetime.now(tz=UTC).timestamp())
+        _write_session(
+            sessions,
+            {
+                "primary": {
+                    "used_percent": 90.0,
+                    "window_minutes": 10080,
+                    "resets_at": now + 86400,
+                },
+                "secondary": None,
+            },
+        )
+
+        status = check_token_budget(sessions)
+
+        assert status.seven_day_used_pct == 90
+        assert status.five_hour_used_pct is None
+        assert status.seven_day_resets_at is not None
+        # 7-day at 90 % does not block micro scope — only module and above.
+        assert codex_budget_sufficient(BudgetScope.MICRO, status) is True
+        assert codex_budget_sufficient(BudgetScope.MODULE, status) is False
+
+    def test_swapped_windows_are_reordered(self, tmp_path: Path) -> None:
+        sessions = tmp_path / "sessions"
+        now = int(datetime.now(tz=UTC).timestamp())
+        _write_session(
+            sessions,
+            {
+                "primary": {
+                    "used_percent": 70.0,
+                    "window_minutes": 10080,
+                    "resets_at": now + 86400,
+                },
+                "secondary": {
+                    "used_percent": 20.0,
+                    "window_minutes": 300,
+                    "resets_at": now + 3600,
+                },
+            },
+        )
+
+        status = check_token_budget(sessions)
+
+        assert status.five_hour_used_pct == 20
+        assert status.seven_day_used_pct == 70
+
+    def test_missing_window_minutes_uses_position(self, tmp_path: Path) -> None:
+        sessions = tmp_path / "sessions"
+        now = int(datetime.now(tz=UTC).timestamp())
+        _write_session(
+            sessions,
+            {
+                "primary": {"used_percent": 30.0, "resets_at": now + 3600},
+                "secondary": {"used_percent": 60.0, "resets_at": now + 86400},
+            },
+        )
+
+        status = check_token_budget(sessions)
+
+        assert status.five_hour_used_pct == 30
+        assert status.seven_day_used_pct == 60
+
+    def test_two_windows_same_kind_keeps_higher(self, tmp_path: Path) -> None:
+        sessions = tmp_path / "sessions"
+        now = int(datetime.now(tz=UTC).timestamp())
+        _write_session(
+            sessions,
+            {
+                "primary": {
+                    "used_percent": 40.0,
+                    "window_minutes": 10080,
+                    "resets_at": now + 86400,
+                },
+                "secondary": {
+                    "used_percent": 65.0,
+                    "window_minutes": 20160,
+                    "resets_at": now + 86400,
+                },
+            },
+        )
+
+        status = check_token_budget(sessions)
+
+        assert status.seven_day_used_pct == 65
+        assert status.five_hour_used_pct is None

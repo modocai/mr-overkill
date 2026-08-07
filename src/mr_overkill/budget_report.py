@@ -6,8 +6,14 @@ import json
 import sys
 from dataclasses import asdict
 
-from mr_overkill.budget import budget_sufficient, has_threshold
+from mr_overkill.budget import (
+    SKIP_BUDGET_ENV_VAR,
+    budget_gate_disabled,
+    budget_sufficient,
+    has_threshold,
+)
 from mr_overkill.budget.claude import check_token_budget as claude_check
+from mr_overkill.budget.codex import AUTH_MODE_APIKEY
 from mr_overkill.budget.codex import check_token_budget as codex_check
 from mr_overkill.models import BudgetScope, BudgetStatus
 
@@ -47,6 +53,10 @@ def _print_codex(status: BudgetStatus) -> None:
     print("Codex Token Budget")
     print(_HEADER)
     print(f"  Mode:     {status.mode}")
+    if status.mode == AUTH_MODE_APIKEY:
+        print("  No plan rate limits (API-key billing).")
+        print()
+        return
     print(
         f"  5h used:  {_fmt_pct(status.five_hour_used_pct)}"
         f"{_fmt_reset(status.resets_at)}"
@@ -73,13 +83,23 @@ def _print_scope_table(claude_st: BudgetStatus, codex_st: BudgetStatus) -> None:
         BudgetScope.MICRO, BudgetScope.MODULE,
         BudgetScope.LAYER, BudgetScope.FULL,
     )
+    gate_off = budget_gate_disabled()
     for scope in scopes:
-        if has_threshold(scope):
-            c_label = "GO" if budget_sufficient(scope, claude_st) else "NOGO"
-            x_label = "GO" if budget_sufficient(scope, codex_st) else "NOGO"
-        else:
+        if not has_threshold(scope):
             c_label = x_label = "—"
+        else:
+            c_label = "GO" if gate_off or budget_sufficient(
+                scope, claude_st
+            ) else "NOGO"
+            codex_go = (
+                gate_off
+                or codex_st.mode == AUTH_MODE_APIKEY
+                or budget_sufficient(scope, codex_st)
+            )
+            x_label = "GO" if codex_go else "NOGO"
         print(f"  {scope.value:<8} {c_label:<7} {x_label:<7} —")
+    if gate_off:
+        print(f"  (all GO: {SKIP_BUDGET_ENV_VAR} is set)")
 
 
 def print_budget_report(*, json_mode: bool = False) -> int:

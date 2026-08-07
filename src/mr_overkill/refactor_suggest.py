@@ -15,7 +15,7 @@ from mr_overkill.agents import (
     create_review_agent,
     create_self_review_agent,
 )
-from mr_overkill.budget import budget_sufficient
+from mr_overkill.budget import budget_gate_disabled, budget_sufficient
 from mr_overkill.budget.claude import check_token_budget as claude_budget
 from mr_overkill.budget.codex import check_token_budget as codex_budget
 from mr_overkill.git_ops import git_all_dirty, stash_allowlisted, unstash_allowlisted
@@ -35,11 +35,17 @@ logger = logging.getLogger(__name__)
 
 def resolve_auto_scope(
     tools: list[str] | None = None,
+    *,
+    skip_gate: bool = False,
 ) -> str | None:
     """Resolve 'auto' scope based on current budget levels.
 
     Returns ``'module'``, ``'micro'``, or ``None`` if budget is too low.
     """
+    if skip_gate or budget_gate_disabled():
+        logger.info("Budget gate disabled — resolving 'auto' scope to 'module'.")
+        return "module"
+
     if tools is None:
         tools = ["claude", "codex"]
 
@@ -316,7 +322,9 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
             tools = ["claude"]
             if config.reviewer_backend in ("codex", "gemini"):
                 tools.append(config.reviewer_backend)
-        resolved = resolve_auto_scope(tools=tools)
+        resolved = resolve_auto_scope(
+            tools=tools, skip_gate=config.skip_budget_gate,
+        )
         if resolved is None:
             logger.error("Budget too low for any refactor scope.")
             return 1

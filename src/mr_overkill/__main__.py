@@ -85,11 +85,14 @@ def main() -> None:
             from mr_overkill.cli import parse_review_loop_args
             from mr_overkill.review_loop import run as review_run
 
-            review_config = parse_review_loop_args([
+            review_argv = [
                 "-t", config.target_branch,
                 "-n", str(extra.review_loops),
                 "--reviewer-backend", config.reviewer_backend,
-            ])
+            ]
+            if config.skip_budget_gate:
+                review_argv.append("--no-budget-gate")
+            review_config = parse_review_loop_args(review_argv)
             exit_code = review_run(review_config)
         sys.exit(exit_code)
     elif command == "check-budget":
