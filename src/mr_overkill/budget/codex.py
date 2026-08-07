@@ -64,7 +64,9 @@ def _config_auth_mode(home: Path) -> str | None:
     try:
         with (home / "config.toml").open("rb") as handle:
             config = tomllib.load(handle)
-    except (OSError, tomllib.TOMLDecodeError):
+    except (OSError, ValueError):
+        # ValueError covers both TOMLDecodeError and the UnicodeDecodeError
+        # tomllib raises when it decodes the bytes itself.
         return None
 
     for key in _CONFIG_AUTH_KEYS:
@@ -103,7 +105,10 @@ def detect_auth_mode(home: Path | None = None) -> str:
 
     try:
         auth = json.loads((home / "auth.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
+        # ValueError covers both JSONDecodeError and the UnicodeDecodeError a
+        # non-UTF-8 auth.json raises: an unreadable file means "mode unknown",
+        # not a crashed review loop.
         auth = None
 
     if isinstance(auth, dict):

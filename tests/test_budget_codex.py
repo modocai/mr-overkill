@@ -260,6 +260,20 @@ class TestDetectAuthMode:
         (tmp_path / "auth.json").write_text("{not json")
         assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
 
+    def test_non_utf8_config_falls_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "config.toml").write_bytes(b'forced_login_method = "\xff api"')
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
+    def test_non_utf8_auth_file_falls_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        (tmp_path / "auth.json").write_bytes(b'{"auth_mode": "\xffapikey"}')
+        assert detect_auth_mode(tmp_path) == AUTH_MODE_UNKNOWN
+
     def test_codex_home_respects_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CODEX_HOME", "/custom/codex")
         assert codex_home() == Path("/custom/codex")
