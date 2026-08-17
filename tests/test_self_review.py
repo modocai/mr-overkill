@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,7 @@ from mr_overkill.models import WorktreeSnapshot
 from mr_overkill.self_review import (
     _FIX_NITS_GUIDELINES,
     _compute_fingerprint,
+    _generate_diff,
     self_review_subloop,
 )
 
@@ -449,3 +451,61 @@ class TestFixNitsGuidelines:
 
         assert len(captured_prompt) == 1
         assert "Fix nits" not in captured_prompt[0]
+
+
+class TestGenerateDiff:
+    """Exercise _generate_diff against a real git repo.
+
+    Every other test in this module patches _generate_diff out, so the real
+    command line was never run: it passed --pathspec-from-file to ``git diff``,
+    which rejects the option, and the discarded stderr turned that into an
+    empty diff that skipped the self-review on every iteration.
+    """
+
+    def test_modified_tracked_file(self, tmp_git_repo: Path) -> None:
+        (tmp_git_repo / "README.md").write_text("# test\nsecond line\n")
+        output = tmp_git_repo / "out.diff"
+
+        _generate_diff(["README.md"], output, tmp_git_repo)
+
+        diff = output.read_text()
+        assert "+second line" in diff
+        assert "a/README.md" in diff
+
+    def test_untracked_file_included(self, tmp_git_repo: Path) -> None:
+        (tmp_git_repo / "new.py").write_text("print('hi')\n")
+        output = tmp_git_repo / "out.diff"
+
+        _generate_diff(["new.py"], output, tmp_git_repo)
+
+        assert "+print('hi')" in output.read_text()
+
+    def test_intent_to_add_is_undone(self, tmp_git_repo: Path) -> None:
+        """The untracked file must be left unstaged for the later commit step."""
+        (tmp_git_repo / "new.py").write_text("print('hi')\n")
+
+        _generate_diff(["new.py"], tmp_git_repo / "out.diff", tmp_git_repo)
+
+        staged = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            cwd=tmp_git_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert staged.stdout.strip() == ""
+
+    def test_path_with_spaces(self, tmp_git_repo: Path) -> None:
+        (tmp_git_repo / "my file.txt").write_text("content\n")
+        output = tmp_git_repo / "out.diff"
+
+        _generate_diff(["my file.txt"], output, tmp_git_repo)
+
+        assert "+content" in output.read_text()
+
+    def test_no_changed_files_writes_empty(self, tmp_git_repo: Path) -> None:
+        output = tmp_git_repo / "out.diff"
+
+        _generate_diff([], output, tmp_git_repo)
+
+        assert output.read_text() == ""
