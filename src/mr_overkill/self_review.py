@@ -278,14 +278,22 @@ def _generate_diff(
         check=False,
     )
 
+    # Paths go in argv after ``--``: unlike add/reset, ``git diff`` has no
+    # --pathspec-from-file option and exits 129 on it, which would silently
+    # write an empty diff and skip the self-review for every iteration.
     result = subprocess.run(
-        ["git", "diff", "HEAD", "--pathspec-from-file=-"],
-        input=pathspec,
+        ["git", "diff", "HEAD", "--", *changed_files],
         cwd=cwd,
         capture_output=True,
         text=True,
         check=False,
     )
+    if result.returncode != 0:
+        logger.warning(
+            "git diff failed (exit %d): %s",
+            result.returncode,
+            result.stderr.strip(),
+        )
     output.write_text(result.stdout, encoding="utf-8")
 
     # Undo intent-to-add
