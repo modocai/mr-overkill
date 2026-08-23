@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from mr_overkill.git_ops import (
     changed_files_since_snapshot,
+    commit_and_push,
     diff_hash,
     gen_uuid,
     git_all_dirty,
@@ -201,3 +202,66 @@ class TestPushTriggerCommit:
             "git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}",
         ]
         assert mock_run.call_args_list[2].args[0] == ["git", "push"]
+
+
+class TestCommitAndPushPushFlag:
+    """``push=False`` must skip the push outright.
+
+    An empty *branch* argument is not enough: ``_push_current_branch`` checks
+    for an upstream first and pushes whenever one exists, which a review/*
+    branch the user already published does.
+    """
+
+    def _upstream_repo(self, tmp_git_repo: Path, tmp_path: Path) -> Path:
+        """Give the repo a real remote with an upstream-tracked branch."""
+        remote = tmp_path / "remote.git"
+        subprocess.run(
+            ["git", "init", "--bare", str(remote)], check=True, capture_output=True
+        )
+        for args in (
+            ["remote", "add", "origin", str(remote)],
+            ["push", "-u", "origin", "HEAD"],
+        ):
+            subprocess.run(
+                ["git", *args], cwd=tmp_git_repo, check=True, capture_output=True
+            )
+        return remote
+
+    def _head_of(self, repo: Path) -> str:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    def test_push_false_keeps_commit_local(
+        self, tmp_git_repo: Path, tmp_path: Path
+    ) -> None:
+        remote = self._upstream_repo(tmp_git_repo, tmp_path)
+        remote_before = self._head_of(remote)
+
+        snapshot = snapshot_worktree(cwd=tmp_git_repo)
+        (tmp_git_repo / "fix.txt").write_text("a fix\n")
+
+        assert commit_and_push(
+            snapshot, "fix: local only", "", push=False, cwd=tmp_git_repo
+        ) is True
+        assert self._head_of(tmp_git_repo) != remote_before
+        assert self._head_of(remote) == remote_before
+
+    def test_push_true_publishes(
+        self, tmp_git_repo: Path, tmp_path: Path
+    ) -> None:
+        remote = self._upstream_repo(tmp_git_repo, tmp_path)
+        remote_before = self._head_of(remote)
+
+        snapshot = snapshot_worktree(cwd=tmp_git_repo)
+        (tmp_git_repo / "fix.txt").write_text("a fix\n")
+
+        assert commit_and_push(
+            snapshot, "fix: published", "", push=True, cwd=tmp_git_repo
+        ) is True
+        assert self._head_of(remote) != remote_before
+        assert self._head_of(remote) == self._head_of(tmp_git_repo)
