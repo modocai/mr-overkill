@@ -729,8 +729,27 @@ class TestCommitScopeNoFixOutcome:
         )
         assert self._run(config, tmp_path) == FinalStatus.FINDINGS_UNFIXED
 
+    def test_findings_unfixed_on_final_iteration(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        """No iteration is left to run the no-diff check, so the commit
+        site has to report the unfixed findings itself."""
+        config = make_loop_config(
+            max_loop=1, log_dir=tmp_path, scope_commit="a" * 40,
+            skip_initial_no_diff=True,
+        )
+        assert self._run(config, tmp_path) == FinalStatus.FINDINGS_UNFIXED
+
     def test_normal_mode_still_reports_claude_error(
         self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
     ) -> None:
         config = make_loop_config(max_loop=2, log_dir=tmp_path)
         assert self._run(config, tmp_path) == FinalStatus.CLAUDE_ERROR
+
+    def test_normal_mode_final_iteration_is_not_a_failure(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        """Only commit-scope runs confirm findings against the working
+        tree, so a branch run keeps its existing exhausted-loop outcome."""
+        config = make_loop_config(max_loop=1, log_dir=tmp_path)
+        assert self._run(config, tmp_path) == FinalStatus.MAX_ITERATIONS_REACHED

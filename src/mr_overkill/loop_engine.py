@@ -564,6 +564,22 @@ def review_fix_loop(
                     break
                 if fix_committed and config.ci_trigger_mode in ("last-only", "none"):
                     made_skipped_fix_commit = True
+                if (
+                    not fix_committed
+                    and config.scope_commit
+                    and i == config.max_loop
+                ):
+                    # The no-diff check that catches a no-op fixer runs at
+                    # the top of the next iteration, and there is none left.
+                    # Without this, confirmed findings would report success.
+                    logger.warning(
+                        "Fixer produced no code changes on the final "
+                        "iteration — findings were either stale or left "
+                        "unfixed.",
+                    )
+                    final_status = FinalStatus.FINDINGS_UNFIXED
+                    iterations_run = i
+                    break
             else:
                 logger.info("AUTO_COMMIT is disabled — skipping commit and push.")
         finally:
