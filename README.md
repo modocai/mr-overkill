@@ -94,14 +94,25 @@ overkill refactor-suggest -n 1 --dry-run
 overkill review-loop [OPTIONS]
 
 Options:
-  -t, --target <branch>    Target branch to diff against (default: develop)
+  -t, --target <rev>       Target to diff against (default: develop). Accepts any
+                           git revision, not just a branch name: a SHA, a tag, or
+                           HEAD~5 all work, so you can review "everything since
+                           commit X" without opening a PR.
+  --commit <rev>           Review an already-merged commit instead of the branch
+                           diff. Creates a review/<sha>-<ts> branch off HEAD and
+                           applies fixes there; no PR is created. <rev> is a single
+                           commit — ranges are not supported. Excludes -t.
+  --push                   Push the auto-created review branch (default: local only)
   -n, --max-loop <N>       Maximum review-fix iterations (required, unless --resume)
   --max-subloop <N>        Maximum self-review sub-iterations per fix (default: 4)
   --no-self-review         Disable self-review (equivalent to --max-subloop 0)
   --dry-run                Run review only, do not fix
   --no-auto-commit         Fix but do not commit/push (single iteration)
   --resume                 Resume from a previously interrupted run (reuses existing logs)
-  --reviewer-backend <be>  Reviewer backend: claude|codex (default: codex)
+  --fix-nits               Also flag nits and style issues during self-review
+  --context <text>         Additional context for the reviewer (design intent,
+                           constraints)
+  --reviewer-backend <be>  Reviewer backend: claude|codex|gemini (default: codex)
   --ci-trigger-mode <m>    CI trigger policy: every|last-only|none (default: last-only).
                            'last-only' tags each iteration commit with [skip ci]
                            and pushes a single empty trigger commit on PASS —
@@ -119,7 +130,42 @@ Examples:
   overkill review-loop --resume              # resume an interrupted run
   overkill review-loop -n 2 --reviewer-backend claude  # use Claude as reviewer
   overkill review-loop -n 10 --ci-trigger-mode last-only  # CI fires once on PASS
+
+  # Review only what landed after a given commit, before opening a PR
+  overkill review-loop -t abc123 -n 3
+  overkill review-loop -t "$(git merge-base origin/develop HEAD)" -n 3
+
+  # Improve a commit that is already merged
+  overkill review-loop --commit abc123 -n 1 --dry-run   # report only, no branch
+  overkill review-loop --commit abc123 -n 3             # fix on a review/* branch
 ```
+
+### Reviewing an already-merged commit
+
+`--commit` exists for the case the branch diff cannot express: a change that
+already landed, which you now want to improve.
+
+1. The commit's diff is written to `.overkill/logs/scope.diff`. It is computed
+   against the commit's **first parent**, so merge commits produce a real patch
+   — `git show` prints nothing for those.
+2. A `review/<sha>-<timestamp>` branch is created off your current HEAD and the
+   fixes are committed there. The branch stays local unless you pass `--push`,
+   and no PR is created or commented on.
+3. The reviewer treats `scope.diff` as *scope only*. Since other commits may
+   have landed since, it must confirm each finding against the file's current
+   contents and cite current line numbers.
+
+Run it from a clean, up-to-date checkout of the branch the commit lives on:
+
+```bash
+git switch main && git pull
+overkill review-loop --commit abc123 -n 3
+```
+
+**After upgrading, re-run `overkill init`** in each repo — `--commit` needs the
+`${REVIEW_SCOPE_NOTE}` marker that the refreshed review prompts carry, and the
+run aborts with an explanatory error if it is missing. Note that `init`
+overwrites `.overkill/prompts/active/`, so back up any customised prompts first.
 
 ## Usage: overkill refactor-suggest
 
@@ -141,7 +187,7 @@ Options:
   --resume                 Resume from a previously interrupted run (reuses existing logs)
   --with-review            Run review-loop after PR creation (default: 4 iterations)
   --with-review-loops <N>  Set review-loop iteration count (implies --with-review)
-  --reviewer-backend <be>  Reviewer backend: claude|codex (default: codex)
+  --reviewer-backend <be>  Reviewer backend: claude|codex|gemini (default: codex)
   --diagnostic-log         Save full Claude event stream to sidecar files
   --no-budget-gate         Skip token-budget checks and run regardless
                            (same as OVERKILL_SKIP_BUDGET=1)

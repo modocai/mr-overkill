@@ -194,6 +194,14 @@ class LoopConfig:
     scope: str | None = None  # micro | module | layer | full
     skip_initial_no_diff: bool = False  # refactor: 1st iteration has no diff
 
+    # Commit-scope review: review an already-merged commit instead of the
+    # branch diff.  ``scope_commit`` doubles as the mode discriminator.
+    scope_commit: str | None = None
+    scope_diff_file: Path | None = None
+    # Whether commit_and_push may publish the branch.  Commit-scope runs
+    # create a throwaway ``review/*`` branch and keep it local by default.
+    push_branch: bool = True
+
 
 @dataclass(frozen=True)
 class LoopResult:

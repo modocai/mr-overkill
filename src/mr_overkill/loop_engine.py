@@ -214,6 +214,20 @@ def review_fix_loop(
                 saved_target, config.target_branch,
             )
             return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+        # Resuming a commit-scope run as a plain review (or vice versa) would
+        # reuse logs describing a different review scope entirely.
+        scope_file = log_dir / "scope-commit.txt"
+        saved_scope = (
+            scope_file.read_text().strip() if scope_file.is_file() else ""
+        )
+        if saved_scope != (config.scope_commit or ""):
+            logger.error(
+                "Resume scope mismatch: logs are for commit '%s' "
+                "but this run has '%s'.",
+                saved_scope or "(none)",
+                config.scope_commit or "(none)",
+            )
+            return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
 
         # Already-completed runs can short-circuit after branch validation
         if state.status == "completed":
@@ -322,13 +336,25 @@ def review_fix_loop(
 
         if no_diff:
             if i == 1 and config.skip_initial_no_diff:
-                logger.info("No diff on iteration 1 (expected for refactor branch).")
-            elif had_findings and not fix_committed:
-                logger.error(
-                    "No diff after fix — previous iteration had findings but "
-                    "fixer produced no code changes.",
+                logger.info(
+                    "No diff on iteration 1 "
+                    "(expected for a freshly created work branch)."
                 )
-                final_status = FinalStatus.CLAUDE_ERROR
+            elif had_findings and not fix_committed:
+                if config.scope_commit:
+                    # Reviewing history: "the findings needed no code change"
+                    # is a legitimate outcome (a later commit may already have
+                    # fixed them), not a broken fixer.
+                    logger.info(
+                        "No code changes were needed for the reported findings.",
+                    )
+                    final_status = FinalStatus.NO_DIFF
+                else:
+                    logger.error(
+                        "No diff after fix — previous iteration had findings but "
+                        "fixer produced no code changes.",
+                    )
+                    final_status = FinalStatus.CLAUDE_ERROR
                 break
             elif had_findings:
                 logger.warning(
@@ -523,7 +549,10 @@ def review_fix_loop(
                     commit_msg += f"\nSelf-review: {summary_oneline}"
                 try:
                     fix_committed = commit_and_push(
-                        pre_fix_snapshot, commit_msg, config.current_branch, cwd=cwd
+                        pre_fix_snapshot,
+                        commit_msg,
+                        config.current_branch if config.push_branch else "",
+                        cwd=cwd,
                     )
                 except RuntimeError as e:
                     logger.error("commit_and_push failed — aborting loop: %s", e)
@@ -681,6 +710,8 @@ def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
     log_dir = config.log_dir
     (log_dir / "branch.txt").write_text(config.current_branch)
     (log_dir / "target-branch.txt").write_text(config.target_branch)
+    if config.scope_commit:
+        (log_dir / "scope-commit.txt").write_text(config.scope_commit)
     (log_dir / "max-loop.txt").write_text(str(config.max_loop))
     (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
     (log_dir / "reviewer-context.txt").write_text(config.reviewer_context)

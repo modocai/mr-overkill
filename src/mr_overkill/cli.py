@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mr_overkill import __version__
+from mr_overkill.commit_scope import resolve_commit
 from mr_overkill.models import BudgetScope, LoopConfig
 
 
@@ -109,11 +110,12 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "SCOPE", "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
         "REVIEW_LOOPS", "FIX_NITS", "REVIEWER_BACKEND",
         "REVIEWER_CONTEXT", "CI_TRIGGER_MODE", "NO_BUDGET_GATE",
+        "COMMIT_SCOPE_PUSH",
     }
     boolean_keys = {
         "DRY_RUN", "AUTO_COMMIT", "DIAGNOSTIC_LOG",
         "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW", "FIX_NITS",
-        "NO_BUDGET_GATE",
+        "NO_BUDGET_GATE", "COMMIT_SCOPE_PUSH",
     }
     kv_re = re.compile(
         r"""^\s*(\w+)=(?:"([^"]*)"|'([^']*)'|(.*?))\s*$"""
@@ -329,8 +331,39 @@ def parse_review_loop_args(
             "'none': append [skip ci] with no trigger commit."
         ),
     )
+    parser.add_argument(
+        "--commit",
+        default=None,
+        metavar="REV",
+        help=(
+            "Review an already-merged commit instead of the branch diff. "
+            "Creates a review/<sha>-<ts> branch off HEAD and applies fixes "
+            "there; no PR is created. REV is any single commit (sha, tag, "
+            "HEAD~3) — ranges are not supported. Cannot be used with -t"
+        ),
+    )
+    parser.add_argument(
+        "--push",
+        action="store_true",
+        default=None,
+        help=(
+            "Push the auto-created review branch to the remote "
+            "(default: the branch stays local)"
+        ),
+    )
 
     args = parser.parse_args(argv)
+
+    if args.commit:
+        if ".." in args.commit:
+            parser.error(
+                "--commit takes a single commit; ranges (A..B) are not supported"
+            )
+        if args.target:
+            parser.error(
+                "--commit derives its base from the commit itself; "
+                "-t/--target cannot be combined with it"
+            )
 
     # Load rc file defaults
     rc = _load_rc_file(".overkillrc")
@@ -383,7 +416,6 @@ def parse_review_loop_args(
     )
 
     current_branch = _detect_current_branch()
-    pr_number = _detect_pr_number(current_branch)
 
     # Log directory
     result = subprocess.run(
@@ -436,6 +468,23 @@ def parse_review_loop_args(
             if saved.is_file():
                 args.ci_trigger_mode = saved.read_text().strip()
 
+    scope_commit = None
+    if args.commit:
+        scope_commit = resolve_commit(args.commit)
+        if scope_commit is None:
+            parser.error(f"--commit: not a commit: {args.commit!r}")
+
+    if args.resume:
+        saved = log_dir / "scope-commit.txt"
+        if saved.is_file():
+            restored = saved.read_text().strip()
+            if scope_commit and scope_commit != restored:
+                parser.error(
+                    f"--commit {args.commit!r} differs from the resumed run's "
+                    f"commit {restored}"
+                )
+            scope_commit = restored
+
     if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")
 
@@ -461,6 +510,24 @@ def parse_review_loop_args(
             f" got {ci_trigger_mode!r}"
         )
 
+    if scope_commit:
+        # The work branch is created off HEAD, so the branch diff (and hence
+        # the loop's convergence check) is "the fixes so far".
+        head = resolve_commit("HEAD")
+        if head is None:
+            parser.error("--commit requires a repository with at least one commit")
+        target = head
+        # Every iteration commit should look normal: there is no PR to stay
+        # quiet for, and no trigger commit worth saving up.
+        ci_trigger_mode = "every"
+        pr_number = None
+    else:
+        pr_number = _detect_pr_number(current_branch)
+
+    push_branch = _resolve_bool(
+        args.push, rc.get("COMMIT_SCOPE_PUSH"), scope_commit is None
+    )
+
     return LoopConfig(
         current_branch=current_branch,
         target_branch=target,
@@ -484,6 +551,9 @@ def parse_review_loop_args(
         reviewer_backend=reviewer_backend,
         reviewer_context=reviewer_context,
         ci_trigger_mode=ci_trigger_mode,
+        scope_commit=scope_commit,
+        scope_diff_file=(log_dir / "scope.diff") if scope_commit else None,
+        push_branch=push_branch,
     )
 
 

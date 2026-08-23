@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import string
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -23,6 +24,8 @@ from mr_overkill.agents import (
     SelfReviewAgent,
     _budget_check,
     _BudgetFn,
+    _format_review_scope,
+    _render_review_prompt,
     create_fix_agent,
     create_review_agent,
     create_self_review_agent,
@@ -597,3 +600,149 @@ class TestFactories:
         agent = create_self_review_agent(config, fixer)
         assert isinstance(agent, ClaudeSelfReviewAgent)
         assert isinstance(agent, SelfReviewAgent)
+
+
+class TestReviewScopeNote:
+    """`${REVIEW_SCOPE_NOTE}` is empty in normal mode and load-bearing in
+    commit-scope mode."""
+
+    def _prompt(self, tmp_path: Path, marker: bool = True) -> Path:
+        p = tmp_path / "codex-review.prompt.md"
+        note = "${REVIEW_SCOPE_NOTE}\n" if marker else ""
+        p.write_text(
+            "You are a code reviewer analyzing a proposed change.\n"
+            f"{note}"
+            "## Context\n\n"
+            "- Current: ${CURRENT_BRANCH}\n- Target: ${TARGET_BRANCH}\n"
+            "- Iteration: ${ITERATION}\n${REVIEWER_CONTEXT}\n"
+        )
+        return p
+
+    def test_empty_in_normal_mode(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config()
+        assert _format_review_scope(config, 1) == ""
+
+    def test_normal_mode_render_is_unchanged(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        """Rendering must be byte-identical to substituting the legacy vars."""
+        prompt = self._prompt(tmp_path)
+        config = make_loop_config()
+        expected = string.Template(prompt.read_text()).safe_substitute({
+            "CURRENT_BRANCH": config.current_branch,
+            "TARGET_BRANCH": config.target_branch,
+            "ITERATION": "1",
+            "REVIEWER_CONTEXT": "",
+            "REVIEW_SCOPE_NOTE": "",
+        })
+        assert _render_review_prompt(prompt, config, 1) == expected
+
+    def test_commit_scope_note_is_injected(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config(
+            scope_commit="a" * 40, scope_diff_file=tmp_path / "scope.diff"
+        )
+        with (
+            patch(
+                "mr_overkill.commit_scope.commit_headline",
+                return_value="abc — x",
+            ),
+            patch(
+                "mr_overkill.commit_scope.is_ancestor_of_head",
+                return_value=True,
+            ),
+        ):
+            rendered = _render_review_prompt(self._prompt(tmp_path), config, 1)
+        assert rendered is not None
+        assert "REVIEW MODE: COMMIT SCOPE" in rendered
+        assert str(tmp_path / "scope.diff") in rendered
+        assert "sole authority" in rendered
+
+    def test_iteration_one_says_no_fixes_yet(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config(
+            scope_commit="a" * 40, scope_diff_file=tmp_path / "scope.diff"
+        )
+        with (
+            patch(
+                "mr_overkill.commit_scope.commit_headline",
+                return_value="abc — x",
+            ),
+            patch(
+                "mr_overkill.commit_scope.is_ancestor_of_head",
+                return_value=True,
+            ),
+        ):
+            note = _format_review_scope(config, 1)
+        assert "first pass" in note
+        assert "This is iteration" not in note
+
+    def test_later_iteration_describes_prior_fixes(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        """The loop only converges if the reviewer is told the branch diff is
+        its own earlier fixes, and given an explicit way to stop."""
+        config = make_loop_config(
+            scope_commit="a" * 40, scope_diff_file=tmp_path / "scope.diff"
+        )
+        with (
+            patch(
+                "mr_overkill.commit_scope.commit_headline",
+                return_value="abc — x",
+            ),
+            patch(
+                "mr_overkill.commit_scope.is_ancestor_of_head",
+                return_value=True,
+            ),
+        ):
+            note = _format_review_scope(config, 3)
+        assert "This is iteration 3" in note
+        assert "never re-report a resolved finding" in note.lower()
+        assert "patch is correct" in note
+
+    def test_non_ancestor_warning(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config(
+            scope_commit="a" * 40, scope_diff_file=tmp_path / "scope.diff"
+        )
+        with (
+            patch(
+                "mr_overkill.commit_scope.commit_headline",
+                return_value="abc — x",
+            ),
+            patch(
+                "mr_overkill.commit_scope.is_ancestor_of_head",
+                return_value=False,
+            ),
+        ):
+            note = _format_review_scope(config, 1)
+        assert "not an ancestor of HEAD" in note
+
+    def test_stale_prompt_rejected_in_commit_scope(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        """A prompt without the marker would drop the note silently and have
+        the reviewer inspect an empty branch diff — a false pass."""
+        config = make_loop_config(
+            scope_commit="a" * 40, scope_diff_file=tmp_path / "scope.diff"
+        )
+        prompt = self._prompt(tmp_path, marker=False)
+        assert _render_review_prompt(prompt, config, 1) is None
+
+    def test_stale_prompt_accepted_in_normal_mode(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config()
+        prompt = self._prompt(tmp_path, marker=False)
+        assert isinstance(_render_review_prompt(prompt, config, 1), str)
+
+    def test_shipped_prompts_carry_the_marker(self) -> None:
+        root = Path(__file__).resolve().parent.parent / "prompts" / "active"
+        for backend in ("codex", "claude", "gemini"):
+            text = (root / f"{backend}-review.prompt.md").read_text()
+            assert "${REVIEW_SCOPE_NOTE}" in text, backend

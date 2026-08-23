@@ -17,6 +17,9 @@
 # Enable auto-commit of fixes (default: true)
 # AUTO_COMMIT=true
 
+# Push the review/* branch created by --commit (default: false — stays local)
+# COMMIT_SCOPE_PUSH=false
+
 # CI trigger policy for iteration commits (default: last-only)
 #   last-only — append "[skip ci]" to each iteration commit; push a single
 #               empty "chore: trigger CI" commit only when the loop ends
