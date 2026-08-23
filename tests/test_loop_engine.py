@@ -550,7 +550,7 @@ class TestLoopEngineMetadata:
 
 class TestCommitScopeLoopBehaviour:
     """Loop-side effects of commit-scope: local-only pushes, scope metadata,
-    and a no-op fix being an outcome rather than an error."""
+    and a no-op fix getting its own failure status."""
 
     @patch("mr_overkill.loop_engine.commit_and_push", return_value=True)
     @patch("mr_overkill.loop_engine.stash_allowlisted", return_value=False)
@@ -587,14 +587,15 @@ class TestCommitScopeLoopBehaviour:
     def test_push_branch_false_suppresses_push(
         self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
     ) -> None:
-        """An empty branch argument routes commit_and_push to its
-        "no upstream — skipping push" path, keeping review/* local."""
+        """push=False must bypass the push entirely — a resumed review/*
+        branch can already have an upstream, which an empty branch argument
+        would happily push to."""
         config = make_loop_config(
             max_loop=1, log_dir=tmp_path, push_branch=False,
             current_branch="review/aaaaaaa-1",
         )
         mock_commit = self._run_one_fix(config=config, tmp_path=tmp_path)
-        assert mock_commit.call_args.args[2] == ""
+        assert mock_commit.call_args.kwargs["push"] is False
 
     def test_push_branch_true_passes_branch(
         self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
@@ -604,6 +605,7 @@ class TestCommitScopeLoopBehaviour:
         )
         mock_commit = self._run_one_fix(config=config, tmp_path=tmp_path)
         assert mock_commit.call_args.args[2] == "feat/x"
+        assert mock_commit.call_args.kwargs["push"] is True
 
 
 class TestCommitScopeResumeGuard:
@@ -687,8 +689,9 @@ class TestSaveMetadataScope:
 
 
 class TestCommitScopeNoFixOutcome:
-    """A fixer that changes nothing is an error for a PR, but a legitimate
-    result when reviewing history — a later commit may already have fixed it."""
+    """A fixer that changes nothing leaves reviewer-confirmed defects in
+    place, so commit-scope reports its own failure status rather than
+    borrowing the generic fixer error."""
 
     def _run(
         self,
@@ -717,14 +720,14 @@ class TestCommitScopeNoFixOutcome:
             )
         return result.final_status
 
-    def test_commit_scope_reports_no_diff(
+    def test_commit_scope_reports_findings_unfixed(
         self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
     ) -> None:
         config = make_loop_config(
             max_loop=2, log_dir=tmp_path, scope_commit="a" * 40,
             skip_initial_no_diff=True,
         )
-        assert self._run(config, tmp_path) == FinalStatus.NO_DIFF
+        assert self._run(config, tmp_path) == FinalStatus.FINDINGS_UNFIXED
 
     def test_normal_mode_still_reports_claude_error(
         self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]

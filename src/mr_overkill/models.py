@@ -63,6 +63,7 @@ class FinalStatus(_StrEnum):
     STASH_CONFLICT = "stash_conflict"
     REVIEW_FAILED = "review_failed"
     COMMIT_PUSH_ERROR = "commit_push_error"
+    FINDINGS_UNFIXED = "findings_unfixed"
 
 
 # ── Dataclasses ──────────────────────────────────────────────────────
@@ -199,7 +200,8 @@ class LoopConfig:
     scope_commit: str | None = None
     scope_diff_file: Path | None = None
     # Whether commit_and_push may publish the branch.  Commit-scope runs
-    # create a throwaway ``review/*`` branch and keep it local by default.
+    # create a throwaway ``review/*`` branch and keep it local by default,
+    # even if that branch already has an upstream from an earlier push.
     push_branch: bool = True
 
 

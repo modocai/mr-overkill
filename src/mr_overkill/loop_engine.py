@@ -342,13 +342,15 @@ def review_fix_loop(
                 )
             elif had_findings and not fix_committed:
                 if config.scope_commit:
-                    # Reviewing history: "the findings needed no code change"
-                    # is a legitimate outcome (a later commit may already have
-                    # fixed them), not a broken fixer.
-                    logger.info(
-                        "No code changes were needed for the reported findings.",
+                    # The scope note tells the reviewer to confirm every
+                    # finding against the current working tree, so a no-op
+                    # fixer means confirmed defects are still unresolved —
+                    # report that rather than the generic fixer error.
+                    logger.warning(
+                        "Fixer produced no code changes for the reported "
+                        "findings — they were either stale or left unfixed.",
                     )
-                    final_status = FinalStatus.NO_DIFF
+                    final_status = FinalStatus.FINDINGS_UNFIXED
                 else:
                     logger.error(
                         "No diff after fix — previous iteration had findings but "
@@ -551,7 +553,8 @@ def review_fix_loop(
                     fix_committed = commit_and_push(
                         pre_fix_snapshot,
                         commit_msg,
-                        config.current_branch if config.push_branch else "",
+                        config.current_branch,
+                        push=config.push_branch,
                         cwd=cwd,
                     )
                 except RuntimeError as e:
