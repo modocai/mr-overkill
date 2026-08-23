@@ -439,11 +439,12 @@ def parse_review_loop_args(
             log_dir = legacy_log
 
     # Restore saved values on resume when not explicitly given
+    restored_target = None
     if args.resume:
         if args.target is None:
             saved = log_dir / "target-branch.txt"
             if saved.is_file():
-                target = saved.read_text().strip()
+                target = restored_target = saved.read_text().strip()
         if args.max_loop is None:
             saved = log_dir / "max-loop.txt"
             if saved.is_file():
@@ -484,6 +485,12 @@ def parse_review_loop_args(
                     f"commit {restored}"
                 )
             scope_commit = restored
+            if args.target:
+                parser.error(
+                    "--commit derives its base from the commit itself; "
+                    "-t/--target cannot be combined with a resumed "
+                    "commit-scope run"
+                )
 
     if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")
@@ -512,11 +519,16 @@ def parse_review_loop_args(
 
     if scope_commit:
         # The work branch is created off HEAD, so the branch diff (and hence
-        # the loop's convergence check) is "the fixes so far".
-        head = resolve_commit("HEAD")
-        if head is None:
-            parser.error("--commit requires a repository with at least one commit")
-        target = head
+        # the loop's convergence check) is "the fixes so far". On resume that
+        # base was fixed when the branch was created and HEAD has since moved
+        # past it, so the restored value wins.
+        if restored_target is None:
+            head = resolve_commit("HEAD")
+            if head is None:
+                parser.error(
+                    "--commit requires a repository with at least one commit"
+                )
+            target = head
         # Every iteration commit should look normal: there is no PR to stay
         # quiet for, and no trigger commit worth saving up.
         ci_trigger_mode = "every"
@@ -524,8 +536,12 @@ def parse_review_loop_args(
     else:
         pr_number = _detect_pr_number(current_branch)
 
-    push_branch = _resolve_bool(
-        args.push, rc.get("COMMIT_SCOPE_PUSH"), scope_commit is None
+    # COMMIT_SCOPE_PUSH describes the auto-created review/* branch only; a
+    # normal branch run must always push, or its first fix commit stays local.
+    push_branch = (
+        _resolve_bool(args.push, rc.get("COMMIT_SCOPE_PUSH"), False)
+        if scope_commit
+        else True
     )
 
     return LoopConfig(

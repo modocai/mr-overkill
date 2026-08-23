@@ -354,6 +354,29 @@ class TestPrepareCommitScope:
         )
         assert _prepare_commit_scope(config) is False
 
+    @patch("mr_overkill.review_loop.commit_scope")
+    @patch("mr_overkill.review_loop._reject_dirty_worktree", return_value=["wip.py"])
+    def test_resume_leaves_the_dirty_check_to_the_loop(
+        self,
+        mock_dirty: MagicMock,
+        mock_cs: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        """An interrupted fix leaves partial edits behind; the loop's resume
+        reset clears them, so rejecting here would block resume entirely."""
+        mock_cs.write_scope_diff.return_value = 10
+        mock_cs.is_ancestor_of_head.return_value = True
+        mock_cs.is_merge_commit.return_value = False
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            current_branch="review/aaaaaaa-20260101-000000",
+        )
+        assert _prepare_commit_scope(config) is True
+        mock_cs.create_branch_at_head.assert_not_called()
+
     def test_normal_mode_removes_stale_scope_diff(
         self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
     ) -> None:

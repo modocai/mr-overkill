@@ -49,7 +49,9 @@ def _prepare_commit_scope(config: LoopConfig) -> bool:
         )
         return False
 
-    if not config.dry_run:
+    # Fresh runs only: the check keeps user WIP out of the branch about to be
+    # created. On resume the loop's own reset clears the interrupted fix first.
+    if not config.dry_run and not config.resume:
         non_allowed = _reject_dirty_worktree(None)
         if non_allowed:
             logger.error(

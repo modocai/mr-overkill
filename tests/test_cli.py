@@ -770,6 +770,26 @@ class TestCommitScopeArgs:
         assert config.push_branch is True
         assert config.pr_number == "42"
 
+    @patch("mr_overkill.cli._detect_pr_number", return_value="42")
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch(
+        "mr_overkill.cli._load_rc_file",
+        return_value={"COMMIT_SCOPE_PUSH": "false"},
+    )
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_normal_mode_ignores_commit_scope_push(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        """The rc key describes the auto-created review/* branch. Honouring it
+        here would leave the first fix commit unpushed on a fresh branch."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
+        config = parse_review_loop_args(["-n", "1"])
+        assert config.push_branch is True
+
 
 class TestCommitScopeResume:
     """`scope-commit.txt` keeps a resumed run pointed at the same commit."""
@@ -811,3 +831,19 @@ class TestCommitScopeResume:
         (log_dir / "scope-commit.txt").write_text("f" * 40)
         with pytest.raises(SystemExit):
             self._parse(["--resume", "--commit", "abc123"], tmp_path)
+
+    def test_keeps_the_restored_target(self, tmp_path: Path) -> None:
+        """HEAD has moved past the work branch's base by the fix commits made
+        so far, so re-reading it would trip the loop's resume target check."""
+        log_dir = self._log_dir(tmp_path)
+        (log_dir / "scope-commit.txt").write_text(self.SHA)
+        config = self._parse(["--resume"], tmp_path)
+        assert config.target_branch == "d" * 40
+
+    def test_rejects_an_explicit_target(self, tmp_path: Path) -> None:
+        """The base was fixed when the work branch was created, so an explicit
+        -t can only disagree with it — say so instead of silently ignoring it."""
+        log_dir = self._log_dir(tmp_path)
+        (log_dir / "scope-commit.txt").write_text(self.SHA)
+        with pytest.raises(SystemExit):
+            self._parse(["--resume", "-t", "develop"], tmp_path)
