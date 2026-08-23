@@ -13,6 +13,7 @@ from mr_overkill.cli import (
     parse_refactor_suggest_args,
     parse_review_loop_args,
 )
+from mr_overkill.models import LoopConfig
 
 
 class TestResolveBool:
@@ -679,3 +680,179 @@ class TestParseRefactorSuggestArgs:
             "--reviewer-backend", "gemini",
         ])
         assert config.reviewer_backend == "gemini"
+
+
+class TestCommitScopeArgs:
+    """`--commit` / `--push` wiring for commit-scope review."""
+
+    SHA = "a" * 40
+
+    def _parse(self, argv: list[str], rc: dict[str, str] | None = None,
+               resolve: object = None) -> LoopConfig:
+        head = "b" * 40
+        default = {"HEAD": head}
+        table = {**default, **({} if resolve is None else resolve)}  # type: ignore[dict-item]
+        with (
+            patch("mr_overkill.cli._detect_pr_number", return_value="42"),
+            patch("mr_overkill.cli._detect_current_branch", return_value="main"),
+            patch("mr_overkill.cli._load_rc_file", return_value=rc or {}),
+            patch(
+                "mr_overkill.cli.subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="/tmp/repo"),
+            ),
+            patch(
+                "mr_overkill.cli.resolve_commit",
+                side_effect=lambda rev: table.get(rev, self.SHA if rev else None),
+            ),
+        ):
+            return parse_review_loop_args(argv)
+
+    def test_sets_scope_fields(self) -> None:
+        config = self._parse(["-n", "2", "--commit", "abc123"])
+        assert config.scope_commit == self.SHA
+        assert config.scope_diff_file == config.log_dir / "scope.diff"
+
+    def test_target_becomes_head_sha(self) -> None:
+        config = self._parse(["-n", "2", "--commit", "abc123"])
+        assert config.target_branch == "b" * 40
+
+    def test_suppresses_pr_number(self) -> None:
+        """A review/* branch has no PR; commenting on the branch we happened
+        to start from would post findings onto an unrelated PR."""
+        config = self._parse(["-n", "2", "--commit", "abc123"])
+        assert config.pr_number is None
+
+    def test_forces_ci_trigger_every(self) -> None:
+        config = self._parse(["-n", "2", "--commit", "abc123"])
+        assert config.ci_trigger_mode == "every"
+
+    def test_branch_stays_local_by_default(self) -> None:
+        config = self._parse(["-n", "2", "--commit", "abc123"])
+        assert config.push_branch is False
+
+    def test_push_flag_opts_in(self) -> None:
+        config = self._parse(["-n", "2", "--commit", "abc123", "--push"])
+        assert config.push_branch is True
+
+    def test_push_from_rc(self) -> None:
+        config = self._parse(
+            ["-n", "2", "--commit", "abc123"], rc={"COMMIT_SCOPE_PUSH": "true"}
+        )
+        assert config.push_branch is True
+
+    def test_rejects_range_syntax(self) -> None:
+        with pytest.raises(SystemExit):
+            self._parse(["-n", "2", "--commit", "aaa..bbb"])
+
+    def test_rejects_target_combination(self) -> None:
+        with pytest.raises(SystemExit):
+            self._parse(["-n", "2", "--commit", "abc123", "-t", "main"])
+
+    def test_rejects_unresolvable_rev(self) -> None:
+        with pytest.raises(SystemExit):
+            self._parse(["-n", "2", "--commit", "nope"], resolve={"nope": None})
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value="42")
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch("mr_overkill.cli._load_rc_file", return_value={})
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_normal_mode_leaves_scope_unset(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
+        config = parse_review_loop_args(["-n", "1"])
+        assert config.scope_commit is None
+        assert config.scope_diff_file is None
+        assert config.push_branch is True
+        assert config.pr_number == "42"
+
+    @patch("mr_overkill.cli._detect_pr_number", return_value="42")
+    @patch("mr_overkill.cli._detect_current_branch", return_value="feat/x")
+    @patch(
+        "mr_overkill.cli._load_rc_file",
+        return_value={"COMMIT_SCOPE_PUSH": "false"},
+    )
+    @patch("mr_overkill.cli.subprocess.run")
+    def test_normal_mode_ignores_commit_scope_push(
+        self,
+        mock_run: MagicMock,
+        mock_rc: MagicMock,
+        mock_branch: MagicMock,
+        mock_pr: MagicMock,
+    ) -> None:
+        """The rc key describes the auto-created review/* branch. Honouring it
+        here would leave the first fix commit unpushed on a fresh branch."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="/tmp/repo")
+        config = parse_review_loop_args(["-n", "1"])
+        assert config.push_branch is True
+
+
+class TestCommitScopeResume:
+    """`scope-commit.txt` keeps a resumed run pointed at the same commit."""
+
+    SHA = "c" * 40
+
+    def _parse(self, argv: list[str], log_dir: Path) -> LoopConfig:
+        with (
+            patch("mr_overkill.cli._detect_pr_number", return_value=None),
+            patch(
+                "mr_overkill.cli._detect_current_branch",
+                return_value="review/ccccccc-20260101-000000",
+            ),
+            patch("mr_overkill.cli._load_rc_file", return_value={}),
+            patch(
+                "mr_overkill.cli.subprocess.run",
+                return_value=MagicMock(returncode=0, stdout=str(log_dir)),
+            ),
+            patch("mr_overkill.cli.resolve_commit", side_effect=lambda rev: self.SHA),
+        ):
+            return parse_review_loop_args(argv)
+
+    def _log_dir(self, tmp_path: Path) -> Path:
+        log_dir = tmp_path / ".overkill" / "logs"
+        log_dir.mkdir(parents=True)
+        (log_dir / "max-loop.txt").write_text("3")
+        (log_dir / "target-branch.txt").write_text("d" * 40)
+        return log_dir
+
+    def test_restores_scope_commit(self, tmp_path: Path) -> None:
+        log_dir = self._log_dir(tmp_path)
+        (log_dir / "scope-commit.txt").write_text(self.SHA)
+        config = self._parse(["--resume"], tmp_path)
+        assert config.scope_commit == self.SHA
+        assert config.scope_diff_file == log_dir / "scope.diff"
+
+    def test_rejects_mismatched_commit(self, tmp_path: Path) -> None:
+        log_dir = self._log_dir(tmp_path)
+        (log_dir / "scope-commit.txt").write_text("f" * 40)
+        with pytest.raises(SystemExit):
+            self._parse(["--resume", "--commit", "abc123"], tmp_path)
+
+    def test_keeps_the_restored_target(self, tmp_path: Path) -> None:
+        """HEAD has moved past the work branch's base by the fix commits made
+        so far, so re-reading it would trip the loop's resume target check."""
+        log_dir = self._log_dir(tmp_path)
+        (log_dir / "scope-commit.txt").write_text(self.SHA)
+        config = self._parse(["--resume"], tmp_path)
+        assert config.target_branch == "d" * 40
+
+    def test_restores_the_push_policy(self, tmp_path: Path) -> None:
+        """A run started with --push keeps publishing its fix commits after
+        an interruption, even though the flag is not repeated on resume."""
+        log_dir = self._log_dir(tmp_path)
+        (log_dir / "scope-commit.txt").write_text(self.SHA)
+        (log_dir / "push-branch.txt").write_text("true")
+        config = self._parse(["--resume"], tmp_path)
+        assert config.push_branch is True
+
+    def test_rejects_an_explicit_target(self, tmp_path: Path) -> None:
+        """The base was fixed when the work branch was created, so an explicit
+        -t can only disagree with it — say so instead of silently ignoring it."""
+        log_dir = self._log_dir(tmp_path)
+        (log_dir / "scope-commit.txt").write_text(self.SHA)
+        with pytest.raises(SystemExit):
+            self._parse(["--resume", "-t", "develop"], tmp_path)

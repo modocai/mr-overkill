@@ -1,5 +1,5 @@
 You are a code reviewer analyzing a proposed change.
-
+${REVIEW_SCOPE_NOTE}
 ## Context
 
 - **Current branch**: ${CURRENT_BRANCH}

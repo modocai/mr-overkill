@@ -16,6 +16,7 @@ from abc import ABC, abstractmethod
 from importlib.resources import as_file, files
 from pathlib import Path
 
+from mr_overkill import commit_scope
 from mr_overkill.budget import SKIP_BUDGET_ENV_VAR, budget_gate_disabled
 from mr_overkill.budget.claude import claude_budget_sufficient
 from mr_overkill.budget.codex import codex_budget_sufficient
@@ -45,6 +46,119 @@ def _format_reviewer_context(raw: str) -> str:
     if not raw:
         return ""
     return f"## Author Context\n\n{raw}"
+
+
+_SCOPE_NOTE_MARKER = "${REVIEW_SCOPE_NOTE}"
+
+
+def _format_review_scope(config: LoopConfig, iteration: int) -> str:
+    """Build the commit-scope override block, or "" in normal mode.
+
+    Empty-string-means-no-section, like ``EXTRA_REVIEW_GUIDELINES`` in the
+    self-review prompt.  Note ``string.Template`` does not substitute
+    recursively, so every value here is interpolated in Python.
+    """
+    sha = config.scope_commit
+    if not sha:
+        return ""
+
+    diff_path = config.scope_diff_file
+    ancestry = ""
+    if not commit_scope.is_ancestor_of_head(sha):
+        ancestry = (
+            f"\n> WARNING: `{sha[:7]}` is **not an ancestor of HEAD**. Much of the "
+            "code it touched may not exist in the working tree at all. Report only "
+            "defects you can locate in a file that exists right now.\n"
+        )
+
+    if iteration <= 1:
+        fixes = (
+            "None yet — this is the first pass. The `git diff` command in the "
+            "Instructions section will print **nothing** on this iteration. That is "
+            "expected, it is not an error, and it is **not** the change under review."
+        )
+    else:
+        fixes = (
+            f"This is iteration {iteration}. Earlier iterations already produced fix "
+            "commits on this branch, and the `git diff` command in the Instructions "
+            "section prints **those fixes** — not the change under review. Use it to "
+            "(a) confirm which of your earlier findings are now resolved — **never "
+            "re-report a resolved finding** — and (b) look for new defects the fixes "
+            "themselves introduced.\n\nIf every earlier finding is resolved and you "
+            'find nothing new, return zero findings and `"patch is correct"`.'
+        )
+
+    return f"""
+> **REVIEW MODE: COMMIT SCOPE — read this first. It overrides the framing in the \
+line above and re-scopes the Instructions and Review Guidelines below.**
+
+You are **not** reviewing a proposed change. You are reviewing a change that was \
+**already merged**:
+
+- **Commit under review**: {commit_scope.commit_headline(sha)}
+- **Its diff**: `{diff_path}`
+{ancestry}
+Read that diff file first. Do **not** try to reconstruct it with `git show` or \
+`git diff` — it has already been generated correctly for you, including for merge \
+commits (where `git show` prints nothing at all).
+
+### The scope diff is historical — the code has moved on
+
+Other commits have landed since. A line number, a function, or a whole file in the \
+scope diff may no longer exist, may have been renamed, or may already have been fixed.
+
+1. Use the scope diff **only** to decide *what is in scope*: which files and which \
+behaviour the commit touched.
+2. **The current contents of the working tree are the sole authority on whether a \
+defect exists.** Before reporting anything, open the current file and confirm the \
+defect is still there. If the current code already handles it, drop the finding.
+3. Every `code_location` must be a **current** path with **current** line numbers, \
+verified by reading the file. Line numbers copied from the scope diff will be wrong.
+4. If a file in the scope diff no longer exists, skip it.
+
+### Reading the guidelines below
+
+Wherever a guideline says "this diff", read it as "the change made by \
+`{sha[:7]}`, as it manifests in the code as it exists right now". The requirement \
+that the issue be **introduced by this diff** still holds: do not flag pre-existing \
+problems, and do not flag problems introduced by *later* commits.
+
+### Fixes already applied on this branch
+
+{fixes}
+"""
+
+
+def _review_prompt_vars(config: LoopConfig, iteration: int) -> dict[str, str]:
+    """Template variables shared by all three review prompts."""
+    return {
+        "CURRENT_BRANCH": config.current_branch,
+        "TARGET_BRANCH": config.target_branch,
+        "ITERATION": str(iteration),
+        "REVIEWER_CONTEXT": _format_reviewer_context(config.reviewer_context),
+        "REVIEW_SCOPE_NOTE": _format_review_scope(config, iteration),
+    }
+
+
+def _render_review_prompt(
+    prompt_file: Path, config: LoopConfig, iteration: int
+) -> str | None:
+    """Render a review prompt, or ``None`` if it cannot be used.
+
+    In commit-scope mode a prompt that predates the feature would silently drop
+    the scope note and have the reviewer inspect an empty branch diff — which
+    reads as "no findings" rather than as a failure.  Refuse instead.
+    """
+    raw = prompt_file.read_text(encoding="utf-8")
+    if config.scope_commit and _SCOPE_NOTE_MARKER not in raw:
+        logger.error(
+            "Prompt %s predates commit-scope support (no %s marker). "
+            "Run 'overkill init' to refresh the prompt templates.",
+            prompt_file,
+            _SCOPE_NOTE_MARKER,
+        )
+        return None
+    return string.Template(raw).safe_substitute(_review_prompt_vars(config, iteration))
 
 
 # ── Review schema (single source of truth for structured output) ─────
@@ -217,15 +331,9 @@ class CodexReviewAgent(ReviewAgent):
             logger.error("Review prompt not found: %s", prompt_file)
             return False
 
-        tmpl = string.Template(
-            prompt_file.read_text(encoding="utf-8")
-        )
-        prompt_text = tmpl.safe_substitute({
-            "CURRENT_BRANCH": config.current_branch,
-            "TARGET_BRANCH": config.target_branch,
-            "ITERATION": str(iteration),
-            "REVIEWER_CONTEXT": _format_reviewer_context(config.reviewer_context),
-        })
+        prompt_text = _render_review_prompt(prompt_file, config, iteration)
+        if prompt_text is None:
+            return False
 
         if not self._budget_fn("codex", config.budget_scope, 0):
             raise BudgetTimeoutError(
@@ -323,15 +431,9 @@ class ClaudeReviewAgent(ReviewAgent):
             logger.error("Review prompt not found: %s", prompt_file)
             return False
 
-        tmpl = string.Template(
-            prompt_file.read_text(encoding="utf-8")
-        )
-        prompt_text = tmpl.safe_substitute({
-            "CURRENT_BRANCH": config.current_branch,
-            "TARGET_BRANCH": config.target_branch,
-            "ITERATION": str(iteration),
-            "REVIEWER_CONTEXT": _format_reviewer_context(config.reviewer_context),
-        })
+        prompt_text = _render_review_prompt(prompt_file, config, iteration)
+        if prompt_text is None:
+            return False
 
         if not self._budget_fn("claude", config.budget_scope, 0):
             raise BudgetTimeoutError(
@@ -426,15 +528,9 @@ class GeminiReviewAgent(ReviewAgent):
             logger.error("Review prompt not found: %s", prompt_file)
             return False
 
-        tmpl = string.Template(
-            prompt_file.read_text(encoding="utf-8")
-        )
-        prompt_text = tmpl.safe_substitute({
-            "CURRENT_BRANCH": config.current_branch,
-            "TARGET_BRANCH": config.target_branch,
-            "ITERATION": str(iteration),
-            "REVIEWER_CONTEXT": _format_reviewer_context(config.reviewer_context),
-        })
+        prompt_text = _render_review_prompt(prompt_file, config, iteration)
+        if prompt_text is None:
+            return False
 
         if not self._budget_fn("gemini", config.budget_scope, 0):
             raise BudgetTimeoutError(
