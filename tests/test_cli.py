@@ -840,6 +840,15 @@ class TestCommitScopeResume:
         config = self._parse(["--resume"], tmp_path)
         assert config.target_branch == "d" * 40
 
+    def test_restores_the_push_policy(self, tmp_path: Path) -> None:
+        """A run started with --push keeps publishing its fix commits after
+        an interruption, even though the flag is not repeated on resume."""
+        log_dir = self._log_dir(tmp_path)
+        (log_dir / "scope-commit.txt").write_text(self.SHA)
+        (log_dir / "push-branch.txt").write_text("true")
+        config = self._parse(["--resume"], tmp_path)
+        assert config.push_branch is True
+
     def test_rejects_an_explicit_target(self, tmp_path: Path) -> None:
         """The base was fixed when the work branch was created, so an explicit
         -t can only disagree with it — say so instead of silently ignoring it."""

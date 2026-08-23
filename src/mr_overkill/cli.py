@@ -468,6 +468,10 @@ def parse_review_loop_args(
             saved = log_dir / "ci-trigger-mode.txt"
             if saved.is_file():
                 args.ci_trigger_mode = saved.read_text().strip()
+        if args.push is None:
+            saved = log_dir / "push-branch.txt"
+            if saved.is_file():
+                args.push = saved.read_text().strip() == "true"
 
     scope_commit = None
     if args.commit:
