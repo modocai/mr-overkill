@@ -676,6 +676,15 @@ class TestSaveMetadataScope:
         _save_metadata(make_loop_config(log_dir=tmp_path), tmp_path)
         assert not (tmp_path / "scope-commit.txt").exists()
 
+    def test_clears_stale_scope_commit(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        """A plain run must not leave a prior commit-scope run's marker
+        behind, or a later --resume would restore an unrelated scope."""
+        (tmp_path / "scope-commit.txt").write_text("a" * 40)
+        _save_metadata(make_loop_config(log_dir=tmp_path), tmp_path)
+        assert not (tmp_path / "scope-commit.txt").exists()
+
 
 class TestCommitScopeNoFixOutcome:
     """A fixer that changes nothing is an error for a PR, but a legitimate
