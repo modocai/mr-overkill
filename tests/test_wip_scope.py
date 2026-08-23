@@ -204,6 +204,31 @@ class TestCreateScaffoldCommit:
         files = _git(tmp_git_repo, "show", "--name-only", "--format=", sha).split()
         assert files == ["real.py"]
 
+    def test_gitignored_log_directory_does_not_abort_the_add(
+        self, tmp_git_repo: Path
+    ) -> None:
+        """Regression: excluding the log dir by pathspec makes git refuse the
+        whole add when that directory is gitignored — which it usually is."""
+        (tmp_git_repo / ".gitignore").write_text(".overkill/\n")
+        _write_log(tmp_git_repo)
+        (tmp_git_repo / "real.py").write_text("real = 1\n")
+
+        sha = create_scaffold_commit(tmp_git_repo)
+
+        assert sha is not None
+        files = _git(tmp_git_repo, "show", "--name-only", "--format=", sha).split()
+        assert sorted(files) == [".gitignore", "real.py"]
+        assert _status(tmp_git_repo) == ""
+
+    def test_deletions_are_staged(self, tmp_git_repo: Path) -> None:
+        (tmp_git_repo / "README.md").unlink()
+
+        sha = create_scaffold_commit(tmp_git_repo)
+
+        assert sha is not None
+        assert _status(tmp_git_repo) == ""
+        assert not (tmp_git_repo / "README.md").exists()
+
     def test_clean_tree_refuses(self, tmp_git_repo: Path) -> None:
         head = _git(tmp_git_repo, "rev-parse", "HEAD")
         assert create_scaffold_commit(tmp_git_repo) is None

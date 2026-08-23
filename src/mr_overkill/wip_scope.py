@@ -32,13 +32,6 @@ SCAFFOLD_MESSAGE = "wip: review-loop scaffolding [skip ci]"
 # ``git_ops.commit_and_push``'s ``exclude_prefixes``.
 _LOG_PREFIXES = (".overkill/logs/", ".review-loop/logs/")
 
-# ``:(top)`` anchors a pathspec at the repository root regardless of cwd.
-_ADD_PATHSPEC = [
-    ":(top)",
-    ":(exclude,top).overkill/logs",
-    ":(exclude,top).review-loop/logs",
-]
-
 
 def _run(
     cmd: list[str], cwd: Path | None = None, stdin: str | None = None
@@ -134,15 +127,26 @@ def create_scaffold_commit(cwd: Path | None = None) -> str | None:
     it will pass by the time it is finished, and a hook rejecting a commit that
     exists only to be torn down again would make the mode unusable.
     """
-    staged = _run(["git", "add", "-A", "--", *_ADD_PATHSPEC], cwd)
-    if staged.returncode != 0:
-        logger.error("git add failed: %s", staged.stderr.strip())
-        return None
-
-    listing = _run(["git", "diff", "--cached", "--name-only"], cwd)
-    files = [f for f in listing.stdout.splitlines() if f.strip()]
+    files = uncommitted_files(cwd)
     if not files:
         logger.error("Nothing to stage — no uncommitted work to scaffold.")
+        return None
+
+    # Stage the explicit list rather than ``git add -A`` with an
+    # ``:(exclude)`` pathspec: naming a gitignored path in a pathspec makes
+    # git abort the whole add — after it has already staged part of it —
+    # and the log directory is gitignored in plenty of repos.  ``-A`` still
+    # applies to the listed paths, so deletions are staged too.
+    staged = _run(
+        ["git", "add", "-A", "--pathspec-from-file=-"],
+        cwd,
+        stdin="\n".join(files),
+    )
+    if staged.returncode != 0:
+        logger.error(
+            "git add failed, and the index may be partially staged: %s",
+            staged.stderr.strip(),
+        )
         return None
     # ``git add -A`` sweeps in anything not covered by .gitignore, so show
     # exactly what is going into the commit.
