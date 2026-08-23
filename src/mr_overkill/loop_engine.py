@@ -228,6 +228,19 @@ def review_fix_loop(
                 config.scope_commit or "(none)",
             )
             return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+        # Resuming a scaffolded --wip run without its base would leave the
+        # scaffolding commit behind for good; resuming a plain run as --wip
+        # would scaffold on top of someone else's logs.
+        wip_file = log_dir / "wip-base.txt"
+        saved_wip = wip_file.read_text().strip() if wip_file.is_file() else ""
+        if saved_wip != (config.wip_base or ""):
+            logger.error(
+                "Resume WIP mismatch: logs were scaffolded at '%s' "
+                "but this run has '%s'.",
+                saved_wip or "(none)",
+                config.wip_base or "(none)",
+            )
+            return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
 
         # Already-completed runs can short-circuit after branch validation
         if state.status == "completed":
@@ -285,13 +298,17 @@ def review_fix_loop(
 
     # ── Clean working tree check ────────────────────────────────────
     # Reject non-allowlisted dirty files in non-dry-run mode to prevent
-    # user WIP from being mixed into AI auto-fix commits.
-    if not config.dry_run:
+    # user WIP from being mixed into AI auto-fix commits.  A --wip run that
+    # makes no commits has nothing to mix them into, so the check does not
+    # apply there; a --wip run that does commit has already parked the work
+    # in its scaffolding commit and reaches this point with a clean tree.
+    if not config.dry_run and not (config.wip and not config.auto_commit):
         non_allowed = _reject_dirty_worktree(cwd)
         if non_allowed:
             logger.error(
                 "Working tree is not clean. Commit or stash your changes "
-                "before running review-loop.\n  Dirty files: %s",
+                "before running review-loop, or pass --wip to include them "
+                "in the review.\n  Dirty files: %s",
                 ", ".join(non_allowed),
             )
             return LoopResult(
@@ -741,6 +758,14 @@ def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
         # log dir, so --resume cannot restore an unrelated commit's scope.
         (log_dir / "scope-commit.txt").unlink(missing_ok=True)
         (log_dir / "push-branch.txt").unlink(missing_ok=True)
+    if config.wip_base:
+        # An interrupted --wip run is only recoverable while these survive:
+        # they are the sole record of where to unwind the scaffolding to.
+        (log_dir / "wip-base.txt").write_text(config.wip_base)
+        (log_dir / "wip-scaffold.txt").write_text(config.wip_scaffold or "")
+    else:
+        (log_dir / "wip-base.txt").unlink(missing_ok=True)
+        (log_dir / "wip-scaffold.txt").unlink(missing_ok=True)
     (log_dir / "max-loop.txt").write_text(str(config.max_loop))
     (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
     (log_dir / "reviewer-context.txt").write_text(config.reviewer_context)

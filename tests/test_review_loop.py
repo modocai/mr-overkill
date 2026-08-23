@@ -6,8 +6,14 @@ from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from mr_overkill.models import FinalStatus, LoopConfig, LoopResult
-from mr_overkill.review_loop import _prepare_commit_scope, run
+from mr_overkill.review_loop import (
+    _prepare_commit_scope,
+    _prepare_wip_scope,
+    run,
+)
 
 
 class TestReviewLoopRun:
@@ -420,6 +426,248 @@ class TestCommitScopeRunWiring:
         )
         config = make_loop_config(
             scope_commit="a" * 40, ci_trigger_mode="last-only"
+        )
+        assert run(config) == 0
+        mock_trigger.assert_not_called()
+
+
+class TestPrepareWipScope:
+    """One flag, two mechanisms: a worktree diff when the run may not commit,
+    a scaffolding commit when it may."""
+
+    def _config(
+        self,
+        make_loop_config: Callable[..., LoopConfig],
+        tmp_path: Path,
+        **kw: object,
+    ) -> LoopConfig:
+        return make_loop_config(wip=True, log_dir=tmp_path / "logs", **kw)
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_non_wip_run_clears_a_stale_artefact(
+        self,
+        mock_ws: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        config = make_loop_config(log_dir=tmp_path / "logs")
+        stale = config.log_dir / "wip.diff"
+        stale.write_text("from a previous run")
+
+        assert _prepare_wip_scope(config) is True
+        assert not stale.exists()
+        mock_ws.uncommitted_files.assert_not_called()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_clean_tree_refuses(
+        self,
+        mock_ws: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_ws.uncommitted_files.return_value = []
+        config = self._config(make_loop_config, tmp_path, dry_run=True)
+
+        assert _prepare_wip_scope(config) is False
+        mock_ws.create_scaffold_commit.assert_not_called()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_dry_run_captures_a_worktree_diff_instead_of_committing(
+        self,
+        mock_ws: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.write_worktree_diff.return_value = 512
+        config = self._config(make_loop_config, tmp_path, dry_run=True)
+
+        assert _prepare_wip_scope(config) is True
+        assert config.scope_diff_file == config.log_dir / "wip.diff"
+        assert config.skip_initial_no_diff is True
+        mock_ws.create_scaffold_commit.assert_not_called()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_no_auto_commit_also_takes_the_diff_path(
+        self,
+        mock_ws: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.write_worktree_diff.return_value = 512
+        config = self._config(make_loop_config, tmp_path, auto_commit=False)
+
+        assert _prepare_wip_scope(config) is True
+        mock_ws.create_scaffold_commit.assert_not_called()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_empty_worktree_diff_aborts(
+        self,
+        mock_ws: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.write_worktree_diff.return_value = 0
+        config = self._config(make_loop_config, tmp_path, dry_run=True)
+
+        assert _prepare_wip_scope(config) is False
+
+    @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_committing_run_scaffolds_and_records_the_base(
+        self,
+        mock_ws: MagicMock,
+        mock_resolve: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_resolve.return_value = "b" * 40
+        mock_ws.create_scaffold_commit.return_value = "c" * 40
+        config = self._config(make_loop_config, tmp_path)
+
+        assert _prepare_wip_scope(config) is True
+        assert config.wip_base == "b" * 40
+        assert config.wip_scaffold == "c" * 40
+        # The loop's own diff machinery sees the work as a real commit, so
+        # nothing needs to be skipped or handed over as an artefact.
+        assert config.scope_diff_file is None
+        assert config.skip_initial_no_diff is False
+        mock_ws.write_worktree_diff.assert_not_called()
+
+    @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_failed_scaffold_aborts(
+        self,
+        mock_ws: MagicMock,
+        mock_resolve: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_resolve.return_value = "b" * 40
+        mock_ws.create_scaffold_commit.return_value = None
+        config = self._config(make_loop_config, tmp_path)
+
+        assert _prepare_wip_scope(config) is False
+        assert config.wip_base is None
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_resume_reuses_the_existing_scaffold(
+        self,
+        mock_ws: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+        assert _prepare_wip_scope(config) is True
+        mock_ws.create_scaffold_commit.assert_not_called()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_resume_without_a_recorded_base_refuses(
+        self,
+        mock_ws: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # Scaffolding again would stack a second throwaway commit and lose
+        # the only record of where to unwind to.
+        config = self._config(make_loop_config, tmp_path, resume=True)
+        assert _prepare_wip_scope(config) is False
+        mock_ws.create_scaffold_commit.assert_not_called()
+
+
+class TestWipUnwind:
+    @patch("mr_overkill.review_loop.wip_scope")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    @patch("mr_overkill.review_loop._prepare_wip_scope", return_value=True)
+    def test_scaffolding_comes_down_after_a_normal_run(
+        self,
+        mock_prep: MagicMock,
+        mock_loop: MagicMock,
+        mock_ws: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR, iterations_run=1
+        )
+        mock_ws.unwind.return_value = True
+        config = make_loop_config(wip=True, wip_base="b" * 40, wip_scaffold="c" * 40)
+
+        assert run(config) == 0
+        mock_ws.unwind.assert_called_once_with(
+            "b" * 40, "c" * 40, config.log_dir
+        )
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    @patch("mr_overkill.review_loop._prepare_wip_scope", return_value=True)
+    def test_scaffolding_comes_down_when_the_loop_raises(
+        self,
+        mock_prep: MagicMock,
+        mock_loop: MagicMock,
+        mock_ws: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # A crash that left the scaffolding in place would be
+        # indistinguishable from commits the author meant to keep.
+        mock_loop.side_effect = RuntimeError("boom")
+        mock_ws.unwind.return_value = True
+        config = make_loop_config(wip=True, wip_base="b" * 40, wip_scaffold="c" * 40)
+
+        with pytest.raises(RuntimeError):
+            run(config)
+        mock_ws.unwind.assert_called_once()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    @patch("mr_overkill.review_loop._prepare_wip_scope", return_value=True)
+    def test_nothing_to_unwind_without_a_scaffold(
+        self,
+        mock_prep: MagicMock,
+        mock_loop: MagicMock,
+        mock_ws: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.DRY_RUN, iterations_run=1
+        )
+        config = make_loop_config(wip=True, dry_run=True)
+
+        assert run(config) == 0
+        mock_ws.unwind.assert_not_called()
+
+    @patch("mr_overkill.review_loop.push_trigger_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    @patch("mr_overkill.review_loop._prepare_wip_scope", return_value=True)
+    def test_no_ci_trigger_commit_in_wip_mode(
+        self,
+        mock_prep: MagicMock,
+        mock_loop: MagicMock,
+        mock_ws: MagicMock,
+        mock_trigger: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR,
+            iterations_run=2,
+            made_skipped_fix_commit=True,
+        )
+        mock_ws.unwind.return_value = True
+        config = make_loop_config(
+            wip=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+            ci_trigger_mode="last-only",
         )
         assert run(config) == 0
         mock_trigger.assert_not_called()

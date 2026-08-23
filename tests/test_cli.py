@@ -856,3 +856,64 @@ class TestCommitScopeResume:
         (log_dir / "scope-commit.txt").write_text(self.SHA)
         with pytest.raises(SystemExit):
             self._parse(["--resume", "-t", "develop"], tmp_path)
+
+
+class TestWipArgs:
+    """`--wip` wiring: one flag, and the safety rails that come with it."""
+
+    HEAD = "b" * 40
+
+    def _parse(
+        self, argv: list[str], rc: dict[str, str] | None = None
+    ) -> LoopConfig:
+        with (
+            patch("mr_overkill.cli._detect_pr_number", return_value="42"),
+            patch("mr_overkill.cli._detect_current_branch", return_value="feat/x"),
+            patch("mr_overkill.cli._load_rc_file", return_value=rc or {}),
+            patch(
+                "mr_overkill.cli.subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="/tmp/repo"),
+            ),
+            patch("mr_overkill.cli.resolve_commit", return_value=self.HEAD),
+        ):
+            return parse_review_loop_args(argv)
+
+    def test_flag_sets_the_mode(self) -> None:
+        config = self._parse(["-n", "2", "--wip"])
+        assert config.wip is True
+
+    def test_absent_by_default(self) -> None:
+        assert self._parse(["-n", "2"]).wip is False
+
+    def test_rejects_combination_with_commit_scope(self) -> None:
+        with pytest.raises(SystemExit):
+            self._parse(["-n", "2", "--wip", "--commit", "abc123"])
+
+    def test_never_pushes(self) -> None:
+        # Pushing would publish unfinished work, and the scaffolding commit
+        # holding it, to a shared branch.
+        assert self._parse(["-n", "2", "--wip"]).push_branch is False
+
+    def test_push_stays_off_even_when_the_rc_asks_for_it(self) -> None:
+        config = self._parse(
+            ["-n", "2", "--wip", "--push"], rc={"COMMIT_SCOPE_PUSH": "true"}
+        )
+        assert config.push_branch is False
+
+    def test_no_pr_comments(self) -> None:
+        # The findings describe code that is in no PR.
+        assert self._parse(["-n", "2", "--wip"]).pr_number is None
+
+    def test_target_is_pinned_before_the_scaffold_moves_head(self) -> None:
+        # A target resolved after the scaffolding commit would name the
+        # scaffolding commit itself, and the diff would come out empty.
+        assert self._parse(["-n", "2", "--wip", "-t", "HEAD"]).target_branch == (
+            self.HEAD
+        )
+
+    def test_target_is_left_alone_without_commits(self) -> None:
+        config = self._parse(["-n", "1", "--wip", "--dry-run", "-t", "develop"])
+        assert config.target_branch == "develop"
+
+    def test_normal_run_still_pushes(self) -> None:
+        assert self._parse(["-n", "2"]).push_branch is True

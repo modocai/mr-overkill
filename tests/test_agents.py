@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from mr_overkill import wip_scope
 from mr_overkill.agents import (
     ClaudeFixAgent,
     ClaudeRefactorReviewAgent,
@@ -746,3 +747,88 @@ class TestReviewScopeNote:
         for backend in ("codex", "claude", "gemini"):
             text = (root / f"{backend}-review.prompt.md").read_text()
             assert "${REVIEW_SCOPE_NOTE}" in text, backend
+
+
+class TestWipScopeNote:
+    """`--wip` reuses `${REVIEW_SCOPE_NOTE}`; the block it injects differs by
+    mechanism because the branch diff means something different in each."""
+
+    def _prompt(self, tmp_path: Path, marker: bool = True) -> Path:
+        p = tmp_path / "codex-review.prompt.md"
+        note = "${REVIEW_SCOPE_NOTE}\n" if marker else ""
+        p.write_text(
+            "You are a code reviewer analyzing a proposed change.\n"
+            f"{note}"
+            "## Context\n\n"
+            "- Current: ${CURRENT_BRANCH}\n- Target: ${TARGET_BRANCH}\n"
+            "- Iteration: ${ITERATION}\n${REVIEWER_CONTEXT}\n"
+        )
+        return p
+
+    def test_no_commit_mode_points_at_the_artefact(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        diff = tmp_path / "logs" / "wip.diff"
+        config = make_loop_config(wip=True, dry_run=True, scope_diff_file=diff)
+
+        note = _format_review_scope(config, 1)
+
+        assert "REVIEW MODE: UNCOMMITTED WORK" in note
+        assert str(diff) in note
+        # The branch diff shows only committed work here, so following it
+        # would skip the very thing under review.
+        assert "Ignore the `git diff` command" in note
+
+    def test_scaffold_mode_explains_the_throwaway_commit(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config(wip=True, wip_base="b" * 40)
+
+        note = _format_review_scope(config, 1)
+
+        assert "REVIEW MODE: UNCOMMITTED WORK" in note
+        assert wip_scope.SCAFFOLD_MESSAGE in note
+        assert "Ignore the `git diff` command" not in note
+
+    def test_draft_calibration_is_in_both(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        for config in (
+            make_loop_config(wip=True, dry_run=True,
+                             scope_diff_file=tmp_path / "wip.diff"),
+            make_loop_config(wip=True),
+        ):
+            assert "This work is unfinished" in _format_review_scope(config, 1)
+
+    def test_note_is_injected_into_the_prompt(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config(wip=True)
+        rendered = _render_review_prompt(self._prompt(tmp_path), config, 1)
+        assert rendered is not None
+        assert "REVIEW MODE: UNCOMMITTED WORK" in rendered
+
+    def test_stale_prompt_is_refused(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        # Without the marker the note vanishes silently and the reviewer
+        # inspects the wrong diff — which reads as "no findings".
+        config = make_loop_config(wip=True)
+        prompt = self._prompt(tmp_path, marker=False)
+        assert _render_review_prompt(prompt, config, 1) is None
+
+    def test_commit_scope_still_wins(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        # The CLI rejects the combination, but the note builder must not
+        # silently produce a hybrid if it ever slips through.
+        config = make_loop_config(
+            wip=True, scope_commit="a" * 40, scope_diff_file=tmp_path / "s.diff"
+        )
+        with (
+            patch("mr_overkill.commit_scope.commit_headline", return_value="x"),
+            patch("mr_overkill.commit_scope.is_ancestor_of_head", return_value=True),
+        ):
+            note = _format_review_scope(config, 1)
+        assert "REVIEW MODE: COMMIT SCOPE" in note
+        assert "REVIEW MODE: UNCOMMITTED WORK" not in note

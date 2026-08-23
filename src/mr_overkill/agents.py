@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from importlib.resources import as_file, files
 from pathlib import Path
 
-from mr_overkill import commit_scope
+from mr_overkill import commit_scope, wip_scope
 from mr_overkill.budget import SKIP_BUDGET_ENV_VAR, budget_gate_disabled
 from mr_overkill.budget.claude import claude_budget_sufficient
 from mr_overkill.budget.codex import codex_budget_sufficient
@@ -50,9 +50,59 @@ def _format_reviewer_context(raw: str) -> str:
 
 _SCOPE_NOTE_MARKER = "${REVIEW_SCOPE_NOTE}"
 
+# Shared by both WIP mechanisms: the code under review is a draft, and the
+# reviewer has to be told so or it will report the draft-ness as the defect.
+_WIP_DRAFT_CALIBRATION = """
+### This work is unfinished
+
+It has not been committed yet, so judge it as a **draft**:
+
+- Do flag defects in what is actually written — bugs, unsafe assumptions, \
+resource leaks, debug statements or credentials left behind.
+- Do **not** flag incompleteness itself. A half-implemented feature, a missing \
+test for code still being written, or a function that is clearly the next thing \
+the author will fill in is not a finding.
+"""
+
+
+def _format_wip_scope(config: LoopConfig) -> str:
+    """Build the WIP-scope override block for whichever mechanism is in play."""
+    if config.scope_diff_file is not None:
+        # No-commit run: the branch diff shows only committed work, so it is
+        # actively misleading here — the scope artefact is the whole truth.
+        return f"""
+> **REVIEW MODE: UNCOMMITTED WORK — read this first. It overrides the framing \
+in the line above and re-scopes the Instructions below.**
+
+The change under review is the author's **uncommitted working tree**, captured \
+in full at `{config.scope_diff_file}`. Read that file first.
+
+**Ignore the `git diff` command in the Instructions section.** It compares two \
+commits, so it shows only the part of the work that happens to be committed \
+already — reviewing it would silently skip everything the author is actually \
+working on.
+
+The scope diff was taken from the working tree as it exists right now, so its \
+paths and line numbers are **current** and you may cite them directly.
+{_WIP_DRAFT_CALIBRATION}"""
+
+    # Scaffolding-commit run: the branch diff is exactly right, but the first
+    # commit's message would otherwise read as the change under review.
+    return f"""
+> **REVIEW MODE: UNCOMMITTED WORK — read this first.**
+
+The first commit on this branch, `{wip_scope.SCAFFOLD_MESSAGE}`, is not a change \
+the author wrote a commit for. It is their **uncommitted work**, parked in a \
+throwaway commit so that it can be reviewed and so that fixes have somewhere to \
+land. It will be unwound when this run finishes. Review it exactly as if the \
+author had committed it deliberately — it is the change under review.
+
+Any commit after it is a fix an earlier iteration of this loop already applied.
+{_WIP_DRAFT_CALIBRATION}"""
+
 
 def _format_review_scope(config: LoopConfig, iteration: int) -> str:
-    """Build the commit-scope override block, or "" in normal mode.
+    """Build the scope override block, or "" in normal branch-diff mode.
 
     Empty-string-means-no-section, like ``EXTRA_REVIEW_GUIDELINES`` in the
     self-review prompt.  Note ``string.Template`` does not substitute
@@ -60,7 +110,7 @@ def _format_review_scope(config: LoopConfig, iteration: int) -> str:
     """
     sha = config.scope_commit
     if not sha:
-        return ""
+        return _format_wip_scope(config) if config.wip else ""
 
     diff_path = config.scope_diff_file
     ancestry = ""
@@ -145,14 +195,14 @@ def _render_review_prompt(
 ) -> str | None:
     """Render a review prompt, or ``None`` if it cannot be used.
 
-    In commit-scope mode a prompt that predates the feature would silently drop
-    the scope note and have the reviewer inspect an empty branch diff — which
-    reads as "no findings" rather than as a failure.  Refuse instead.
+    In a scoped mode a prompt that predates the feature would silently drop the
+    scope note and have the reviewer inspect the wrong diff — which reads as
+    "no findings" rather than as a failure.  Refuse instead.
     """
     raw = prompt_file.read_text(encoding="utf-8")
-    if config.scope_commit and _SCOPE_NOTE_MARKER not in raw:
+    if (config.scope_commit or config.wip) and _SCOPE_NOTE_MARKER not in raw:
         logger.error(
-            "Prompt %s predates commit-scope support (no %s marker). "
+            "Prompt %s predates scoped review support (no %s marker). "
             "Run 'overkill init' to refresh the prompt templates.",
             prompt_file,
             _SCOPE_NOTE_MARKER,
