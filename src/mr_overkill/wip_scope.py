@@ -60,6 +60,34 @@ def _untracked_files(cwd: Path | None = None) -> list[str]:
     ]
 
 
+# Files git drops in the git dir while a multi-step operation is unfinished.
+_IN_PROGRESS_MARKERS = {
+    "MERGE_HEAD": "merge",
+    "CHERRY_PICK_HEAD": "cherry-pick",
+    "REVERT_HEAD": "revert",
+    "rebase-merge": "rebase",
+    "rebase-apply": "rebase",
+}
+
+
+def operation_in_progress(cwd: Path | None = None) -> str | None:
+    """Name of an unfinished git operation, or ``None`` if the repo is idle.
+
+    Committing in the middle of one would conclude it: a scaffolding commit
+    made during a conflicted merge *is* the merge commit, and unwinding it
+    resets past the merge and drops ``MERGE_HEAD``, leaving no way to finish
+    what the author started.
+    """
+    result = _run(["git", "rev-parse", "--git-dir"], cwd)
+    if result.returncode != 0:
+        return None
+    git_dir = Path(cwd or ".") / result.stdout.strip()
+    for marker, name in _IN_PROGRESS_MARKERS.items():
+        if (git_dir / marker).exists():
+            return name
+    return None
+
+
 def merge_base(target: str, cwd: Path | None = None) -> str | None:
     """Fork point of *target* and HEAD, or ``None`` if they are unrelated."""
     result = _run(["git", "merge-base", target, "HEAD"], cwd)
@@ -180,29 +208,33 @@ def unwind(
     saved to ``wip-fixes.diff`` first, because once the scaffolding commit is
     gone there is no way left to tell the user's own work from the AI's edits.
     """
-    if scaffold:
-        result = _run(["git", "diff", scaffold, "HEAD"], cwd)
-        if result.returncode == 0:
-            log_dir.mkdir(parents=True, exist_ok=True)
-            (log_dir / "wip-fixes.diff").write_text(
-                result.stdout, encoding="utf-8"
-            )
-
     head = _run(["git", "rev-parse", "HEAD"], cwd)
     if head.stdout.strip() == base:
         return True
 
-    # Resetting to a commit HEAD does not descend from would move the branch
-    # somewhere it has never been.  Refuse rather than guess.
-    ancestry = _run(["git", "merge-base", "--is-ancestor", base, "HEAD"], cwd)
-    if ancestry.returncode != 0:
+    # ``base`` alone is not enough to prove this branch is the one that was
+    # scaffolded: a sibling branch off the same commit passes an ancestry test
+    # against it and would be silently rewound.  The scaffolding commit is
+    # unique to the run, so that is what has to be in HEAD's history.
+    if not scaffold:
         logger.error(
-            "Cannot unwind: %s is not an ancestor of HEAD. The scaffolding "
-            "commit is still in place — reset manually once you have checked "
-            "what happened.",
-            base[:7],
+            "Cannot unwind: no scaffolding commit was recorded. HEAD is left "
+            "alone; check the history before resetting anything.",
         )
         return False
+    ancestry = _run(["git", "merge-base", "--is-ancestor", scaffold, "HEAD"], cwd)
+    if ancestry.returncode != 0:
+        logger.error(
+            "Cannot unwind: scaffolding commit %s is not in HEAD's history, so "
+            "this is not the branch it was made on. HEAD is left alone.",
+            scaffold[:7],
+        )
+        return False
+
+    result = _run(["git", "diff", scaffold, "HEAD"], cwd)
+    if result.returncode == 0:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "wip-fixes.diff").write_text(result.stdout, encoding="utf-8")
 
     reset = _run(["git", "reset", "--quiet", "--mixed", base], cwd)
     if reset.returncode != 0:

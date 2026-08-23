@@ -214,7 +214,15 @@ Worth knowing before you use it:
   everything unstaged.
 - **If the run is interrupted the scaffolding stays.** The command to undo it is
   printed at the start and the base commit is saved to
-  `.overkill/logs/wip-base.txt`; `--wip --resume` picks the run back up.
+  `.overkill/logs/wip-base.txt`; `--wip --resume` picks the run back up. Resume
+  needs commits enabled — the other two modes are a single pass with nothing to
+  resume.
+- **Commit hooks are skipped** for the run's own commits. Work in progress
+  routinely fails hooks it will pass once finished, and every commit `--wip`
+  makes is torn down again.
+- **An unfinished merge, rebase, cherry-pick or revert blocks the mode.** The
+  scaffolding commit would conclude the operation, and unwinding would then
+  reset past it.
 - **New files are included.** They are staged as intent-to-add so the reviewer
   can see them, then unstaged again.
 

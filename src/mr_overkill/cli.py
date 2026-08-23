@@ -562,6 +562,15 @@ def parse_review_loop_args(
         ci_trigger_mode = "every"
         pr_number = None
     elif args.wip:
+        if args.resume and not (auto_commit and not dry_run):
+            # Without commits a --wip run is a single pass with no state worth
+            # resuming, and resuming one would be actively harmful: the loop's
+            # resume reset stashes the very working tree being reviewed.
+            parser.error(
+                "--wip without commits is a single pass; there is nothing to "
+                "resume. Drop --resume, or allow commits so the work is "
+                "scaffolded first."
+            )
         if auto_commit and not dry_run:
             # The scaffolding commit becomes HEAD, so a target that resolves
             # at loop time — "HEAD", or the branch we are sitting on — would

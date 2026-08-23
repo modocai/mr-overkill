@@ -173,6 +173,17 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
             config.current_branch,
         )
 
+    in_progress = wip_scope.operation_in_progress()
+    if in_progress:
+        logger.error(
+            "A %s is in progress. The scaffolding commit would conclude it, "
+            "and unwinding would then reset past it. Finish or abort the %s "
+            "first.",
+            in_progress,
+            in_progress,
+        )
+        return False
+
     head = commit_scope.resolve_commit("HEAD")
     if head is None:
         logger.error("--wip requires a repository with at least one commit.")
@@ -190,18 +201,18 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
     return True
 
 
-def _unwind_wip_scope(config: LoopConfig) -> None:
+def _unwind_wip_scope(config: LoopConfig) -> bool:
     """Remove the scaffolding, leaving the work uncommitted again."""
     if not config.wip or not config.wip_base:
-        return
-    if not wip_scope.unwind(
-        config.wip_base, config.wip_scaffold, config.log_dir
-    ):
-        logger.error(
-            "Working tree contents are intact, but the scaffolding commit is "
-            "still there. Run: git reset --mixed %s",
-            config.wip_base,
-        )
+        return True
+    if wip_scope.unwind(config.wip_base, config.wip_scaffold, config.log_dir):
+        return True
+    logger.error(
+        "Working tree contents are intact, but the scaffolding commit is "
+        "still there. Run: git reset --mixed %s",
+        config.wip_base,
+    )
+    return False
 
 
 def run(config: LoopConfig) -> int:
@@ -219,6 +230,7 @@ def run(config: LoopConfig) -> int:
         else None
     )
 
+    unwound = True
     try:
         result = review_fix_loop(
             config,
@@ -229,7 +241,7 @@ def run(config: LoopConfig) -> int:
     finally:
         # The scaffolding has to come down however the loop ended — a failure
         # that left it in place would be indistinguishable from real commits.
-        _unwind_wip_scope(config)
+        unwound = _unwind_wip_scope(config)
 
     logger.info("Done. Status: %s", result.final_status)
     if result.summary_path:
@@ -260,6 +272,11 @@ def run(config: LoopConfig) -> int:
             "Fixes are in your working tree, uncommitted. Review them with "
             "'git diff' before committing.",
         )
+
+    if not unwound:
+        # Reporting success would tell a caller the run left no commits
+        # behind when it demonstrably did.
+        return 1
 
     success_statuses = {
         FinalStatus.ALL_CLEAR,

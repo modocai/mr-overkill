@@ -524,6 +524,7 @@ class TestPrepareWipScope:
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.operation_in_progress.return_value = None
         mock_resolve.return_value = "b" * 40
         mock_ws.create_scaffold_commit.return_value = "c" * 40
         config = self._config(make_loop_config, tmp_path)
@@ -547,12 +548,31 @@ class TestPrepareWipScope:
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.operation_in_progress.return_value = None
         mock_resolve.return_value = "b" * 40
         mock_ws.create_scaffold_commit.return_value = None
         config = self._config(make_loop_config, tmp_path)
 
         assert _prepare_wip_scope(config) is False
         assert config.wip_base is None
+
+    @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_unfinished_merge_blocks_scaffolding(
+        self,
+        mock_ws: MagicMock,
+        mock_resolve: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # The scaffolding commit would conclude the merge, and unwinding
+        # would then reset past it.
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.operation_in_progress.return_value = "merge"
+        config = self._config(make_loop_config, tmp_path)
+
+        assert _prepare_wip_scope(config) is False
+        mock_ws.create_scaffold_commit.assert_not_called()
 
     @patch("mr_overkill.review_loop.wip_scope")
     def test_resume_reuses_the_existing_scaffold(
@@ -626,6 +646,26 @@ class TestWipUnwind:
         with pytest.raises(RuntimeError):
             run(config)
         mock_ws.unwind.assert_called_once()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    @patch("mr_overkill.review_loop._prepare_wip_scope", return_value=True)
+    def test_a_failed_unwind_fails_the_run(
+        self,
+        mock_prep: MagicMock,
+        mock_loop: MagicMock,
+        mock_ws: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # Exiting 0 would tell the caller no commits were left behind when
+        # some demonstrably were.
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR, iterations_run=1
+        )
+        mock_ws.unwind.return_value = False
+        config = make_loop_config(wip=True, wip_base="b" * 40, wip_scaffold="c" * 40)
+
+        assert run(config) == 1
 
     @patch("mr_overkill.review_loop.wip_scope")
     @patch("mr_overkill.review_loop.review_fix_loop")

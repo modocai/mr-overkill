@@ -18,6 +18,7 @@ from mr_overkill.wip_scope import (
     SCAFFOLD_MESSAGE,
     create_scaffold_commit,
     merge_base,
+    operation_in_progress,
     uncommitted_files,
     unwind,
     write_worktree_diff,
@@ -39,6 +40,11 @@ def _git(repo: Path, *args: str) -> str:
         ["git", *args], cwd=repo, capture_output=True, text=True, check=True
     )
     return result.stdout.strip()
+
+
+def _branch(repo: Path) -> str:
+    """The repo's initial branch name — 'main' or 'master' depending on git config."""
+    return _git(repo, "rev-parse", "--abbrev-ref", "HEAD")
 
 
 def _status(repo: Path) -> str:
@@ -89,12 +95,13 @@ class TestMergeBase:
 
     def test_unrelated_history_returns_none(self, tmp_git_repo: Path) -> None:
         # An orphan branch shares no history with HEAD at all.
+        original = _branch(tmp_git_repo)
         _git(tmp_git_repo, "checkout", "-q", "--orphan", "orphan")
         (tmp_git_repo / "other.txt").write_text("other\n")
         _git(tmp_git_repo, "add", "other.txt")
         _git(tmp_git_repo, "commit", "-m", "orphan root")
 
-        assert merge_base("master", tmp_git_repo) is None
+        assert merge_base(original, tmp_git_repo) is None
 
 
 class TestWriteWorktreeDiff:
@@ -247,6 +254,29 @@ class TestCreateScaffoldCommit:
         assert _status(tmp_git_repo) == ""
 
 
+class TestOperationInProgress:
+    def test_idle_repo(self, tmp_git_repo: Path) -> None:
+        assert operation_in_progress(tmp_git_repo) is None
+
+    def test_conflicted_merge_is_detected(self, tmp_git_repo: Path) -> None:
+        # Committing here would conclude the merge, and unwinding would then
+        # reset past it and drop MERGE_HEAD.
+        original = _branch(tmp_git_repo)
+        base = _git(tmp_git_repo, "rev-parse", "HEAD")
+        (tmp_git_repo / "conflict.txt").write_text("ours\n")
+        _git(tmp_git_repo, "add", "conflict.txt")
+        _git(tmp_git_repo, "commit", "-m", "ours")
+        _git(tmp_git_repo, "checkout", "-q", "-b", "theirs", base)
+        (tmp_git_repo / "conflict.txt").write_text("theirs\n")
+        _git(tmp_git_repo, "add", "conflict.txt")
+        _git(tmp_git_repo, "commit", "-m", "theirs")
+        subprocess.run(
+            ["git", "merge", original], cwd=tmp_git_repo, capture_output=True
+        )
+
+        assert operation_in_progress(tmp_git_repo) == "merge"
+
+
 class TestUnwind:
     def _scaffold_then_fix(self, repo: Path) -> tuple[str, str]:
         """Simulate a full run: park WIP, then commit an AI fix on top."""
@@ -317,13 +347,31 @@ class TestUnwind:
         assert not unwind(base, scaffold, out_dir, tmp_git_repo)
         assert _git(tmp_git_repo, "rev-parse", "HEAD") == head
 
-    def test_no_scaffold_recorded_still_resets(
+    def test_missing_scaffold_refuses(
         self, tmp_git_repo: Path, out_dir: Path
     ) -> None:
+        # Without the scaffolding commit there is no proof this is even the
+        # branch the run happened on.
         base = _git(tmp_git_repo, "rev-parse", "HEAD")
         (tmp_git_repo / "x.py").write_text("x = 1\n")
-        create_scaffold_commit(tmp_git_repo)
+        head = create_scaffold_commit(tmp_git_repo)
 
-        assert unwind(base, None, out_dir, tmp_git_repo)
-        assert _git(tmp_git_repo, "rev-parse", "HEAD") == base
-        assert not (out_dir / "wip-fixes.diff").exists()
+        assert not unwind(base, None, out_dir, tmp_git_repo)
+        assert _git(tmp_git_repo, "rev-parse", "HEAD") == head
+
+    def test_refuses_on_a_sibling_branch(
+        self, tmp_git_repo: Path, out_dir: Path
+    ) -> None:
+        """A sibling branch off the same base passes an ancestry test against
+        that base, so resetting on the strength of it would rewind the wrong
+        branch. Only the scaffolding commit identifies the right one."""
+        base, scaffold = self._scaffold_then_fix(tmp_git_repo)
+        _git(tmp_git_repo, "stash", "-u")
+        _git(tmp_git_repo, "checkout", "-q", "-b", "sibling", base)
+        (tmp_git_repo / "sibling.py").write_text("sibling = 1\n")
+        _git(tmp_git_repo, "add", "sibling.py")
+        _git(tmp_git_repo, "commit", "-m", "work on the sibling branch")
+        head = _git(tmp_git_repo, "rev-parse", "HEAD")
+
+        assert not unwind(base, scaffold, out_dir, tmp_git_repo)
+        assert _git(tmp_git_repo, "rev-parse", "HEAD") == head

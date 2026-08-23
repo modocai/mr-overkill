@@ -915,5 +915,13 @@ class TestWipArgs:
         config = self._parse(["-n", "1", "--wip", "--dry-run", "-t", "develop"])
         assert config.target_branch == "develop"
 
+    def test_resume_without_commits_is_refused(self) -> None:
+        # There is no scaffolding to resume, and the loop's resume reset
+        # would stash away the very working tree under review.
+        with pytest.raises(SystemExit):
+            self._parse(["-n", "1", "--wip", "--no-auto-commit", "--resume"])
+        with pytest.raises(SystemExit):
+            self._parse(["-n", "1", "--wip", "--dry-run", "--resume"])
+
     def test_normal_run_still_pushes(self) -> None:
         assert self._parse(["-n", "2"]).push_branch is True

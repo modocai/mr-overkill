@@ -572,6 +572,10 @@ def review_fix_loop(
                         commit_msg,
                         config.current_branch,
                         push=config.push_branch,
+                        # A --wip run's commits all get torn down again, and
+                        # they carry the same unfinished work the scaffolding
+                        # commit had to skip hooks for.
+                        no_verify=config.wip,
                         cwd=cwd,
                     )
                 except RuntimeError as e:
