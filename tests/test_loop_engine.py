@@ -740,6 +740,15 @@ class TestCommitScopeNoFixOutcome:
         )
         assert self._run(config, tmp_path) == FinalStatus.FINDINGS_UNFIXED
 
+    def test_wip_reports_findings_unfixed_on_final_iteration(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        """A --wip target is pinned before the scaffolding commit, so the
+        branch diff always holds the parked work and the no-diff check can
+        never catch the no-op fixer — the commit site has to."""
+        config = make_loop_config(max_loop=1, log_dir=tmp_path, wip=True)
+        assert self._run(config, tmp_path) == FinalStatus.FINDINGS_UNFIXED
+
     def test_normal_mode_still_reports_claude_error(
         self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
     ) -> None:
@@ -753,3 +762,98 @@ class TestCommitScopeNoFixOutcome:
         tree, so a branch run keeps its existing exhausted-loop outcome."""
         config = make_loop_config(max_loop=1, log_dir=tmp_path)
         assert self._run(config, tmp_path) == FinalStatus.MAX_ITERATIONS_REACHED
+
+
+class TestWipDirtyWorktreeGate:
+    """The clean-tree check exists to keep user WIP out of AI fix commits.
+    A --wip run that makes no commits has nothing to keep it out of."""
+
+    def _run(self, config: LoopConfig, tmp_path: Path) -> FinalStatus:
+        clean = {"findings": [], "overall_correctness": "patch is correct"}
+        with (
+            patch(
+                "mr_overkill.loop_engine._reject_dirty_worktree",
+                return_value=["src/wip.py"],
+            ),
+            patch("mr_overkill.loop_engine._validate_target_branch", return_value=True),
+            patch("mr_overkill.loop_engine._save_metadata"),
+            patch("mr_overkill.loop_engine._no_diff", return_value=False),
+        ):
+            result = review_fix_loop(
+                config,
+                reviewer=_mock_reviewer([clean]),
+                fixer=MagicMock(return_value=True),
+                cwd=tmp_path,
+            )
+        return result.final_status
+
+    def test_dirty_tree_is_allowed_without_commits(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config(
+            log_dir=tmp_path, wip=True, auto_commit=False,
+        )
+        assert self._run(config, tmp_path) == FinalStatus.ALL_CLEAR
+
+    def test_dirty_tree_still_rejected_when_wip_commits(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        """The scaffolding commit runs first, so reaching this check with a
+        dirty tree means something else is uncommitted — still a refusal."""
+        config = make_loop_config(log_dir=tmp_path, wip=True)
+        assert self._run(config, tmp_path) == FinalStatus.REVIEW_FAILED
+
+    def test_dirty_tree_still_rejected_without_wip(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config(log_dir=tmp_path, auto_commit=False)
+        assert self._run(config, tmp_path) == FinalStatus.REVIEW_FAILED
+
+
+class TestSaveMetadataWip:
+    def test_records_the_unwind_target(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        # An interrupted run is only recoverable while this survives.
+        config = make_loop_config(
+            log_dir=tmp_path, wip=True, wip_base="b" * 40, wip_scaffold="c" * 40
+        )
+        _save_metadata(config, tmp_path)
+        assert (tmp_path / "wip-base.txt").read_text() == "b" * 40
+        assert (tmp_path / "wip-scaffold.txt").read_text() == "c" * 40
+
+    def test_omits_when_nothing_was_scaffolded(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        config = make_loop_config(log_dir=tmp_path, wip=True, dry_run=True)
+        _save_metadata(config, tmp_path)
+        assert not (tmp_path / "wip-base.txt").exists()
+
+    def test_clears_a_stale_marker(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        (tmp_path / "wip-base.txt").write_text("b" * 40)
+        _save_metadata(make_loop_config(log_dir=tmp_path), tmp_path)
+        assert not (tmp_path / "wip-base.txt").exists()
+
+
+class TestWipResumeGuard:
+    def test_resume_without_the_recorded_base_is_refused(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        (tmp_path / "branch.txt").write_text("feat/test")
+        (tmp_path / "wip-base.txt").write_text("b" * 40)
+        config = make_loop_config(log_dir=tmp_path, resume=True, wip=True)
+        with patch(
+            "mr_overkill.loop_engine.detect_state",
+            return_value=ResumeState(
+                status="resumable", resume_from=2, reuse_review=False
+            ),
+        ):
+            result = review_fix_loop(
+                config,
+                reviewer=MagicMock(return_value=True),
+                fixer=MagicMock(return_value=True),
+                cwd=tmp_path,
+            )
+        assert result.final_status == FinalStatus.REVIEW_FAILED

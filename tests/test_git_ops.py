@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from mr_overkill.git_ops import (
     changed_files_since_snapshot,
     commit_and_push,
@@ -265,3 +267,33 @@ class TestCommitAndPushPushFlag:
         ) is True
         assert self._head_of(remote) != remote_before
         assert self._head_of(remote) == self._head_of(tmp_git_repo)
+
+
+class TestCommitAndPushNoVerify:
+    """WIP commits carry unfinished work, so the hooks that would reject it
+    have to be skipped — and only there."""
+
+    def _repo_with_failing_hook(self, repo: Path) -> None:
+        hook = repo / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+
+    def test_hooks_block_a_normal_commit(self, tmp_git_repo: Path) -> None:
+        self._repo_with_failing_hook(tmp_git_repo)
+        (tmp_git_repo / "a.py").write_text("a = 1\n")
+
+        with pytest.raises(RuntimeError):
+            commit_and_push([], "test: a", push=False, cwd=tmp_git_repo)
+
+    def test_no_verify_gets_the_commit_through(self, tmp_git_repo: Path) -> None:
+        self._repo_with_failing_hook(tmp_git_repo)
+        (tmp_git_repo / "a.py").write_text("a = 1\n")
+
+        assert commit_and_push(
+            [], "test: a", push=False, no_verify=True, cwd=tmp_git_repo
+        )
+        log = subprocess.run(
+            ["git", "log", "-1", "--format=%s"],
+            cwd=tmp_git_repo, capture_output=True, text=True, check=True,
+        )
+        assert log.stdout.strip() == "test: a"

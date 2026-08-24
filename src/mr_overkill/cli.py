@@ -351,6 +351,15 @@ def parse_review_loop_args(
             "(default: the branch stays local)"
         ),
     )
+    parser.add_argument(
+        "--wip",
+        action="store_true",
+        help=(
+            "Include uncommitted working-tree changes in the review. "
+            "With commits enabled they are parked in a scaffolding commit "
+            "that is unwound when the run finishes"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -363,6 +372,11 @@ def parse_review_loop_args(
             parser.error(
                 "--commit derives its base from the commit itself; "
                 "-t/--target cannot be combined with it"
+            )
+        if args.wip:
+            parser.error(
+                "--commit and --wip are different review scopes; "
+                "pick one"
             )
 
     # Load rc file defaults
@@ -473,6 +487,16 @@ def parse_review_loop_args(
             if saved.is_file():
                 args.push = saved.read_text().strip() == "true"
 
+    wip_base = None
+    wip_scaffold = None
+    if args.resume and args.wip:
+        saved = log_dir / "wip-base.txt"
+        if saved.is_file():
+            wip_base = saved.read_text().strip() or None
+        saved = log_dir / "wip-scaffold.txt"
+        if saved.is_file():
+            wip_scaffold = saved.read_text().strip() or None
+
     scope_commit = None
     if args.commit:
         scope_commit = resolve_commit(args.commit)
@@ -489,6 +513,17 @@ def parse_review_loop_args(
                     f"commit {restored}"
                 )
             scope_commit = restored
+            if args.wip:
+                # The mutual-exclusion check above only sees an explicit
+                # --commit. A restored one slips past it, and the resulting
+                # config takes the commit-scope branch below — leaving a
+                # --wip --no-auto-commit resume to reach the loop's resume
+                # reset, which stashes the very working tree it reviews.
+                parser.error(
+                    f"the resumed run is commit-scoped ({restored[:7]}); "
+                    "--commit and --wip are different review scopes. "
+                    "Drop --wip, or start a fresh --wip run."
+                )
             if args.target:
                 parser.error(
                     "--commit derives its base from the commit itself; "
@@ -537,6 +572,36 @@ def parse_review_loop_args(
         # quiet for, and no trigger commit worth saving up.
         ci_trigger_mode = "every"
         pr_number = None
+    elif args.wip:
+        if args.resume and not (auto_commit and not dry_run):
+            # Without commits a --wip run is a single pass with no state worth
+            # resuming, and resuming one would be actively harmful: the loop's
+            # resume reset stashes the very working tree being reviewed.
+            parser.error(
+                "--wip without commits is a single pass; there is nothing to "
+                "resume. Drop --resume, or allow commits so the work is "
+                "scaffolded first."
+            )
+        if auto_commit and not dry_run:
+            # The scaffolding commit becomes HEAD, so a target that resolves
+            # at loop time — "HEAD", or the branch we are sitting on — would
+            # then name the scaffolding commit itself and the diff would come
+            # out empty.  Pin it to what HEAD means right now.  On resume that
+            # pinning already happened and the restored value wins.
+            if restored_target is None:
+                pinned = resolve_commit(target)
+                if pinned is None:
+                    parser.error(f"-t/--target: not a commit: {target!r}")
+                target = pinned
+        elif max_loop and max_loop > 1:
+            logging.getLogger(__name__).warning(
+                "--wip without commits runs a single iteration; "
+                "-n %d has no effect.",
+                max_loop,
+            )
+        # Findings describe uncommitted code that is not in any PR, so a
+        # comment on the branch's PR would point at nothing.
+        pr_number = None
     else:
         pr_number = _detect_pr_number(current_branch)
 
@@ -547,6 +612,10 @@ def parse_review_loop_args(
         if scope_commit
         else True
     )
+    if args.wip:
+        # Not configurable: pushing here would publish unfinished work — and
+        # the scaffolding commit holding it — to a shared branch.
+        push_branch = False
 
     return LoopConfig(
         current_branch=current_branch,
@@ -574,6 +643,9 @@ def parse_review_loop_args(
         scope_commit=scope_commit,
         scope_diff_file=(log_dir / "scope.diff") if scope_commit else None,
         push_branch=push_branch,
+        wip=args.wip,
+        wip_base=wip_base,
+        wip_scaffold=wip_scaffold,
     )
 
 

@@ -103,6 +103,10 @@ Options:
                            applies fixes there; no PR is created. <rev> is a single
                            commit — ranges are not supported. Excludes -t.
   --push                   Push the auto-created review branch (default: local only)
+  --wip                    Include uncommitted working-tree changes in the review.
+                           With commits enabled they are parked in a scaffolding
+                           commit that is unwound when the run finishes, so no
+                           commit is left behind either way. Excludes --commit.
   -n, --max-loop <N>       Maximum review-fix iterations (required, unless --resume)
   --max-subloop <N>        Maximum self-review sub-iterations per fix (default: 4)
   --no-self-review         Disable self-review (equivalent to --max-subloop 0)
@@ -138,6 +142,10 @@ Examples:
   # Improve a commit that is already merged
   overkill review-loop --commit abc123 -n 1 --dry-run   # report only, no branch
   overkill review-loop --commit abc123 -n 3             # fix on a review/* branch
+
+  # Review work you have not committed yet
+  overkill review-loop --wip -n 1 --dry-run   # report only, nothing touched
+  overkill review-loop --wip -n 3             # fix it, still uncommitted at the end
 ```
 
 ### Reviewing an already-merged commit
@@ -162,10 +170,71 @@ git switch main && git pull
 overkill review-loop --commit abc123 -n 3
 ```
 
-**After upgrading, re-run `overkill init`** in each repo — `--commit` needs the
-`${REVIEW_SCOPE_NOTE}` marker that the refreshed review prompts carry, and the
-run aborts with an explanatory error if it is missing. Note that `init`
-overwrites `.overkill/prompts/active/`, so back up any customised prompts first.
+**After upgrading, re-run `overkill init`** in each repo — `--commit` and
+`--wip` need the `${REVIEW_SCOPE_NOTE}` marker that the refreshed review prompts
+carry, and the run aborts with an explanatory error if it is missing. Note that
+`init` overwrites `.overkill/prompts/active/`, so back up any customised prompts
+first.
+
+### Reviewing work you have not committed yet
+
+Without `--wip` the review scope is `git diff <target>...<current>` — committed
+work only. A dirty tree is rejected outright, and under `--dry-run` it is
+silently left out of scope. `--wip` pulls it in.
+
+How it gets there depends on whether the run is allowed to commit:
+
+| Command | Mechanism | Iterations | Commits left behind |
+|---|---|---|---|
+| `--wip --dry-run` | worktree diff written to `.overkill/logs/wip.diff` | 1 (review only) | none |
+| `--wip --no-auto-commit` | same | 1 | none |
+| `--wip` | scaffolding commit, unwound at the end | up to `-n` | none |
+
+Both paths end the same way: your working tree is dirty again, with the fixes
+applied on top of your own edits. Only the iteration count differs. Multiple
+iterations need commits because the loop detects convergence from the commit
+graph, so `--wip` parks your work in a throwaway commit, lets the loop run
+against it unchanged, and then removes the scaffolding with
+`git reset --mixed`.
+
+```bash
+overkill review-loop --wip -n 3
+git diff                              # your work plus the fixes, uncommitted
+cat .overkill/logs/wip-fixes.diff     # just what the loop changed
+```
+
+Worth knowing before you use it:
+
+- **Nothing is ever pushed** in `--wip` mode, and no PR is commented on. This is
+  not configurable — the scaffolding commit holds unfinished work.
+- **`git add -A` sweeps in anything `.gitignore` does not cover.** The file list
+  is printed before the scaffolding commit is made. Nothing is pushed and the
+  commit is unwound, but check the list if you keep untracked secrets around.
+- **A staged/unstaged split does not survive.** `git reset --mixed` leaves
+  everything unstaged.
+- **If the run is interrupted the scaffolding stays.** The command to undo it is
+  printed at the start and the base commit is saved to
+  `.overkill/logs/wip-base.txt`; `--wip --resume` picks an interrupted run back
+  up, parking the work again if the scaffolding is already gone. A run that
+  already finished is left alone. Resume needs commits enabled — the other two
+  modes are a single pass with nothing to resume. A *fresh* `--wip` run refuses
+  to start on top of leftover scaffolding rather than nest a second commit on
+  it, which would strand the earlier draft on the branch — including when the
+  scaffolding sits behind fix commits the interrupted run already made. A
+  resume refuses too if you have committed normally on top of it, because
+  unwinding would rewind that commit into uncommitted changes.
+- **A resumed run's `wip-fixes.diff` only covers the iterations after the
+  resume.** Re-parking folds the earlier attempt's fixes in with your own work,
+  so they cannot be told apart again; that attempt's diff is kept beside it as
+  `wip-fixes-<sha>.diff`.
+- **Commit hooks are skipped** for the run's own commits. Work in progress
+  routinely fails hooks it will pass once finished, and every commit `--wip`
+  makes is torn down again.
+- **An unfinished merge, rebase, cherry-pick or revert blocks the mode.** The
+  scaffolding commit would conclude the operation, and unwinding would then
+  reset past it.
+- **New files are included.** They are staged as intent-to-add so the reviewer
+  can see them, then unstaged again.
 
 ## Usage: overkill refactor-suggest
 

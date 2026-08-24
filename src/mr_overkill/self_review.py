@@ -55,6 +55,7 @@ def self_review_subloop(
     budget_scope: BudgetScope = BudgetScope.MICRO,
     dry_run: bool = False,
     fix_nits: bool = False,
+    scope_note: str = "",
     original_review_json: dict[str, object] | None = None,
     cwd: Path | None = None,
 ) -> str:
@@ -82,6 +83,9 @@ def self_review_subloop(
         Scope for budget checks (default: micro).
     dry_run
         If True, review only — skip re-fix.
+    scope_note
+        Extra calibration appended to the guidelines, for runs where the diff
+        is not purely the fixer's work.
     original_review_json
         Parsed original review dict (for refactoring_plan injection).
     cwd
@@ -135,7 +139,7 @@ def self_review_subloop(
             )
             break
 
-        extra_guidelines = _FIX_NITS_GUIDELINES if fix_nits else ""
+        extra_guidelines = (_FIX_NITS_GUIDELINES if fix_nits else "") + scope_note
         prompt_vars = {
             "CURRENT_BRANCH": current_branch,
             "TARGET_BRANCH": target_branch,
