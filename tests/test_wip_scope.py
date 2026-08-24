@@ -214,6 +214,26 @@ class TestCreateScaffoldCommit:
         files = _git(tmp_git_repo, "show", "--name-only", "--format=", sha).split()
         assert files == ["real.py"]
 
+    def test_an_already_staged_log_artefact_stays_out_of_the_commit(
+        self, tmp_git_repo: Path
+    ) -> None:
+        """Filtering the *add* is not enough: committing the whole index would
+        put a log file the user had staged themselves into the scaffolding
+        commit, and so into the diff the reviewer reads."""
+        _write_log(tmp_git_repo)
+        _git(tmp_git_repo, "add", ".overkill/logs/review-1.json")
+        (tmp_git_repo / "real.py").write_text("real = 1\n")
+
+        sha = create_scaffold_commit(tmp_git_repo)
+        assert sha is not None
+
+        files = _git(tmp_git_repo, "show", "--name-only", "--format=", sha).split()
+        assert files == ["real.py"]
+        # Left staged exactly as the user had it — not committed, not reset.
+        assert _git(tmp_git_repo, "diff", "--cached", "--name-only") == (
+            ".overkill/logs/review-1.json"
+        )
+
     def test_gitignored_log_directory_does_not_abort_the_add(
         self, tmp_git_repo: Path
     ) -> None:
@@ -480,6 +500,43 @@ class TestUnwind:
 
         assert not unwind(base, None, out_dir, tmp_git_repo)
         assert _git(tmp_git_repo, "rev-parse", "HEAD") == head
+
+    def test_refuses_on_a_branch_cut_from_the_scaffolding(
+        self, tmp_git_repo: Path, out_dir: Path
+    ) -> None:
+        """Ancestry is not identity: a branch cut from the scaffolding commit
+        has it in its history too, so resetting on the strength of that would
+        turn this branch's own commits into uncommitted changes."""
+        base, scaffold = self._scaffold_then_fix(tmp_git_repo)
+        original = _branch(tmp_git_repo)
+        _git(tmp_git_repo, "checkout", "-q", "-b", "descendant")
+        (tmp_git_repo / "later.py").write_text("later = 1\n")
+        _git(tmp_git_repo, "add", "later.py")
+        _git(tmp_git_repo, "commit", "-m", "work on the descendant branch")
+        head = _git(tmp_git_repo, "rev-parse", "HEAD")
+
+        assert not unwind(base, scaffold, out_dir, tmp_git_repo, branch=original)
+        assert _git(tmp_git_repo, "rev-parse", "HEAD") == head
+
+    def test_saves_uncommitted_fixer_edits(
+        self, tmp_git_repo: Path, out_dir: Path
+    ) -> None:
+        """A fixer that edits files and then fails leaves HEAD at the
+        scaffolding commit, so a commit-to-commit diff would report nothing
+        and the reset would fold those edits into the author's own work."""
+        (tmp_git_repo / "feature.py").write_text("def f():\n    return 1\n")
+        base = _git(tmp_git_repo, "rev-parse", "HEAD")
+        scaffold = create_scaffold_commit(tmp_git_repo)
+        (tmp_git_repo / "feature.py").write_text("def f() -> int:\n    return 1\n")
+        (tmp_git_repo / "added_by_the_fixer.py").write_text("helper = 1\n")
+
+        assert unwind(base, scaffold, out_dir, tmp_git_repo)
+
+        fixes = (out_dir / "wip-fixes.diff").read_text()
+        assert "def f() -> int:" in fixes
+        assert "added_by_the_fixer.py" in fixes
+        # The intent-to-add used to make the new file visible is undone.
+        assert _git(tmp_git_repo, "diff", "--cached", "--name-only") == ""
 
     def test_refuses_on_a_sibling_branch(
         self, tmp_git_repo: Path, out_dir: Path

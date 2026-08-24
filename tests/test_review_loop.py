@@ -441,7 +441,13 @@ class TestPrepareWipScope:
         tmp_path: Path,
         **kw: object,
     ) -> LoopConfig:
-        return make_loop_config(wip=True, log_dir=tmp_path / "logs", **kw)
+        config = make_loop_config(wip=True, log_dir=tmp_path / "logs", **kw)
+        if config.resume:
+            # A resume identifies its scaffolding by the branch it was made
+            # on, which the interrupted run recorded here.
+            config.log_dir.mkdir(parents=True, exist_ok=True)
+            (config.log_dir / "branch.txt").write_text(config.current_branch)
+        return config
 
     def _resumable_logs(self, config: LoopConfig) -> None:
         """Make ``detect_state`` see an interrupted run worth resuming."""
@@ -607,6 +613,7 @@ class TestPrepareWipScope:
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
+        mock_ws.operation_in_progress.return_value = None
         mock_ws.is_in_head.return_value = True
         config = self._config(
             make_loop_config,
@@ -641,6 +648,51 @@ class TestPrepareWipScope:
         assert _prepare_wip_scope(config) is False
         mock_ws.create_scaffold_commit.assert_not_called()
         mock_ws.save_metadata.assert_not_called()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_resume_on_another_branch_refuses(
+        self,
+        mock_ws: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # The scaffolding commit is in the history of every branch cut from
+        # it, so the ancestry test below would pass here and the unwind would
+        # reset this branch's own commits into uncommitted changes.
+        mock_ws.is_in_head.return_value = True
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+        (config.log_dir / "branch.txt").write_text("feat/somewhere-else")
+
+        assert _prepare_wip_scope(config) is False
+        mock_ws.create_scaffold_commit.assert_not_called()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_resume_with_the_scaffold_in_head_still_checks_for_a_merge(
+        self,
+        mock_ws: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # This resume commits without scaffolding again, so the guard has to
+        # sit ahead of it: a fix commit would conclude the merge, and the
+        # unwind's reset would then drop MERGE_HEAD.
+        mock_ws.operation_in_progress.return_value = "merge"
+        mock_ws.is_in_head.return_value = True
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+
+        assert _prepare_wip_scope(config) is False
 
     @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
     @patch("mr_overkill.review_loop.wip_scope")
@@ -781,6 +833,7 @@ class TestPrepareWipScope:
         # an interrupted run's. Re-parking here would sweep the tree into a
         # commit the loop short-circuits past and then unwind it again, for a
         # command that used to be a no-op.
+        mock_ws.operation_in_progress.return_value = None
         mock_ws.is_in_head.return_value = False
         mock_ws.uncommitted_files.return_value = ["a.py"]
         mock_resolve.return_value = "b" * 40
@@ -851,6 +904,7 @@ class TestPrepareWipScope:
         # Nothing uncommitted and nothing in the recorded scaffolding means an
         # earlier run was killed before it could unwind: the work sits in a
         # commit of its own and only the base leads back to it.
+        mock_ws.operation_in_progress.return_value = None
         mock_ws.is_in_head.return_value = False
         mock_ws.uncommitted_files.return_value = []
         mock_resolve.return_value = "e" * 40
@@ -898,7 +952,7 @@ class TestWipUnwind:
 
         assert run(config) == 0
         mock_ws.unwind.assert_called_once_with(
-            "b" * 40, "c" * 40, config.log_dir
+            "b" * 40, "c" * 40, config.log_dir, branch=config.current_branch
         )
 
     @patch("mr_overkill.review_loop.wip_scope")

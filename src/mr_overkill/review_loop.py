@@ -133,6 +133,22 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
         wip_diff.unlink(missing_ok=True)
         return True
 
+    if _wip_commits_allowed(config):
+        # Ahead of every path below, including the resume short-circuits: this
+        # run may commit, and a commit made during an unfinished operation
+        # concludes it — while the unwind's reset drops its metadata. A resume
+        # whose scaffolding is still in HEAD would otherwise skip the check.
+        in_progress = wip_scope.operation_in_progress()
+        if in_progress:
+            logger.error(
+                "A %s is in progress. The scaffolding commit would conclude "
+                "it, and unwinding would then reset past it. Finish or abort "
+                "the %s first.",
+                in_progress,
+                in_progress,
+            )
+            return False
+
     # Set only when this run re-parks work a previous one left uncommitted;
     # a clean tree means something different there.
     reparking_from: str | None = None
@@ -140,6 +156,26 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
     # wip-fixes.diff belongs to.
     previous_scaffold: str | None = None
     if config.resume and _wip_commits_allowed(config):
+        # Before anything reads the recorded SHAs: the scaffolding commit is
+        # also in the history of every branch cut from it, so ancestry alone
+        # would let a resume on one of those reach the unwind and reset its
+        # commits away.  The branch the scaffolding was made on is the only
+        # thing that identifies it.
+        branch_file = config.log_dir / "branch.txt"
+        scaffolded_branch = (
+            branch_file.read_text().strip() if branch_file.is_file() else ""
+        )
+        if scaffolded_branch != config.current_branch:
+            logger.error(
+                "Cannot resume a --wip run here: the scaffolding was made on "
+                "'%s' but you are on '%s'. Unwinding would reset '%s' back to "
+                "the recorded base. Switch back to '%s' first.",
+                scaffolded_branch or "(unrecorded)",
+                config.current_branch,
+                config.current_branch,
+                scaffolded_branch or "the original branch",
+            )
+            return False
         if not config.wip_base:
             logger.error(
                 "Cannot resume a --wip run: the scaffolding commit's base is "
@@ -236,17 +272,6 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
             config.current_branch,
         )
 
-    in_progress = wip_scope.operation_in_progress()
-    if in_progress:
-        logger.error(
-            "A %s is in progress. The scaffolding commit would conclude it, "
-            "and unwinding would then reset past it. Finish or abort the %s "
-            "first.",
-            in_progress,
-            in_progress,
-        )
-        return False
-
     head = commit_scope.resolve_commit("HEAD")
     if head is None:
         logger.error("--wip requires a repository with at least one commit.")
@@ -303,7 +328,12 @@ def _unwind_wip_scope(config: LoopConfig) -> bool:
     # other run made.
     if not _wip_commits_allowed(config):
         return True
-    if wip_scope.unwind(config.wip_base, config.wip_scaffold, config.log_dir):
+    if wip_scope.unwind(
+        config.wip_base,
+        config.wip_scaffold,
+        config.log_dir,
+        branch=config.current_branch,
+    ):
         return True
     logger.error(
         "Working tree contents are intact, but the scaffolding commit is "

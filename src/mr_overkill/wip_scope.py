@@ -101,21 +101,18 @@ def merge_base(target: str, cwd: Path | None = None) -> str | None:
     return result.stdout.strip() or None
 
 
-def write_worktree_diff(target: str, output: Path, cwd: Path | None = None) -> int:
-    """Write the fork-point-to-working-tree diff to *output*; return byte count.
+def _worktree_diff(commit: str, cwd: Path | None = None) -> str | None:
+    """``git diff <commit>`` against the working tree; ``None`` if git failed.
 
-    Returns 0 when git fails or there is nothing to review; the caller is
-    expected to treat that as fatal rather than reviewing an empty patch.
+    ``git diff <commit>`` compares the commit against the *working tree*, which
+    is the whole point here: committed work and uncommitted edits land in one
+    patch.
 
     Untracked files are invisible to ``git diff``, so they are staged as
     intent-to-add first — the trick ``self_review._generate_diff`` uses.  Only
     the untracked paths are added and only those are reset afterwards, so a
     user's existing staged/unstaged split survives untouched.
     """
-    base = merge_base(target, cwd)
-    if base is None:
-        return 0
-
     untracked = _untracked_files(cwd)
     if untracked:
         _run(
@@ -124,21 +121,16 @@ def write_worktree_diff(target: str, output: Path, cwd: Path | None = None) -> i
             stdin="\n".join(untracked),
         )
     try:
-        # ``git diff <commit>`` compares the commit against the *working tree*,
-        # which is the whole point here: committed branch work and uncommitted
-        # edits land in one patch.
-        result = _run(["git", "diff", base], cwd)
+        result = _run(["git", "diff", commit], cwd)
         if result.returncode != 0:
             logger.error(
                 "git diff %s failed (exit %d): %s",
-                base,
+                commit,
                 result.returncode,
                 result.stderr.strip(),
             )
-            return 0
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(result.stdout, encoding="utf-8")
-        return len(result.stdout.encode("utf-8"))
+            return None
+        return result.stdout
     finally:
         if untracked:
             _run(
@@ -146,6 +138,23 @@ def write_worktree_diff(target: str, output: Path, cwd: Path | None = None) -> i
                 cwd,
                 stdin="\n".join(untracked),
             )
+
+
+def write_worktree_diff(target: str, output: Path, cwd: Path | None = None) -> int:
+    """Write the fork-point-to-working-tree diff to *output*; return byte count.
+
+    Returns 0 when git fails or there is nothing to review; the caller is
+    expected to treat that as fatal rather than reviewing an empty patch.
+    """
+    base = merge_base(target, cwd)
+    if base is None:
+        return 0
+    diff = _worktree_diff(base, cwd)
+    if diff is None:
+        return 0
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(diff, encoding="utf-8")
+    return len(diff.encode("utf-8"))
 
 
 def create_scaffold_commit(cwd: Path | None = None) -> str | None:
@@ -182,8 +191,17 @@ def create_scaffold_commit(cwd: Path | None = None) -> str | None:
     for f in files:
         logger.info("  %s", f)
 
+    # Same pathspec as the add: the index may already hold a log artefact the
+    # user staged themselves, and committing the whole index would put it in
+    # the scaffolding commit — and so in the branch diff the reviewer reads —
+    # despite being excluded from the scope above.  It stays staged, untouched.
     committed = _run(
-        ["git", "commit", "--no-verify", "--quiet", "-m", SCAFFOLD_MESSAGE], cwd
+        [
+            "git", "commit", "--no-verify", "--quiet",
+            "-m", SCAFFOLD_MESSAGE, "--pathspec-from-file=-",
+        ],
+        cwd,
+        stdin="\n".join(files),
     )
     if committed.returncode != 0:
         # "nothing to commit" — a dirty submodule whose gitlink did not move
@@ -243,6 +261,7 @@ def unwind(
     scaffold: str | None,
     log_dir: Path,
     cwd: Path | None = None,
+    branch: str | None = None,
 ) -> bool:
     """Tear the scaffolding down: back to *base* with the changes uncommitted.
 
@@ -272,14 +291,35 @@ def unwind(
             scaffold[:7],
         )
         return False
+    # Ancestry is not identity: the scaffolding commit is also in the history
+    # of anything branched off it.  *branch* is the branch the scaffolding was
+    # made on, so a mismatch here means the reset would rewind someone else's
+    # commits into uncommitted changes.
+    if branch:
+        current = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd)
+        on = current.stdout.strip()
+        if current.returncode != 0 or on != branch:
+            logger.error(
+                "Cannot unwind: the scaffolding was made on '%s' but HEAD is "
+                "on '%s'. HEAD is left alone; switch back and undo it there: "
+                "git reset --mixed %s",
+                branch,
+                on or "(unknown)",
+                base,
+            )
+            return False
 
-    result = _run(["git", "diff", scaffold, "HEAD"], cwd)
-    # An empty diff means the loop committed nothing, so there is nothing to
+    # Diffed against the working tree, not HEAD: a fixer that edited files and
+    # then failed leaves HEAD at the scaffolding commit, and those edits are
+    # exactly what has to stay distinguishable from the user's own work once
+    # the reset below mixes the two.
+    fixes = _worktree_diff(scaffold, cwd)
+    # An empty diff means the loop changed nothing, so there is nothing to
     # report — and writing it would replace an earlier attempt's artefact with
     # a file that says the loop changed nothing.
-    if result.returncode == 0 and result.stdout.strip():
+    if fixes and fixes.strip():
         log_dir.mkdir(parents=True, exist_ok=True)
-        (log_dir / "wip-fixes.diff").write_text(result.stdout, encoding="utf-8")
+        (log_dir / "wip-fixes.diff").write_text(fixes, encoding="utf-8")
 
     reset = _run(["git", "reset", "--quiet", "--mixed", base], cwd)
     if reset.returncode != 0:
