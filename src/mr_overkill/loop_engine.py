@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Protocol
 
+from mr_overkill import wip_scope
 from mr_overkill.git_ops import (
     commit_and_push,
     diff_hash,
@@ -132,6 +133,10 @@ def _normalize_paths(review: dict[str, object], cwd: Path | None) -> dict[str, o
 
 # ── Main loop engine ─────────────────────────────────────────────────
 
+#: Subject prefix of the loop's fix commits. ``_prepare_wip_scope`` needs
+#: the same one to ask ``detect_state`` what this run is resuming.
+DEFAULT_COMMIT_PATTERN = "fix(ai-review): apply iteration"
+
 
 def review_fix_loop(
     config: LoopConfig,
@@ -140,7 +145,7 @@ def review_fix_loop(
     fixer: FixFn,
     self_reviewer: SelfReviewFn | None = None,
     pre_fix_confirm: PreFixConfirmFn | None = None,
-    commit_pattern: str = "fix(ai-review): apply iteration",
+    commit_pattern: str = DEFAULT_COMMIT_PATTERN,
     cwd: Path | None = None,
 ) -> LoopResult:
     """Run the review-fix loop.
@@ -763,10 +768,7 @@ def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
         (log_dir / "scope-commit.txt").unlink(missing_ok=True)
         (log_dir / "push-branch.txt").unlink(missing_ok=True)
     if config.wip_base:
-        # An interrupted --wip run is only recoverable while these survive:
-        # they are the sole record of where to unwind the scaffolding to.
-        (log_dir / "wip-base.txt").write_text(config.wip_base)
-        (log_dir / "wip-scaffold.txt").write_text(config.wip_scaffold or "")
+        wip_scope.save_metadata(log_dir, config.wip_base, config.wip_scaffold)
     else:
         (log_dir / "wip-base.txt").unlink(missing_ok=True)
         (log_dir / "wip-scaffold.txt").unlink(missing_ok=True)

@@ -11,11 +11,16 @@ from mr_overkill.agents import (
     create_self_review_agent,
 )
 from mr_overkill.git_ops import push_trigger_commit
-from mr_overkill.loop_engine import _reject_dirty_worktree, review_fix_loop
+from mr_overkill.loop_engine import (
+    DEFAULT_COMMIT_PATTERN,
+    _reject_dirty_worktree,
+    review_fix_loop,
+)
 from mr_overkill.models import (
     FinalStatus,
     LoopConfig,
 )
+from mr_overkill.resume import detect_state
 
 logger = logging.getLogger(__name__)
 
@@ -116,12 +121,24 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
     the run cannot proceed.
     """
     wip_diff = config.log_dir / "wip.diff"
+    if not config.resume:
+        # Only ``unwind`` writes this, at the very end of a committing run, so
+        # a leftover one always belongs to a previous run — and the README
+        # points users at it for "just what the loop changed".
+        for stale in config.log_dir.glob("wip-fixes*.diff"):
+            stale.unlink()
     if not config.wip:
         # Drop a previous WIP run's artefact so it can never be mistaken for
         # this run's scope.
         wip_diff.unlink(missing_ok=True)
         return True
 
+    # Set only when this run re-parks work a previous one left uncommitted;
+    # a clean tree means something different there.
+    reparking_from: str | None = None
+    # The scaffolding this run re-parks away from: it is what the existing
+    # wip-fixes.diff belongs to.
+    previous_scaffold: str | None = None
     if config.resume and _wip_commits_allowed(config):
         if not config.wip_base:
             logger.error(
@@ -130,11 +147,40 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
                 config.log_dir / "wip-base.txt",
             )
             return False
+        if config.wip_scaffold and wip_scope.is_in_head(config.wip_scaffold):
+            logger.info(
+                "Resuming a --wip run — scaffolding commit %s is already in "
+                "place.",
+                config.wip_scaffold[:7],
+            )
+            return True
+        state = detect_state(config.log_dir, DEFAULT_COMMIT_PATTERN)
+        if state.status != "resumable":
+            # ``unwind`` leaves the metadata behind on a run that finished
+            # normally too, so a dangling SHA on its own does not mean there
+            # is work to pick up.  Re-parking here would sweep the tree into
+            # a scaffolding commit the loop immediately short-circuits past,
+            # and the unwind would then write an empty wip-fixes.diff over
+            # the finished run's one.
+            logger.info(
+                "Nothing to resume in %s (%s) — the working tree is left as "
+                "it is.",
+                config.log_dir,
+                state.prev_status or state.status,
+            )
+            return True
+        # The metadata outlives the scaffolding: every return path unwinds it,
+        # including soft failures like a fixer error, so a resumable run
+        # routinely starts with the work uncommitted again.  Trusting the
+        # metadata here would send the loop's resume reset straight at it and
+        # stash the very work this run is meant to review.  Park it again.
         logger.info(
-            "Resuming a --wip run — scaffolding commit %s is already in place.",
+            "Scaffolding commit %s is gone — a previous run unwound it. "
+            "Re-parking the working tree.",
             (config.wip_scaffold or "?")[:7],
         )
-        return True
+        previous_scaffold = config.wip_scaffold
+        reparking_from = config.wip_base
 
     dirty = wip_scope.uncommitted_files()
     if not dirty:
@@ -142,6 +188,17 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
             "--wip: the working tree is clean — there is no uncommitted "
             "work to review.",
         )
+        # A clean tree on the re-park path means the work is not in the
+        # working tree *or* in the recorded scaffolding: an earlier run was
+        # killed before it could unwind. The base is the way back.
+        if reparking_from and commit_scope.resolve_commit("HEAD") != reparking_from:
+            logger.error(
+                "HEAD has moved past the recorded base %s — an interrupted run "
+                "may have left the work in a commit of its own. Check the "
+                "history, then: git reset --mixed %s",
+                reparking_from[:7],
+                reparking_from,
+            )
         return False
     logger.info("WIP scope: %d uncommitted file(s).", len(dirty))
 
@@ -193,6 +250,21 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
         return False
     config.wip_base = head
     config.wip_scaffold = scaffold
+    # ``_save_metadata`` only runs on fresh runs, so on the re-park path this
+    # is the only chance to replace the now-dangling SHA on disk.  Without it a
+    # run killed before its unwind leaves the work in a commit nothing records.
+    wip_scope.save_metadata(config.log_dir, head, scaffold)
+    # Only now is wip-fixes.diff doomed: this run's ``unwind`` will overwrite
+    # it, and the previous attempt's fixes are not recoverable from it because
+    # re-parking folded them into the new scaffolding alongside the user's own
+    # work.  Every abort path above returns before this, so a run that does no
+    # work leaves the artefact where the README says it is.
+    if previous_scaffold:
+        previous_fixes = config.log_dir / "wip-fixes.diff"
+        if previous_fixes.is_file():
+            kept = config.log_dir / f"wip-fixes-{previous_scaffold[:7]}.diff"
+            previous_fixes.rename(kept)
+            logger.info("Previous attempt's fixes kept at %s", kept)
     logger.warning(
         "If this run is interrupted the scaffolding stays behind. Undo it with:"
         "\n  git reset --mixed %s",

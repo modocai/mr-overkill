@@ -443,6 +443,11 @@ class TestPrepareWipScope:
     ) -> LoopConfig:
         return make_loop_config(wip=True, log_dir=tmp_path / "logs", **kw)
 
+    def _resumable_logs(self, config: LoopConfig) -> None:
+        """Make ``detect_state`` see an interrupted run worth resuming."""
+        config.log_dir.mkdir(parents=True, exist_ok=True)
+        (config.log_dir / "review-1.json").write_text("{}")
+
     @patch("mr_overkill.review_loop.wip_scope")
     def test_non_wip_run_clears_a_stale_artefact(
         self,
@@ -486,6 +491,26 @@ class TestPrepareWipScope:
         assert config.scope_diff_file == config.log_dir / "wip.diff"
         assert config.skip_initial_no_diff is True
         mock_ws.create_scaffold_commit.assert_not_called()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_a_previous_runs_fixes_diff_is_dropped(
+        self,
+        mock_ws: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # Only a committing run writes it, and only at the very end, so a
+        # dry-run (or non-WIP) run would otherwise leave the README's
+        # "just what the loop changed" pointing at the previous run's edits.
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.write_worktree_diff.return_value = 512
+        config = self._config(make_loop_config, tmp_path, dry_run=True)
+        config.log_dir.mkdir(parents=True, exist_ok=True)
+        stale = config.log_dir / "wip-fixes.diff"
+        stale.write_text("--- a previous run's fixes\n")
+
+        assert _prepare_wip_scope(config) is True
+        assert not stale.exists()
 
     @patch("mr_overkill.review_loop.wip_scope")
     def test_no_auto_commit_also_takes_the_diff_path(
@@ -581,6 +606,7 @@ class TestPrepareWipScope:
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
+        mock_ws.is_in_head.return_value = True
         config = self._config(
             make_loop_config,
             tmp_path,
@@ -590,6 +616,194 @@ class TestPrepareWipScope:
         )
         assert _prepare_wip_scope(config) is True
         mock_ws.create_scaffold_commit.assert_not_called()
+
+    @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_resume_rescaffolds_when_the_scaffold_is_gone(
+        self,
+        mock_ws: MagicMock,
+        mock_resolve: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # A soft failure unwinds the scaffolding but leaves wip-base.txt
+        # behind, so the work is uncommitted again by the time --resume runs.
+        # Taking the metadata at face value would let the loop's resume reset
+        # stash it away instead of reviewing it.
+        mock_ws.is_in_head.return_value = False
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.operation_in_progress.return_value = None
+        mock_resolve.return_value = "b" * 40
+        mock_ws.create_scaffold_commit.return_value = "d" * 40
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+        self._resumable_logs(config)
+        assert _prepare_wip_scope(config) is True
+        mock_ws.create_scaffold_commit.assert_called_once()
+        # Re-parking from the same base keeps loop_engine's resume check happy.
+        assert config.wip_base == "b" * 40
+        assert config.wip_scaffold == "d" * 40
+
+    @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_a_rescaffold_records_the_new_sha(
+        self,
+        mock_ws: MagicMock,
+        mock_resolve: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # loop_engine only saves metadata on fresh runs, so if this path does
+        # not write the SHA itself, wip-scaffold.txt keeps naming the dangling
+        # commit — and a run killed before its unwind leaves the work parked
+        # in a commit nothing on disk records.
+        mock_ws.is_in_head.return_value = False
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.operation_in_progress.return_value = None
+        mock_resolve.return_value = "b" * 40
+        mock_ws.create_scaffold_commit.return_value = "d" * 40
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+        self._resumable_logs(config)
+        assert _prepare_wip_scope(config) is True
+        mock_ws.save_metadata.assert_called_once_with(
+            config.log_dir, "b" * 40, "d" * 40
+        )
+
+    @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_a_rescaffold_keeps_the_previous_attempts_fixes(
+        self,
+        mock_ws: MagicMock,
+        mock_resolve: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # This run's unwind overwrites wip-fixes.diff, and re-parking folded
+        # the earlier fixes in with the user's own work, so the old diff is
+        # the only remaining record of what that attempt changed.
+        mock_ws.is_in_head.return_value = False
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.operation_in_progress.return_value = None
+        mock_resolve.return_value = "b" * 40
+        mock_ws.create_scaffold_commit.return_value = "d" * 40
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+        self._resumable_logs(config)
+        (config.log_dir / "wip-fixes.diff").write_text("--- attempt 1's fixes\n")
+
+        assert _prepare_wip_scope(config) is True
+        assert not (config.log_dir / "wip-fixes.diff").exists()
+        kept = config.log_dir / f"wip-fixes-{'c' * 7}.diff"
+        assert kept.read_text() == "--- attempt 1's fixes\n"
+
+    @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_a_finished_run_is_not_reparked(
+        self,
+        mock_ws: MagicMock,
+        mock_resolve: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # A run that finished normally also unwinds its scaffolding and also
+        # leaves the metadata behind, so the dangling SHA looks exactly like
+        # an interrupted run's. Re-parking here would sweep the tree into a
+        # commit the loop short-circuits past and then unwind it again, for a
+        # command that used to be a no-op.
+        mock_ws.is_in_head.return_value = False
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_resolve.return_value = "b" * 40
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+        config.log_dir.mkdir(parents=True, exist_ok=True)
+        (config.log_dir / "summary.md").write_text("**Final status**: all_clear\n")
+        (config.log_dir / "wip-fixes.diff").write_text("--- the finished run\n")
+
+        assert _prepare_wip_scope(config) is True
+        mock_ws.create_scaffold_commit.assert_not_called()
+        assert (config.log_dir / "wip-fixes.diff").read_text() == (
+            "--- the finished run\n"
+        )
+
+    @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_an_aborted_repark_leaves_the_fixes_diff_alone(
+        self,
+        mock_ws: MagicMock,
+        mock_resolve: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # The artefact is only doomed once the new scaffolding exists. Bailing
+        # out before that and still having renamed it would break the command
+        # the README documents on a run that did nothing.
+        mock_ws.is_in_head.return_value = False
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.operation_in_progress.return_value = "merge"
+        mock_resolve.return_value = "b" * 40
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+        self._resumable_logs(config)
+        (config.log_dir / "wip-fixes.diff").write_text("--- attempt 1's fixes\n")
+
+        assert _prepare_wip_scope(config) is False
+        assert (config.log_dir / "wip-fixes.diff").read_text() == (
+            "--- attempt 1's fixes\n"
+        )
+        assert not list(config.log_dir.glob("wip-fixes-*.diff"))
+
+    @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_a_clean_tree_while_rescaffolding_points_at_the_base(
+        self,
+        mock_ws: MagicMock,
+        mock_resolve: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # Nothing uncommitted and nothing in the recorded scaffolding means an
+        # earlier run was killed before it could unwind: the work sits in a
+        # commit of its own and only the base leads back to it.
+        mock_ws.is_in_head.return_value = False
+        mock_ws.uncommitted_files.return_value = []
+        mock_resolve.return_value = "e" * 40
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+        self._resumable_logs(config)
+        assert _prepare_wip_scope(config) is False
+        assert f"git reset --mixed {'b' * 40}" in caplog.text
 
     @patch("mr_overkill.review_loop.wip_scope")
     def test_resume_without_a_recorded_base_refuses(

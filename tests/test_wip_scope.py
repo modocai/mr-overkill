@@ -17,8 +17,10 @@ import pytest
 from mr_overkill.wip_scope import (
     SCAFFOLD_MESSAGE,
     create_scaffold_commit,
+    is_in_head,
     merge_base,
     operation_in_progress,
+    save_metadata,
     uncommitted_files,
     unwind,
     write_worktree_diff,
@@ -277,6 +279,38 @@ class TestOperationInProgress:
         assert operation_in_progress(tmp_git_repo) == "merge"
 
 
+class TestIsInHead:
+    def test_a_commit_on_the_branch_is_found(self, tmp_git_repo: Path) -> None:
+        (tmp_git_repo / "feature.py").write_text("x = 1\n")
+        scaffold = create_scaffold_commit(tmp_git_repo)
+        assert scaffold is not None
+
+        assert is_in_head(scaffold, tmp_git_repo) is True
+
+    def test_an_unwound_commit_is_not_found(self, tmp_git_repo: Path) -> None:
+        # This is what a resumed --wip run faces after a soft failure took the
+        # scaffolding down: the recorded SHA no longer exists in the history.
+        base = _git(tmp_git_repo, "rev-parse", "HEAD")
+        (tmp_git_repo / "feature.py").write_text("x = 1\n")
+        scaffold = create_scaffold_commit(tmp_git_repo)
+        assert scaffold is not None
+        _git(tmp_git_repo, "reset", "--quiet", "--mixed", base)
+
+        assert is_in_head(scaffold, tmp_git_repo) is False
+
+
+class TestSaveMetadata:
+    def test_it_replaces_a_dangling_scaffold_sha(self, tmp_path: Path) -> None:
+        # The re-park path calls this to overwrite the SHA a soft-failed run
+        # left behind; a stale one has no route back to the parked work.
+        log_dir = tmp_path / "logs"
+        save_metadata(log_dir, "b" * 40, "c" * 40)
+        save_metadata(log_dir, "b" * 40, "d" * 40)
+
+        assert (log_dir / "wip-base.txt").read_text() == "b" * 40
+        assert (log_dir / "wip-scaffold.txt").read_text() == "d" * 40
+
+
 class TestUnwind:
     def _scaffold_then_fix(self, repo: Path) -> tuple[str, str]:
         """Simulate a full run: park WIP, then commit an AI fix on top."""
@@ -324,6 +358,23 @@ class TestUnwind:
         fixes = (out_dir / "wip-fixes.diff").read_text()
         assert "def f() -> int:" in fixes
         assert "-def f():" in fixes
+
+    def test_an_empty_net_change_leaves_the_artefact_alone(
+        self, tmp_git_repo: Path, out_dir: Path
+    ) -> None:
+        # A run that scaffolds and then commits nothing has no net change to
+        # report, and writing the empty diff would replace an earlier
+        # attempt's record with a file claiming the loop changed nothing.
+        (out_dir / "wip-fixes.diff").write_text("--- an earlier attempt\n")
+        (tmp_git_repo / "feature.py").write_text("def f():\n    pass\n")
+        base = _git(tmp_git_repo, "rev-parse", "HEAD")
+        scaffold = create_scaffold_commit(tmp_git_repo)
+
+        assert unwind(base, scaffold, out_dir, tmp_git_repo)
+
+        assert (out_dir / "wip-fixes.diff").read_text() == (
+            "--- an earlier attempt\n"
+        )
 
     def test_is_idempotent(self, tmp_git_repo: Path, out_dir: Path) -> None:
         base, scaffold = self._scaffold_then_fix(tmp_git_repo)

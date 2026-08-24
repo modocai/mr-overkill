@@ -214,9 +214,14 @@ Worth knowing before you use it:
   everything unstaged.
 - **If the run is interrupted the scaffolding stays.** The command to undo it is
   printed at the start and the base commit is saved to
-  `.overkill/logs/wip-base.txt`; `--wip --resume` picks the run back up. Resume
-  needs commits enabled — the other two modes are a single pass with nothing to
-  resume.
+  `.overkill/logs/wip-base.txt`; `--wip --resume` picks an interrupted run back
+  up, parking the work again if the scaffolding is already gone. A run that
+  already finished is left alone. Resume needs commits enabled — the other two
+  modes are a single pass with nothing to resume.
+- **A resumed run's `wip-fixes.diff` only covers the iterations after the
+  resume.** Re-parking folds the earlier attempt's fixes in with your own work,
+  so they cannot be told apart again; that attempt's diff is kept beside it as
+  `wip-fixes-<sha>.diff`.
 - **Commit hooks are skipped** for the run's own commits. Work in progress
   routinely fails hooks it will pass once finished, and every commit `--wip`
   makes is torn down again.

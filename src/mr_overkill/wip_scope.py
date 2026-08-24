@@ -195,6 +195,26 @@ def create_scaffold_commit(cwd: Path | None = None) -> str | None:
     return sha or None
 
 
+def is_in_head(commit: str, cwd: Path | None = None) -> bool:
+    """Whether *commit* is an ancestor of HEAD (or HEAD itself)."""
+    return _run(
+        ["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd
+    ).returncode == 0
+
+
+def save_metadata(log_dir: Path, base: str, scaffold: str | None) -> None:
+    """Record where to unwind to, so a later ``--resume`` can find it.
+
+    An interrupted --wip run is only recoverable while these survive: they are
+    the sole record of where the scaffolding sits and what it was made on.  So
+    they are written as soon as the scaffolding exists rather than once per
+    run — a resume that re-parks the work replaces a SHA already dangling.
+    """
+    log_dir.mkdir(parents=True, exist_ok=True)
+    (log_dir / "wip-base.txt").write_text(base)
+    (log_dir / "wip-scaffold.txt").write_text(scaffold or "")
+
+
 def unwind(
     base: str,
     scaffold: str | None,
@@ -222,8 +242,7 @@ def unwind(
             "alone; check the history before resetting anything.",
         )
         return False
-    ancestry = _run(["git", "merge-base", "--is-ancestor", scaffold, "HEAD"], cwd)
-    if ancestry.returncode != 0:
+    if not is_in_head(scaffold, cwd):
         logger.error(
             "Cannot unwind: scaffolding commit %s is not in HEAD's history, so "
             "this is not the branch it was made on. HEAD is left alone.",
@@ -232,7 +251,10 @@ def unwind(
         return False
 
     result = _run(["git", "diff", scaffold, "HEAD"], cwd)
-    if result.returncode == 0:
+    # An empty diff means the loop committed nothing, so there is nothing to
+    # report — and writing it would replace an earlier attempt's artefact with
+    # a file that says the loop changed nothing.
+    if result.returncode == 0 and result.stdout.strip():
         log_dir.mkdir(parents=True, exist_ok=True)
         (log_dir / "wip-fixes.diff").write_text(result.stdout, encoding="utf-8")
 
