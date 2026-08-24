@@ -259,6 +259,42 @@ class TestCreateScaffoldCommit:
         assert _status(tmp_git_repo) == ""
         assert not (tmp_git_repo / "README.md").exists()
 
+    def test_a_staged_rename_takes_both_of_its_paths(
+        self, tmp_git_repo: Path
+    ) -> None:
+        """``--name-only`` names a rename's destination and nothing else.
+
+        Committing that alone leaves the source's deletion staged, so the tree
+        is still dirty when the loop's clean-tree check runs.
+        """
+        _git(tmp_git_repo, "mv", "README.md", "DOCS.md")
+
+        sha = create_scaffold_commit(tmp_git_repo)
+
+        assert sha is not None
+        assert _status(tmp_git_repo) == ""
+        assert _git(
+            tmp_git_repo, "show", "--name-status", "--format=", sha
+        ) == "R100\tREADME.md\tDOCS.md"
+
+    def test_an_already_staged_deletion_is_committed(
+        self, tmp_git_repo: Path
+    ) -> None:
+        """``git add`` cannot match a path that is in neither tree nor index.
+
+        A ``git rm``'d path is exactly that, and naming it makes the add abort,
+        which used to take the whole run down before it started.
+        """
+        _git(tmp_git_repo, "rm", "--quiet", "README.md")
+
+        sha = create_scaffold_commit(tmp_git_repo)
+
+        assert sha is not None
+        assert _status(tmp_git_repo) == ""
+        assert _git(
+            tmp_git_repo, "show", "--name-status", "--format=", sha
+        ) == "D\tREADME.md"
+
     def test_clean_tree_refuses(self, tmp_git_repo: Path) -> None:
         head = _git(tmp_git_repo, "rev-parse", "HEAD")
         assert create_scaffold_commit(tmp_git_repo) is None

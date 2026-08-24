@@ -60,6 +60,29 @@ def _untracked_files(cwd: Path | None = None) -> list[str]:
     ]
 
 
+def _staged_deletions(cwd: Path | None = None) -> list[str]:
+    """Paths whose deletion is already staged, a rename's source included.
+
+    ``git diff --cached --name-only`` reports a rename as its destination
+    alone, so :func:`uncommitted_files` never sees the source: committing the
+    destination by itself leaves the source's deletion staged, the tree dirty,
+    and the loop's clean-tree check rejects the run.  ``--no-renames`` splits
+    the rename back into the delete half the scaffolding has to cover too.
+    """
+    result = _run(
+        [
+            "git", "diff", "--cached", "--name-only",
+            "--no-renames", "--diff-filter=D",
+        ],
+        cwd,
+    )
+    return [
+        f
+        for f in (line.strip() for line in result.stdout.splitlines())
+        if f and not any(f.startswith(p) for p in _LOG_PREFIXES)
+    ]
+
+
 # Files git drops in the git dir while a multi-step operation is unfinished.
 _IN_PROGRESS_MARKERS = {
     "MERGE_HEAD": "merge",
@@ -164,35 +187,45 @@ def create_scaffold_commit(cwd: Path | None = None) -> str | None:
     it will pass by the time it is finished, and a hook rejecting a commit that
     exists only to be torn down again would make the mode unusable.
     """
-    files = uncommitted_files(cwd)
+    deleted = set(_staged_deletions(cwd))
+    files = sorted(set(uncommitted_files(cwd)) | deleted)
     if not files:
         logger.error("Nothing to stage — no uncommitted work to scaffold.")
         return None
+
+    # ``git add`` matches its pathspec against the working tree and the index
+    # only, so naming a path that is in neither — a staged deletion, a staged
+    # rename's source — makes it abort the whole add.  Those paths are already
+    # staged as deleted, so they belong in the commit's pathspec, not here.
+    root = Path(cwd or ".")
+    to_add = [f for f in files if f not in deleted or (root / f).exists()]
 
     # Stage the explicit list rather than ``git add -A`` with an
     # ``:(exclude)`` pathspec: naming a gitignored path in a pathspec makes
     # git abort the whole add — after it has already staged part of it —
     # and the log directory is gitignored in plenty of repos.  ``-A`` still
     # applies to the listed paths, so deletions are staged too.
-    staged = _run(
-        ["git", "add", "-A", "--pathspec-from-file=-"],
-        cwd,
-        stdin="\n".join(files),
-    )
-    if staged.returncode != 0:
-        logger.error(
-            "git add failed, and the index may be partially staged: %s",
-            staged.stderr.strip(),
+    if to_add:
+        staged = _run(
+            ["git", "add", "-A", "--pathspec-from-file=-"],
+            cwd,
+            stdin="\n".join(to_add),
         )
-        return None
+        if staged.returncode != 0:
+            logger.error(
+                "git add failed, and the index may be partially staged: %s",
+                staged.stderr.strip(),
+            )
+            return None
+
     # ``git add -A`` sweeps in anything not covered by .gitignore, so show
     # exactly what is going into the commit.
     logger.info("Parking %d uncommitted file(s) in a scaffolding commit:", len(files))
     for f in files:
         logger.info("  %s", f)
 
-    # Same pathspec as the add: the index may already hold a log artefact the
-    # user staged themselves, and committing the whole index would put it in
+    # Pathspec-limited like the add: the index may already hold a log artefact
+    # the user staged themselves, and committing the whole index would put it in
     # the scaffolding commit — and so in the branch diff the reviewer reads —
     # despite being excluded from the scope above.  It stays staged, untouched.
     committed = _run(
