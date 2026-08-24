@@ -740,6 +740,15 @@ class TestCommitScopeNoFixOutcome:
         )
         assert self._run(config, tmp_path) == FinalStatus.FINDINGS_UNFIXED
 
+    def test_wip_reports_findings_unfixed_on_final_iteration(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        """A --wip target is pinned before the scaffolding commit, so the
+        branch diff always holds the parked work and the no-diff check can
+        never catch the no-op fixer — the commit site has to."""
+        config = make_loop_config(max_loop=1, log_dir=tmp_path, wip=True)
+        assert self._run(config, tmp_path) == FinalStatus.FINDINGS_UNFIXED
+
     def test_normal_mode_still_reports_claude_error(
         self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
     ) -> None:

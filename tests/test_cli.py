@@ -857,6 +857,17 @@ class TestCommitScopeResume:
         with pytest.raises(SystemExit):
             self._parse(["--resume", "-t", "develop"], tmp_path)
 
+    def test_rejects_wip(self, tmp_path: Path) -> None:
+        """The up-front --commit/--wip check never sees a restored scope, so
+        the combination would take the commit-scope path and send a
+        --no-auto-commit resume into the loop's working-tree reset."""
+        log_dir = self._log_dir(tmp_path)
+        (log_dir / "scope-commit.txt").write_text(self.SHA)
+        with pytest.raises(SystemExit):
+            self._parse(["--resume", "--wip"], tmp_path)
+        with pytest.raises(SystemExit):
+            self._parse(["--resume", "--wip", "--no-auto-commit"], tmp_path)
+
 
 class TestWipArgs:
     """`--wip` wiring: one flag, and the safety rails that come with it."""

@@ -592,12 +592,16 @@ def review_fix_loop(
                     made_skipped_fix_commit = True
                 if (
                     not fix_committed
-                    and config.scope_commit
+                    and (config.scope_commit or config.wip)
                     and i == config.max_loop
                 ):
                     # The no-diff check that catches a no-op fixer runs at
                     # the top of the next iteration, and there is none left.
                     # Without this, confirmed findings would report success.
+                    # A --wip run needs this even more than a commit-scope
+                    # one: its target is pinned before the scaffolding
+                    # commit, so the branch diff always holds the parked
+                    # work and that check can never fire at all.
                     logger.warning(
                         "Fixer produced no code changes on the final "
                         "iteration — findings were either stale or left "

@@ -513,6 +513,17 @@ def parse_review_loop_args(
                     f"commit {restored}"
                 )
             scope_commit = restored
+            if args.wip:
+                # The mutual-exclusion check above only sees an explicit
+                # --commit. A restored one slips past it, and the resulting
+                # config takes the commit-scope branch below — leaving a
+                # --wip --no-auto-commit resume to reach the loop's resume
+                # reset, which stashes the very working tree it reviews.
+                parser.error(
+                    f"the resumed run is commit-scoped ({restored[:7]}); "
+                    "--commit and --wip are different review scopes. "
+                    "Drop --wip, or start a fresh --wip run."
+                )
             if args.target:
                 parser.error(
                     "--commit derives its base from the commit itself; "
