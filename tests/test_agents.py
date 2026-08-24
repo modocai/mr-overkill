@@ -444,6 +444,59 @@ class TestClaudeSelfReviewAgent:
         assert result == "sub-1: ok"
         mock_subloop.assert_called_once()
 
+    @patch("mr_overkill.agents._make_budget_fn")
+    @patch("mr_overkill.agents._make_retry_fn")
+    @patch(
+        "mr_overkill.agents.self_review_subloop",
+        return_value="sub-1: ok",
+    )
+    def test_no_commit_wip_run_calibrates_the_self_reviewer(
+        self,
+        mock_subloop: MagicMock,
+        mock_retry_factory: MagicMock,
+        mock_budget_factory: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # Nothing is committed there, so the self-review diff carries the
+        # author's draft as well as the fix and the self-reviewer has to be
+        # told — otherwise the re-fix "reverts" the draft as scope creep.
+        mock_retry_factory.return_value = MagicMock()
+        mock_budget_factory.return_value = MagicMock()
+        review_json = json.dumps({"findings": []})
+
+        for config, expected in (
+            (
+                make_loop_config(
+                    wip=True, auto_commit=False,
+                    scope_diff_file=tmp_path / "wip.diff",
+                ),
+                True,
+            ),
+            (make_loop_config(wip=True), False),
+            # --commit sets scope_diff_file too, but HEAD is a real commit
+            # there, so the note's premise would be false.
+            (
+                make_loop_config(
+                    scope_commit="a" * 40,
+                    scope_diff_file=tmp_path / "scope.diff",
+                ),
+                False,
+            ),
+            (make_loop_config(), False),
+        ):
+            # ``call_args`` is the *last* call, so without this an early
+            # return would re-assert the previous config's kwargs.
+            mock_subloop.reset_mock()
+            fixer: FixAgent = MagicMock(spec=ClaudeFixAgent)
+            ClaudeSelfReviewAgent(config, fixer)([], 2, tmp_path, 1, review_json)
+
+            mock_subloop.assert_called_once()
+            note = mock_subloop.call_args.kwargs["scope_note"]
+            assert bool(note) is expected
+            if expected:
+                assert "uncommitted draft" in note
+
 
 # ── _BudgetFn ────────────────────────────────────────────────────────
 
@@ -779,6 +832,23 @@ class TestWipScopeNote:
         # would skip the very thing under review.
         assert "Ignore the `git diff` command" in note
 
+    def test_no_commit_mode_excludes_committed_work_from_the_draft_allowance(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        # The artefact is a fork-point-to-worktree diff, so the author's own
+        # commits on this branch are in it too — handing them the draft
+        # allowance would pass over half-written code committed days ago.
+        config = make_loop_config(
+            wip=True, dry_run=True, scope_diff_file=tmp_path / "wip.diff"
+        )
+
+        note = _format_review_scope(config, 1)
+
+        assert "commits the author already made here" in note
+        assert "git diff develop...HEAD" in note
+        assert "draft allowance below does not apply" in note
+        assert "The uncommitted part of the change under review" in note
+
     def test_scaffold_mode_explains_the_throwaway_commit(
         self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
     ) -> None:
@@ -789,6 +859,19 @@ class TestWipScopeNote:
         assert "REVIEW MODE: UNCOMMITTED WORK" in note
         assert wip_scope.SCAFFOLD_MESSAGE in note
         assert "Ignore the `git diff` command" not in note
+
+    def test_scaffold_mode_places_the_commit_in_the_branch(
+        self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
+    ) -> None:
+        # The scaffolding is committed on top of whatever the author already
+        # committed on the branch, so calling it the branch's first commit
+        # points the reviewer at the wrong one — and hands the draft allowance
+        # to committed work that should be judged as finished.
+        note = _format_review_scope(make_loop_config(wip=True, wip_base="b" * 40), 1)
+
+        assert "first commit" not in note
+        assert "the author's own committed work on this branch" in note
+        assert "draft allowance below does not apply to them" in note
 
     def test_draft_calibration_is_in_both(
         self, tmp_path: Path, make_loop_config: Callable[..., LoopConfig]
