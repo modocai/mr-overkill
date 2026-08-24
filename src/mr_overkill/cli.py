@@ -29,6 +29,29 @@ def _detect_current_branch() -> str:
     return result.stdout.strip() or "HEAD"
 
 
+def _symbolic_ref(rev: str) -> str:
+    """Full name of the ref *rev* resolves through, "" if it resolves without one."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--symbolic-full-name", rev],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _is_stable_target(rev: str, current_branch: str) -> bool:
+    """Whether *rev* still means the same commit after the loop commits a fix.
+
+    A revision expression like ``HEAD~5`` names no ref at all and is measured
+    from HEAD every time it is read.  ``HEAD`` itself, and the branch the fix
+    commits land on, do name one — and it moves with every one of them.
+    Everything else — another branch, a tag, a bare SHA — stays put.
+    """
+    ref = _symbolic_ref(rev)
+    return bool(ref) and ref not in ("HEAD", f"refs/heads/{current_branch}")
+
+
 def _detect_pr_number(branch: str) -> str | None:
     """Detect open PR number for the given branch."""
     try:
@@ -604,6 +627,24 @@ def parse_review_loop_args(
         pr_number = None
     else:
         pr_number = _detect_pr_number(current_branch)
+        # The target is re-read on every iteration, so one that moves with
+        # HEAD slides forward as the loop's own fix commits land: the range
+        # shrinks off its oldest end and the commits that fall out of it stop
+        # being reviewed — silently, since the diff still looks healthy.  Pin
+        # it to what it means now.  A ref of its own keeps its name, which the
+        # reviewer prompt and the run report both read better for.  The
+        # --commit and --wip paths above pin their own targets already, and a
+        # resumed run inherits the pinning its first run did.
+        if (
+            auto_commit
+            and not dry_run
+            and restored_target is None
+            and not _is_stable_target(target, current_branch)
+        ):
+            pinned = resolve_commit(target)
+            if pinned is None:
+                parser.error(f"-t/--target: not a commit: {target!r}")
+            target = pinned
 
     # COMMIT_SCOPE_PUSH describes the auto-created review/* branch only; a
     # normal branch run must always push, or its first fix commit stays local.

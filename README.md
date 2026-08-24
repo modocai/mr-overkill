@@ -97,7 +97,9 @@ Options:
   -t, --target <rev>       Target to diff against (default: develop). Accepts any
                            git revision, not just a branch name: a SHA, a tag, or
                            HEAD~5 all work, so you can review "everything since
-                           commit X" without opening a PR.
+                           commit X" without opening a PR. A revision that moves
+                           with HEAD is pinned to a SHA when the run starts, so
+                           the loop's own fix commits cannot shrink the range.
   --commit <rev>           Review an already-merged commit instead of the branch
                            diff. Creates a review/<sha>-<ts> branch off HEAD and
                            applies fixes there; no PR is created. <rev> is a single

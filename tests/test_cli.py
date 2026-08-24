@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -14,6 +15,19 @@ from mr_overkill.cli import (
     parse_review_loop_args,
 )
 from mr_overkill.models import LoopConfig
+
+
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", *args], cwd=repo, capture_output=True, text=True, check=True
+    )
+    return result.stdout.strip()
+
+
+def _commit(repo: Path, name: str) -> None:
+    (repo / name).write_text("x = 1\n")
+    _git(repo, "add", name)
+    _git(repo, "commit", "--quiet", "--no-verify", "-m", f"feat: add {name}")
 
 
 class TestResolveBool:
@@ -30,6 +44,54 @@ class TestResolveBool:
     def test_default(self) -> None:
         assert _resolve_bool(None, None, True) is True
         assert _resolve_bool(None, None, False) is False
+
+
+class TestTargetPinning:
+    """A committing run must review the same range from first fix to last."""
+
+    def _parse(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch, *argv: str
+    ) -> LoopConfig:
+        monkeypatch.chdir(repo)
+        with (
+            patch("mr_overkill.cli._load_rc_file", return_value={}),
+            patch("mr_overkill.cli._detect_current_branch", return_value="feat/x"),
+            patch("mr_overkill.cli._detect_pr_number", return_value=None),
+        ):
+            return parse_review_loop_args(list(argv))
+
+    def test_a_relative_target_is_pinned_to_a_sha(
+        self, tmp_git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # HEAD~1 is measured afresh every iteration, and the loop's own fix
+        # commits move HEAD: unpinned, the oldest commit in scope drops out.
+        _commit(tmp_git_repo, "a.py")
+        expected = _git(tmp_git_repo, "rev-parse", "HEAD~1")
+
+        config = self._parse(tmp_git_repo, monkeypatch, "-n", "2", "-t", "HEAD~1")
+
+        assert config.target_branch == expected
+
+    def test_a_branch_target_keeps_its_name(
+        self, tmp_git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A ref of its own does not move under the fix commits, and the name
+        # is what the reviewer prompt and the run report show.
+        branch = _git(tmp_git_repo, "rev-parse", "--abbrev-ref", "HEAD")
+
+        config = self._parse(tmp_git_repo, monkeypatch, "-n", "2", "-t", branch)
+
+        assert config.target_branch == branch
+
+    def test_a_dry_run_target_is_left_alone(
+        self, tmp_git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Nothing is committed, so nothing moves.
+        config = self._parse(
+            tmp_git_repo, monkeypatch, "-n", "1", "--dry-run", "-t", "HEAD~1"
+        )
+
+        assert config.target_branch == "HEAD~1"
 
 
 class TestLoadRcFile:
