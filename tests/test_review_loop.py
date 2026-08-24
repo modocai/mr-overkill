@@ -745,6 +745,11 @@ class TestPrepareWipScope:
         assert (config.log_dir / "wip-fixes.diff").read_text() == (
             "--- the finished run\n"
         )
+        # The metadata has to survive for loop_engine's resume check, so the
+        # unwind is disarmed instead: the recorded scaffolding is already gone
+        # from HEAD, and if the user has since committed their work an unwind
+        # would fail the run and point them at a reset that drops that commit.
+        assert config.wip_unwind is False
 
     @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
     @patch("mr_overkill.review_loop.wip_scope")
@@ -880,6 +885,55 @@ class TestWipUnwind:
         config = make_loop_config(wip=True, wip_base="b" * 40, wip_scaffold="c" * 40)
 
         assert run(config) == 1
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    @patch("mr_overkill.review_loop._prepare_wip_scope", return_value=True)
+    def test_nothing_to_unwind_when_this_run_scaffolded_nothing(
+        self,
+        mock_prep: MagicMock,
+        mock_loop: MagicMock,
+        mock_ws: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # A --wip --resume that found nothing to resume keeps the recorded base
+        # for the resume check but made no scaffolding of its own.
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.ALL_CLEAR, iterations_run=0
+        )
+        config = make_loop_config(
+            wip=True, wip_base="b" * 40, wip_scaffold="c" * 40, wip_unwind=False
+        )
+
+        assert run(config) == 0
+        mock_ws.unwind.assert_not_called()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    @patch("mr_overkill.review_loop.review_fix_loop")
+    @patch("mr_overkill.review_loop._prepare_wip_scope", return_value=True)
+    def test_nothing_to_unwind_when_the_run_may_not_commit(
+        self,
+        mock_prep: MagicMock,
+        mock_loop: MagicMock,
+        mock_ws: MagicMock,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # --resume restores wip-base.txt whatever the commit mode, so a dry run
+        # starts with another run's metadata. Unwinding it would refuse over —
+        # or reset away — a commit this run never made.
+        mock_loop.return_value = LoopResult(
+            final_status=FinalStatus.DRY_RUN, iterations_run=1
+        )
+        config = make_loop_config(
+            wip=True,
+            resume=True,
+            dry_run=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+
+        assert run(config) == 0
+        mock_ws.unwind.assert_not_called()
 
     @patch("mr_overkill.review_loop.wip_scope")
     @patch("mr_overkill.review_loop.review_fix_loop")

@@ -186,7 +186,18 @@ def create_scaffold_commit(cwd: Path | None = None) -> str | None:
         ["git", "commit", "--no-verify", "--quiet", "-m", SCAFFOLD_MESSAGE], cwd
     )
     if committed.returncode != 0:
-        logger.error("Scaffolding commit failed: %s", committed.stderr.strip())
+        # "nothing to commit" — a dirty submodule whose gitlink did not move
+        # stages nothing — is explained on stdout, not stderr.
+        detail = (
+            committed.stderr.strip()
+            or committed.stdout.strip()
+            or f"exit {committed.returncode}"
+        )
+        logger.error(
+            "Scaffolding commit failed, and anything it staged is left in "
+            "the index (file contents are untouched): %s",
+            detail,
+        )
         return None
 
     head = _run(["git", "rev-parse", "HEAD"], cwd)

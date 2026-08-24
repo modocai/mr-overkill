@@ -212,6 +212,9 @@ class LoopConfig:
     wip: bool = False
     wip_base: str | None = None  # HEAD before scaffolding — the unwind target
     wip_scaffold: str | None = None  # the scaffolding commit itself
+    # Cleared when a run keeps the recorded metadata but scaffolds nothing, so
+    # the unwind cannot mistake an unrelated HEAD for scaffolding of its own.
+    wip_unwind: bool = True
 
 
 @dataclass(frozen=True)

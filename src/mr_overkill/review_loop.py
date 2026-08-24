@@ -168,6 +168,12 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
                 config.log_dir,
                 state.prev_status or state.status,
             )
+            # The metadata stays as it is — the loop's resume check compares it
+            # against what is on disk — but there is nothing to tear down: the
+            # recorded scaffolding is already gone from HEAD (checked above), so
+            # an unwind could only no-op or refuse, and refusing would tell the
+            # user to reset away a commit this run never made.
+            config.wip_unwind = False
             return True
         # The metadata outlives the scaffolding: every return path unwinds it,
         # including soft failures like a fixer error, so a resumable run
@@ -275,7 +281,13 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
 
 def _unwind_wip_scope(config: LoopConfig) -> bool:
     """Remove the scaffolding, leaving the work uncommitted again."""
-    if not config.wip or not config.wip_base:
+    if not config.wip or not config.wip_base or not config.wip_unwind:
+        return True
+    # A run that may not commit never scaffolded, so nothing here belongs to
+    # it: ``--resume`` restores the recorded metadata regardless of the commit
+    # mode, and acting on it would refuse over — or reset away — a commit some
+    # other run made.
+    if not _wip_commits_allowed(config):
         return True
     if wip_scope.unwind(config.wip_base, config.wip_scaffold, config.log_dir):
         return True

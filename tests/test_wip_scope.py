@@ -243,6 +243,54 @@ class TestCreateScaffoldCommit:
         assert create_scaffold_commit(tmp_git_repo) is None
         assert _git(tmp_git_repo, "rev-parse", "HEAD") == head
 
+    def test_a_failed_commit_says_the_index_is_left_staged(
+        self, tmp_git_repo: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # ``--no-verify`` skips hooks but not signing, so a repo that signs
+        # commits with an unavailable key fails here with everything staged.
+        _git(tmp_git_repo, "config", "commit.gpgsign", "true")
+        _git(tmp_git_repo, "config", "gpg.program", "false")
+        (tmp_git_repo / "wip.py").write_text("wip = 1\n")
+
+        assert create_scaffold_commit(tmp_git_repo) is None
+
+        assert "is left in the index" in caplog.text
+        assert _status(tmp_git_repo) == "A  wip.py"
+
+    def test_a_failed_commit_reports_a_reason_from_stdout(
+        self,
+        tmp_git_repo: Path,
+        out_dir: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # A submodule whose gitlink did not move is dirty to ``git diff`` but
+        # stages nothing, so the commit fails with "no changes added to commit"
+        # — which git prints on stdout, leaving stderr empty and the old
+        # message blank.
+        sub = out_dir / "sub"
+        sub.mkdir()
+        _git(sub, "init")
+        _git(sub, "config", "user.email", "test@test.com")
+        _git(sub, "config", "user.name", "Test")
+        (sub / "a.txt").write_text("a\n")
+        _git(sub, "add", "-A")
+        _git(sub, "commit", "-m", "init")
+        _git(
+            tmp_git_repo,
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            str(sub),
+            "sub",
+        )
+        _git(tmp_git_repo, "commit", "-m", "add submodule")
+        (tmp_git_repo / "sub" / "a.txt").write_text("dirty\n")
+
+        assert create_scaffold_commit(tmp_git_repo) is None
+
+        assert "no changes added to commit" in caplog.text
+
     def test_failing_pre_commit_hook_does_not_block(
         self, tmp_git_repo: Path
     ) -> None:
