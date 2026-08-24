@@ -257,13 +257,34 @@ def create_scaffold_commit(cwd: Path | None = None) -> str | None:
     return sha or None
 
 
-#: How far back a fresh run looks for a leftover scaffolding commit.  Bounded
-#: so an ancient one nobody ever cleaned up cannot refuse every run forever.
+#: How far back a fresh run looks for a leftover scaffolding commit when there
+#: is no target to bound the search by.  Bounded so an ancient one nobody ever
+#: cleaned up cannot refuse every run forever.
 _SCAFFOLD_SEARCH_DEPTH = 25
 
 
+def _newest_scaffold(rev_args: list[str], cwd: Path | None) -> tuple[str | None, int]:
+    """Newest scaffolding commit among the commits *rev_args* selects.
+
+    Returns it alongside how many commits were looked at, because "no
+    scaffolding in this range" and "this range is empty" are different
+    answers to the caller: only the first one settles the question.
+    """
+    result = _run(["git", "log", "--format=%H %s", *rev_args], cwd)
+    if result.returncode != 0:
+        return None, 0
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    for line in lines:
+        sha, _, subject = line.partition(" ")
+        if subject.strip() == SCAFFOLD_MESSAGE:
+            return sha.strip(), len(lines)
+    return None, len(lines)
+
+
 def find_scaffold_in_head(
-    cwd: Path | None = None, limit: int = _SCAFFOLD_SEARCH_DEPTH
+    cwd: Path | None = None,
+    limit: int = _SCAFFOLD_SEARCH_DEPTH,
+    target: str | None = None,
 ) -> str | None:
     """SHA of the newest leftover scaffolding commit reachable from HEAD.
 
@@ -278,15 +299,22 @@ def find_scaffold_in_head(
     fix commit — stranding both it and the earlier draft on the branch for
     good.  The scaffolding is never pushed and always unwound, so anything
     found here belongs to a run that died.
+
+    *target* bounds the search by history rather than by depth: an unpushed
+    commit is by definition one this branch does not share with the target, so
+    that range holds the leftovers of an interrupted run however long it ran —
+    a depth would lose the scaffolding of a run that got past *limit* fixes.
+    It also lets go of a scaffolding commit that somehow reached the target
+    branch, which a depth would keep tripping over forever.  A range that
+    comes back empty proves nothing (the target *is* HEAD, say), so that case
+    falls back to the bounded scan.
     """
-    result = _run(["git", "log", f"-n{limit}", "--format=%H %s", "HEAD"], cwd)
-    if result.returncode != 0:
-        return None
-    for line in result.stdout.splitlines():
-        sha, _, subject = line.partition(" ")
-        if subject.strip() == SCAFFOLD_MESSAGE:
-            return sha.strip()
-    return None
+    if target:
+        sha, seen = _newest_scaffold([f"{target}..HEAD"], cwd)
+        if seen:
+            return sha
+    sha, _ = _newest_scaffold([f"-n{limit}", "HEAD"], cwd)
+    return sha
 
 
 def is_in_head(commit: str, cwd: Path | None = None) -> bool:

@@ -289,7 +289,11 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
     # Only on a fresh run: the re-park path above already proved HEAD is the
     # recorded base, and a leftover scaffolding commit *is* what it re-parks
     # onto, so refusing there would block the very resume this points at.
-    leftover = None if config.resume else wip_scope.find_scaffold_in_head()
+    leftover = (
+        None
+        if config.resume
+        else wip_scope.find_scaffold_in_head(target=config.target_branch)
+    )
     if leftover:
         logger.error(
             "Scaffolding commit %s is still in this branch's history — an "

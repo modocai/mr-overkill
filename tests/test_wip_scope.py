@@ -446,6 +446,53 @@ class TestFindScaffoldInHead:
 
         assert find_scaffold_in_head(tmp_git_repo) is None
 
+    def test_a_scaffold_past_the_depth_limit_is_still_found(
+        self, tmp_git_repo: Path
+    ) -> None:
+        # A long interrupted run buries its scaffolding under one fix commit
+        # per iteration.  The target bounds the search by history instead, so
+        # the depth no longer decides whether the leftovers are seen.
+        base = _git(tmp_git_repo, "rev-parse", "HEAD")
+        (tmp_git_repo / "feature.py").write_text("x = 1\n")
+        scaffold = create_scaffold_commit(tmp_git_repo)
+        assert scaffold is not None
+        for i in range(3):
+            (tmp_git_repo / "feature.py").write_text(f"x = {i + 2}\n")
+            _git(tmp_git_repo, "add", "feature.py")
+            _git(
+                tmp_git_repo, "commit", "--quiet", "--no-verify",
+                "-m", f"fix(ai-review): apply iteration {i + 1} fixes [skip ci]",
+            )
+
+        assert find_scaffold_in_head(tmp_git_repo, limit=2) is None
+        assert find_scaffold_in_head(tmp_git_repo, limit=2, target=base) == scaffold
+
+    def test_a_scaffold_already_in_the_target_is_left_alone(
+        self, tmp_git_repo: Path
+    ) -> None:
+        # One that reached the target branch is history now, not a leftover
+        # this run has to refuse to build on — and a depth-bounded search
+        # would trip over it on every run from here on.
+        (tmp_git_repo / "feature.py").write_text("x = 1\n")
+        scaffold = create_scaffold_commit(tmp_git_repo)
+        assert scaffold is not None
+        (tmp_git_repo / "later.py").write_text("y = 1\n")
+        _git(tmp_git_repo, "add", "later.py")
+        _git(tmp_git_repo, "commit", "--quiet", "--no-verify", "-m", "feat: later work")
+
+        assert find_scaffold_in_head(tmp_git_repo, target=scaffold) is None
+
+    def test_an_empty_target_range_falls_back_to_the_depth_scan(
+        self, tmp_git_repo: Path
+    ) -> None:
+        # Running on the target branch itself leaves nothing to bound by, and
+        # an empty range is no proof the branch is clean.
+        (tmp_git_repo / "feature.py").write_text("x = 1\n")
+        scaffold = create_scaffold_commit(tmp_git_repo)
+        assert scaffold is not None
+
+        assert find_scaffold_in_head(tmp_git_repo, target="HEAD") == scaffold
+
 
 class TestForeignCommitsSince:
     def test_the_loops_own_fix_commits_are_not_foreign(
