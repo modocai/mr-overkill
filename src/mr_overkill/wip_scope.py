@@ -257,16 +257,36 @@ def create_scaffold_commit(cwd: Path | None = None) -> str | None:
     return sha or None
 
 
-def head_is_scaffold(cwd: Path | None = None) -> bool:
-    """Whether HEAD is itself a leftover scaffolding commit.
+#: How far back a fresh run looks for a leftover scaffolding commit.  Bounded
+#: so an ancient one nobody ever cleaned up cannot refuse every run forever.
+_SCAFFOLD_SEARCH_DEPTH = 25
+
+
+def find_scaffold_in_head(
+    cwd: Path | None = None, limit: int = _SCAFFOLD_SEARCH_DEPTH
+) -> str | None:
+    """SHA of the newest leftover scaffolding commit reachable from HEAD.
 
     The subject is the only signal that survives a wiped log directory, so it
     is what a fresh run has to go on: the metadata files are read back on
     ``--resume`` alone, and a run interrupted before its unwind is exactly the
     case that has to be caught here.
+
+    HEAD on its own is not enough to look at.  An interrupted run that got as
+    far as one fix commit leaves the scaffolding a commit *back*, and a fresh
+    run checking HEAD alone would scaffold on top of it and unwind only to that
+    fix commit — stranding both it and the earlier draft on the branch for
+    good.  The scaffolding is never pushed and always unwound, so anything
+    found here belongs to a run that died.
     """
-    result = _run(["git", "log", "-1", "--format=%s"], cwd)
-    return result.returncode == 0 and result.stdout.strip() == SCAFFOLD_MESSAGE
+    result = _run(["git", "log", f"-n{limit}", "--format=%H %s", "HEAD"], cwd)
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        sha, _, subject = line.partition(" ")
+        if subject.strip() == SCAFFOLD_MESSAGE:
+            return sha.strip()
+    return None
 
 
 def is_in_head(commit: str, cwd: Path | None = None) -> bool:
@@ -274,6 +294,31 @@ def is_in_head(commit: str, cwd: Path | None = None) -> bool:
     return _run(
         ["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd
     ).returncode == 0
+
+
+def foreign_commits_since(
+    commit: str, fix_prefix: str, cwd: Path | None = None
+) -> list[str]:
+    """Subjects of commits after *commit* that this loop did not make.
+
+    Being on the branch the scaffolding was made on does not prove everything
+    stacked on it is the loop's: a user who commits normally on top of an
+    interrupted run and then resumes would have that commit reset back into
+    uncommitted changes by the unwind.  The loop's own commits all carry
+    *fix_prefix*, so anything else in the range is someone else's.
+
+    *commit* is expected to be in HEAD's history already — the caller checks
+    that with :func:`is_in_head` — so a git failure here means the range could
+    not be read, not that there is something in it.
+    """
+    result = _run(["git", "log", "--format=%s", f"{commit}..HEAD"], cwd)
+    if result.returncode != 0:
+        return []
+    return [
+        subject
+        for subject in (line.strip() for line in result.stdout.splitlines())
+        if subject and not subject.startswith(fix_prefix)
+    ]
 
 
 def save_metadata(log_dir: Path, base: str, scaffold: str | None) -> None:

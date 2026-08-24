@@ -499,15 +499,16 @@ class TestPrepareWipScope:
         mock_ws.create_scaffold_commit.assert_not_called()
 
     @patch("mr_overkill.review_loop.wip_scope")
-    def test_a_previous_runs_fixes_diff_is_dropped(
+    def test_a_previous_runs_fixes_diff_survives_a_no_commit_run(
         self,
         mock_ws: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
         # Only a committing run writes it, and only at the very end, so a
-        # dry-run (or non-WIP) run would otherwise leave the README's
-        # "just what the loop changed" pointing at the previous run's edits.
+        # dry-run produces no replacement.  Dropping it here would destroy the
+        # only record separating the previous loop's fixes from the author's
+        # own edits, in exchange for nothing.
         mock_ws.uncommitted_files.return_value = ["a.py"]
         mock_ws.write_worktree_diff.return_value = 512
         config = self._config(make_loop_config, tmp_path, dry_run=True)
@@ -516,7 +517,7 @@ class TestPrepareWipScope:
         stale.write_text("--- a previous run's fixes\n")
 
         assert _prepare_wip_scope(config) is True
-        assert not stale.exists()
+        assert stale.read_text() == "--- a previous run's fixes\n"
 
     @patch("mr_overkill.review_loop.wip_scope")
     def test_no_auto_commit_also_takes_the_diff_path(
@@ -556,7 +557,7 @@ class TestPrepareWipScope:
     ) -> None:
         mock_ws.uncommitted_files.return_value = ["a.py"]
         mock_ws.operation_in_progress.return_value = None
-        mock_ws.head_is_scaffold.return_value = False
+        mock_ws.find_scaffold_in_head.return_value = None
         mock_resolve.return_value = "b" * 40
         mock_ws.create_scaffold_commit.return_value = "c" * 40
         config = self._config(make_loop_config, tmp_path)
@@ -615,6 +616,7 @@ class TestPrepareWipScope:
     ) -> None:
         mock_ws.operation_in_progress.return_value = None
         mock_ws.is_in_head.return_value = True
+        mock_ws.foreign_commits_since.return_value = []
         config = self._config(
             make_loop_config,
             tmp_path,
@@ -641,13 +643,37 @@ class TestPrepareWipScope:
         # on the branch while the loop reports the tree merely dirty.
         mock_ws.uncommitted_files.return_value = ["a.py"]
         mock_ws.operation_in_progress.return_value = None
-        mock_ws.head_is_scaffold.return_value = True
+        mock_ws.find_scaffold_in_head.return_value = "e" * 40
         mock_resolve.return_value = "b" * 40
         config = self._config(make_loop_config, tmp_path)
 
         assert _prepare_wip_scope(config) is False
         mock_ws.create_scaffold_commit.assert_not_called()
         mock_ws.save_metadata.assert_not_called()
+
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_resume_refuses_when_a_foreign_commit_sits_on_the_scaffold(
+        self,
+        mock_ws: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # The unwind resets to the base, so a normal commit the user made on
+        # top of an interrupted run would be rewound into uncommitted changes
+        # — the branch check alone does not prove the range is the loop's.
+        mock_ws.operation_in_progress.return_value = None
+        mock_ws.is_in_head.return_value = True
+        mock_ws.foreign_commits_since.return_value = ["feat: my own work"]
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+
+        assert _prepare_wip_scope(config) is False
+        mock_ws.create_scaffold_commit.assert_not_called()
 
     @patch("mr_overkill.review_loop.wip_scope")
     def test_resume_on_another_branch_refuses(
@@ -709,7 +735,7 @@ class TestPrepareWipScope:
         mock_ws.is_in_head.return_value = False
         mock_ws.uncommitted_files.return_value = ["a.py"]
         mock_ws.operation_in_progress.return_value = None
-        mock_ws.head_is_scaffold.return_value = True
+        mock_ws.find_scaffold_in_head.return_value = "e" * 40
         mock_resolve.return_value = "b" * 40
         mock_ws.create_scaffold_commit.return_value = "d" * 40
         config = self._config(

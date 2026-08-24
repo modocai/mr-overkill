@@ -17,7 +17,8 @@ import pytest
 from mr_overkill.wip_scope import (
     SCAFFOLD_MESSAGE,
     create_scaffold_commit,
-    head_is_scaffold,
+    find_scaffold_in_head,
+    foreign_commits_since,
     is_in_head,
     merge_base,
     operation_in_progress,
@@ -404,18 +405,38 @@ class TestIsInHead:
         assert is_in_head(scaffold, tmp_git_repo) is False
 
 
-class TestHeadIsScaffold:
+class TestFindScaffoldInHead:
     def test_a_leftover_scaffolding_commit_is_recognised(
         self, tmp_git_repo: Path
     ) -> None:
         # What a run killed before its unwind leaves behind.
         (tmp_git_repo / "feature.py").write_text("x = 1\n")
-        assert create_scaffold_commit(tmp_git_repo) is not None
+        scaffold = create_scaffold_commit(tmp_git_repo)
+        assert scaffold is not None
 
-        assert head_is_scaffold(tmp_git_repo) is True
+        assert find_scaffold_in_head(tmp_git_repo) == scaffold
+
+    def test_a_scaffold_behind_a_fix_commit_is_still_found(
+        self, tmp_git_repo: Path
+    ) -> None:
+        # A run interrupted after its first fix commit leaves the scaffolding
+        # one commit back.  Looking at HEAD alone would let a fresh run
+        # scaffold on top of it and unwind only as far as the fix commit,
+        # stranding both on the branch.
+        (tmp_git_repo / "feature.py").write_text("x = 1\n")
+        scaffold = create_scaffold_commit(tmp_git_repo)
+        assert scaffold is not None
+        (tmp_git_repo / "feature.py").write_text("x = 2\n")
+        _git(tmp_git_repo, "add", "feature.py")
+        _git(
+            tmp_git_repo, "commit", "--quiet", "--no-verify",
+            "-m", "fix(ai-review): apply iteration 1 fixes [skip ci]",
+        )
+
+        assert find_scaffold_in_head(tmp_git_repo) == scaffold
 
     def test_an_ordinary_commit_is_not(self, tmp_git_repo: Path) -> None:
-        assert head_is_scaffold(tmp_git_repo) is False
+        assert find_scaffold_in_head(tmp_git_repo) is None
 
     def test_an_unwound_scaffold_is_not(self, tmp_git_repo: Path) -> None:
         base = _git(tmp_git_repo, "rev-parse", "HEAD")
@@ -423,7 +444,40 @@ class TestHeadIsScaffold:
         assert create_scaffold_commit(tmp_git_repo) is not None
         _git(tmp_git_repo, "reset", "--quiet", "--mixed", base)
 
-        assert head_is_scaffold(tmp_git_repo) is False
+        assert find_scaffold_in_head(tmp_git_repo) is None
+
+
+class TestForeignCommitsSince:
+    def test_the_loops_own_fix_commits_are_not_foreign(
+        self, tmp_git_repo: Path
+    ) -> None:
+        (tmp_git_repo / "feature.py").write_text("x = 1\n")
+        scaffold = create_scaffold_commit(tmp_git_repo)
+        assert scaffold is not None
+        (tmp_git_repo / "feature.py").write_text("x = 2\n")
+        _git(tmp_git_repo, "add", "feature.py")
+        _git(
+            tmp_git_repo, "commit", "--quiet", "--no-verify",
+            "-m", "fix(ai-review): apply iteration 1 fixes [skip ci]",
+        )
+
+        assert foreign_commits_since(
+            scaffold, "fix(ai-review): apply iteration", tmp_git_repo
+        ) == []
+
+    def test_a_users_own_commit_is_foreign(self, tmp_git_repo: Path) -> None:
+        # Unwinding resets to the base, so this commit would be rewound into
+        # uncommitted changes even though the branch name matches.
+        (tmp_git_repo / "feature.py").write_text("x = 1\n")
+        scaffold = create_scaffold_commit(tmp_git_repo)
+        assert scaffold is not None
+        (tmp_git_repo / "other.py").write_text("y = 1\n")
+        _git(tmp_git_repo, "add", "other.py")
+        _git(tmp_git_repo, "commit", "--quiet", "--no-verify", "-m", "feat: mine")
+
+        assert foreign_commits_since(
+            scaffold, "fix(ai-review): apply iteration", tmp_git_repo
+        ) == ["feat: mine"]
 
 
 class TestSaveMetadata:

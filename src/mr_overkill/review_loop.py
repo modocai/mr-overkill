@@ -121,12 +121,6 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
     the run cannot proceed.
     """
     wip_diff = config.log_dir / "wip.diff"
-    if not config.resume:
-        # Only ``unwind`` writes this, at the very end of a committing run, so
-        # a leftover one always belongs to a previous run — and the README
-        # points users at it for "just what the loop changed".
-        for stale in config.log_dir.glob("wip-fixes*.diff"):
-            stale.unlink()
     if not config.wip:
         # Drop a previous WIP run's artefact so it can never be mistaken for
         # this run's scope.
@@ -184,6 +178,22 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
             )
             return False
         if config.wip_scaffold and wip_scope.is_in_head(config.wip_scaffold):
+            # The unwind resets to the base, so everything stacked on the
+            # scaffolding goes with it.  Being on the right branch does not
+            # make those commits this loop's — a normal commit made on top of
+            # an interrupted run would be rewound into uncommitted changes.
+            foreign = wip_scope.foreign_commits_since(
+                config.wip_scaffold, DEFAULT_COMMIT_PATTERN
+            )
+            if foreign:
+                logger.error(
+                    "Cannot resume a --wip run: %d commit(s) after the "
+                    "scaffolding are not this loop's, and unwinding would "
+                    "reset them back into uncommitted changes. First: %s",
+                    len(foreign),
+                    foreign[-1],
+                )
+                return False
             logger.info(
                 "Resuming a --wip run — scaffolding commit %s is already in "
                 "place.",
@@ -279,17 +289,26 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
     # Only on a fresh run: the re-park path above already proved HEAD is the
     # recorded base, and a leftover scaffolding commit *is* what it re-parks
     # onto, so refusing there would block the very resume this points at.
-    if not config.resume and wip_scope.head_is_scaffold():
+    leftover = None if config.resume else wip_scope.find_scaffold_in_head()
+    if leftover:
         logger.error(
-            "HEAD is already a scaffolding commit (%s) — an earlier --wip run "
-            "was interrupted before it could unwind. Scaffolding on top of it "
-            "would leave that commit, and the work parked in it, on the branch "
-            "for good. Either pick that run up with --resume, or undo it "
-            "first:\n  git reset --mixed %s^",
-            head[:7],
-            head,
+            "Scaffolding commit %s is still in this branch's history — an "
+            "earlier --wip run was interrupted before it could unwind. "
+            "Scaffolding on top of it would leave that commit, and the work "
+            "parked in it, on the branch for good. Either pick that run up "
+            "with --resume, or undo it first:\n  git reset --mixed %s^",
+            leftover[:7],
+            leftover,
         )
         return False
+    if not config.resume:
+        # Only ``unwind`` writes these, at the very end of a committing run, so
+        # a leftover one always belongs to a previous run — and the README
+        # points users at it for "just what the loop changed".  Deferred to the
+        # point of no return: every abort path above leaves it where the README
+        # says it is, because a run that stops there writes no replacement.
+        for stale in config.log_dir.glob("wip-fixes*.diff"):
+            stale.unlink()
     scaffold = wip_scope.create_scaffold_commit()
     if scaffold is None:
         return False

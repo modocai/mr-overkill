@@ -219,7 +219,10 @@ Worth knowing before you use it:
   already finished is left alone. Resume needs commits enabled — the other two
   modes are a single pass with nothing to resume. A *fresh* `--wip` run refuses
   to start on top of leftover scaffolding rather than nest a second commit on
-  it, which would strand the earlier draft on the branch.
+  it, which would strand the earlier draft on the branch — including when the
+  scaffolding sits behind fix commits the interrupted run already made. A
+  resume refuses too if you have committed normally on top of it, because
+  unwinding would rewind that commit into uncommitted changes.
 - **A resumed run's `wip-fixes.diff` only covers the iterations after the
   resume.** Re-parking folds the earlier attempt's fixes in with your own work,
   so they cannot be told apart again; that attempt's diff is kept beside it as
