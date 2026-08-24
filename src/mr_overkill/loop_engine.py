@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Protocol
 
+from mr_overkill import wip_scope
 from mr_overkill.git_ops import (
     commit_and_push,
     diff_hash,
@@ -132,6 +133,10 @@ def _normalize_paths(review: dict[str, object], cwd: Path | None) -> dict[str, o
 
 # ── Main loop engine ─────────────────────────────────────────────────
 
+#: Subject prefix of the loop's fix commits. ``_prepare_wip_scope`` needs
+#: the same one to ask ``detect_state`` what this run is resuming.
+DEFAULT_COMMIT_PATTERN = "fix(ai-review): apply iteration"
+
 
 def review_fix_loop(
     config: LoopConfig,
@@ -140,7 +145,7 @@ def review_fix_loop(
     fixer: FixFn,
     self_reviewer: SelfReviewFn | None = None,
     pre_fix_confirm: PreFixConfirmFn | None = None,
-    commit_pattern: str = "fix(ai-review): apply iteration",
+    commit_pattern: str = DEFAULT_COMMIT_PATTERN,
     cwd: Path | None = None,
 ) -> LoopResult:
     """Run the review-fix loop.
@@ -214,6 +219,33 @@ def review_fix_loop(
                 saved_target, config.target_branch,
             )
             return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+        # Resuming a commit-scope run as a plain review (or vice versa) would
+        # reuse logs describing a different review scope entirely.
+        scope_file = log_dir / "scope-commit.txt"
+        saved_scope = (
+            scope_file.read_text().strip() if scope_file.is_file() else ""
+        )
+        if saved_scope != (config.scope_commit or ""):
+            logger.error(
+                "Resume scope mismatch: logs are for commit '%s' "
+                "but this run has '%s'.",
+                saved_scope or "(none)",
+                config.scope_commit or "(none)",
+            )
+            return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
+        # Resuming a scaffolded --wip run without its base would leave the
+        # scaffolding commit behind for good; resuming a plain run as --wip
+        # would scaffold on top of someone else's logs.
+        wip_file = log_dir / "wip-base.txt"
+        saved_wip = wip_file.read_text().strip() if wip_file.is_file() else ""
+        if saved_wip != (config.wip_base or ""):
+            logger.error(
+                "Resume WIP mismatch: logs were scaffolded at '%s' "
+                "but this run has '%s'.",
+                saved_wip or "(none)",
+                config.wip_base or "(none)",
+            )
+            return LoopResult(final_status=FinalStatus.REVIEW_FAILED, iterations_run=0)
 
         # Already-completed runs can short-circuit after branch validation
         if state.status == "completed":
@@ -271,13 +303,17 @@ def review_fix_loop(
 
     # ── Clean working tree check ────────────────────────────────────
     # Reject non-allowlisted dirty files in non-dry-run mode to prevent
-    # user WIP from being mixed into AI auto-fix commits.
-    if not config.dry_run:
+    # user WIP from being mixed into AI auto-fix commits.  A --wip run that
+    # makes no commits has nothing to mix them into, so the check does not
+    # apply there; a --wip run that does commit has already parked the work
+    # in its scaffolding commit and reaches this point with a clean tree.
+    if not config.dry_run and not (config.wip and not config.auto_commit):
         non_allowed = _reject_dirty_worktree(cwd)
         if non_allowed:
             logger.error(
                 "Working tree is not clean. Commit or stash your changes "
-                "before running review-loop.\n  Dirty files: %s",
+                "before running review-loop, or pass --wip to include them "
+                "in the review.\n  Dirty files: %s",
                 ", ".join(non_allowed),
             )
             return LoopResult(
@@ -322,13 +358,27 @@ def review_fix_loop(
 
         if no_diff:
             if i == 1 and config.skip_initial_no_diff:
-                logger.info("No diff on iteration 1 (expected for refactor branch).")
-            elif had_findings and not fix_committed:
-                logger.error(
-                    "No diff after fix — previous iteration had findings but "
-                    "fixer produced no code changes.",
+                logger.info(
+                    "No diff on iteration 1 "
+                    "(expected for a freshly created work branch)."
                 )
-                final_status = FinalStatus.CLAUDE_ERROR
+            elif had_findings and not fix_committed:
+                if config.scope_commit:
+                    # The scope note tells the reviewer to confirm every
+                    # finding against the current working tree, so a no-op
+                    # fixer means confirmed defects are still unresolved —
+                    # report that rather than the generic fixer error.
+                    logger.warning(
+                        "Fixer produced no code changes for the reported "
+                        "findings — they were either stale or left unfixed.",
+                    )
+                    final_status = FinalStatus.FINDINGS_UNFIXED
+                else:
+                    logger.error(
+                        "No diff after fix — previous iteration had findings but "
+                        "fixer produced no code changes.",
+                    )
+                    final_status = FinalStatus.CLAUDE_ERROR
                 break
             elif had_findings:
                 logger.warning(
@@ -523,7 +573,15 @@ def review_fix_loop(
                     commit_msg += f"\nSelf-review: {summary_oneline}"
                 try:
                     fix_committed = commit_and_push(
-                        pre_fix_snapshot, commit_msg, config.current_branch, cwd=cwd
+                        pre_fix_snapshot,
+                        commit_msg,
+                        config.current_branch,
+                        push=config.push_branch,
+                        # A --wip run's commits all get torn down again, and
+                        # they carry the same unfinished work the scaffolding
+                        # commit had to skip hooks for.
+                        no_verify=config.wip,
+                        cwd=cwd,
                     )
                 except RuntimeError as e:
                     logger.error("commit_and_push failed — aborting loop: %s", e)
@@ -532,6 +590,26 @@ def review_fix_loop(
                     break
                 if fix_committed and config.ci_trigger_mode in ("last-only", "none"):
                     made_skipped_fix_commit = True
+                if (
+                    not fix_committed
+                    and (config.scope_commit or config.wip)
+                    and i == config.max_loop
+                ):
+                    # The no-diff check that catches a no-op fixer runs at
+                    # the top of the next iteration, and there is none left.
+                    # Without this, confirmed findings would report success.
+                    # A --wip run needs this even more than a commit-scope
+                    # one: its target is pinned before the scaffolding
+                    # commit, so the branch diff always holds the parked
+                    # work and that check can never fire at all.
+                    logger.warning(
+                        "Fixer produced no code changes on the final "
+                        "iteration — findings were either stale or left "
+                        "unfixed.",
+                    )
+                    final_status = FinalStatus.FINDINGS_UNFIXED
+                    iterations_run = i
+                    break
             else:
                 logger.info("AUTO_COMMIT is disabled — skipping commit and push.")
         finally:
@@ -681,6 +759,23 @@ def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
     log_dir = config.log_dir
     (log_dir / "branch.txt").write_text(config.current_branch)
     (log_dir / "target-branch.txt").write_text(config.target_branch)
+    if config.scope_commit:
+        (log_dir / "scope-commit.txt").write_text(config.scope_commit)
+        # Only commit-scope runs have a push choice to make; a resume that
+        # forgets it would silently keep the fix commits local.
+        (log_dir / "push-branch.txt").write_text(
+            "true" if config.push_branch else "false"
+        )
+    else:
+        # Drop a marker a prior commit-scope run left in this repo-wide
+        # log dir, so --resume cannot restore an unrelated commit's scope.
+        (log_dir / "scope-commit.txt").unlink(missing_ok=True)
+        (log_dir / "push-branch.txt").unlink(missing_ok=True)
+    if config.wip_base:
+        wip_scope.save_metadata(log_dir, config.wip_base, config.wip_scaffold)
+    else:
+        (log_dir / "wip-base.txt").unlink(missing_ok=True)
+        (log_dir / "wip-scaffold.txt").unlink(missing_ok=True)
     (log_dir / "max-loop.txt").write_text(str(config.max_loop))
     (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
     (log_dir / "reviewer-context.txt").write_text(config.reviewer_context)

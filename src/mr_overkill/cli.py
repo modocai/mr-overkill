@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mr_overkill import __version__
+from mr_overkill.commit_scope import resolve_commit
 from mr_overkill.models import BudgetScope, LoopConfig
 
 
@@ -26,6 +27,29 @@ def _detect_current_branch() -> str:
         check=False,
     )
     return result.stdout.strip() or "HEAD"
+
+
+def _symbolic_ref(rev: str) -> str:
+    """Full name of the ref *rev* resolves through, "" if it resolves without one."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--symbolic-full-name", rev],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _is_stable_target(rev: str, current_branch: str) -> bool:
+    """Whether *rev* still means the same commit after the loop commits a fix.
+
+    A revision expression like ``HEAD~5`` names no ref at all and is measured
+    from HEAD every time it is read.  ``HEAD`` itself, and the branch the fix
+    commits land on, do name one — and it moves with every one of them.
+    Everything else — another branch, a tag, a bare SHA — stays put.
+    """
+    ref = _symbolic_ref(rev)
+    return bool(ref) and ref not in ("HEAD", f"refs/heads/{current_branch}")
 
 
 def _detect_pr_number(branch: str) -> str | None:
@@ -109,11 +133,12 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "SCOPE", "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
         "REVIEW_LOOPS", "FIX_NITS", "REVIEWER_BACKEND",
         "REVIEWER_CONTEXT", "CI_TRIGGER_MODE", "NO_BUDGET_GATE",
+        "COMMIT_SCOPE_PUSH",
     }
     boolean_keys = {
         "DRY_RUN", "AUTO_COMMIT", "DIAGNOSTIC_LOG",
         "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW", "FIX_NITS",
-        "NO_BUDGET_GATE",
+        "NO_BUDGET_GATE", "COMMIT_SCOPE_PUSH",
     }
     kv_re = re.compile(
         r"""^\s*(\w+)=(?:"([^"]*)"|'([^']*)'|(.*?))\s*$"""
@@ -329,8 +354,53 @@ def parse_review_loop_args(
             "'none': append [skip ci] with no trigger commit."
         ),
     )
+    parser.add_argument(
+        "--commit",
+        default=None,
+        metavar="REV",
+        help=(
+            "Review an already-merged commit instead of the branch diff. "
+            "Creates a review/<sha>-<ts> branch off HEAD and applies fixes "
+            "there; no PR is created. REV is any single commit (sha, tag, "
+            "HEAD~3) — ranges are not supported. Cannot be used with -t"
+        ),
+    )
+    parser.add_argument(
+        "--push",
+        action="store_true",
+        default=None,
+        help=(
+            "Push the auto-created review branch to the remote "
+            "(default: the branch stays local)"
+        ),
+    )
+    parser.add_argument(
+        "--wip",
+        action="store_true",
+        help=(
+            "Include uncommitted working-tree changes in the review. "
+            "With commits enabled they are parked in a scaffolding commit "
+            "that is unwound when the run finishes"
+        ),
+    )
 
     args = parser.parse_args(argv)
+
+    if args.commit:
+        if ".." in args.commit:
+            parser.error(
+                "--commit takes a single commit; ranges (A..B) are not supported"
+            )
+        if args.target:
+            parser.error(
+                "--commit derives its base from the commit itself; "
+                "-t/--target cannot be combined with it"
+            )
+        if args.wip:
+            parser.error(
+                "--commit and --wip are different review scopes; "
+                "pick one"
+            )
 
     # Load rc file defaults
     rc = _load_rc_file(".overkillrc")
@@ -383,7 +453,6 @@ def parse_review_loop_args(
     )
 
     current_branch = _detect_current_branch()
-    pr_number = _detect_pr_number(current_branch)
 
     # Log directory
     result = subprocess.run(
@@ -407,11 +476,12 @@ def parse_review_loop_args(
             log_dir = legacy_log
 
     # Restore saved values on resume when not explicitly given
+    restored_target = None
     if args.resume:
         if args.target is None:
             saved = log_dir / "target-branch.txt"
             if saved.is_file():
-                target = saved.read_text().strip()
+                target = restored_target = saved.read_text().strip()
         if args.max_loop is None:
             saved = log_dir / "max-loop.txt"
             if saved.is_file():
@@ -435,6 +505,54 @@ def parse_review_loop_args(
             saved = log_dir / "ci-trigger-mode.txt"
             if saved.is_file():
                 args.ci_trigger_mode = saved.read_text().strip()
+        if args.push is None:
+            saved = log_dir / "push-branch.txt"
+            if saved.is_file():
+                args.push = saved.read_text().strip() == "true"
+
+    wip_base = None
+    wip_scaffold = None
+    if args.resume and args.wip:
+        saved = log_dir / "wip-base.txt"
+        if saved.is_file():
+            wip_base = saved.read_text().strip() or None
+        saved = log_dir / "wip-scaffold.txt"
+        if saved.is_file():
+            wip_scaffold = saved.read_text().strip() or None
+
+    scope_commit = None
+    if args.commit:
+        scope_commit = resolve_commit(args.commit)
+        if scope_commit is None:
+            parser.error(f"--commit: not a commit: {args.commit!r}")
+
+    if args.resume:
+        saved = log_dir / "scope-commit.txt"
+        if saved.is_file():
+            restored = saved.read_text().strip()
+            if scope_commit and scope_commit != restored:
+                parser.error(
+                    f"--commit {args.commit!r} differs from the resumed run's "
+                    f"commit {restored}"
+                )
+            scope_commit = restored
+            if args.wip:
+                # The mutual-exclusion check above only sees an explicit
+                # --commit. A restored one slips past it, and the resulting
+                # config takes the commit-scope branch below — leaving a
+                # --wip --no-auto-commit resume to reach the loop's resume
+                # reset, which stashes the very working tree it reviews.
+                parser.error(
+                    f"the resumed run is commit-scoped ({restored[:7]}); "
+                    "--commit and --wip are different review scopes. "
+                    "Drop --wip, or start a fresh --wip run."
+                )
+            if args.target:
+                parser.error(
+                    "--commit derives its base from the commit itself; "
+                    "-t/--target cannot be combined with a resumed "
+                    "commit-scope run"
+                )
 
     if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")
@@ -461,6 +579,85 @@ def parse_review_loop_args(
             f" got {ci_trigger_mode!r}"
         )
 
+    if scope_commit:
+        # The work branch is created off HEAD, so the branch diff (and hence
+        # the loop's convergence check) is "the fixes so far". On resume that
+        # base was fixed when the branch was created and HEAD has since moved
+        # past it, so the restored value wins.
+        if restored_target is None:
+            head = resolve_commit("HEAD")
+            if head is None:
+                parser.error(
+                    "--commit requires a repository with at least one commit"
+                )
+            target = head
+        # Every iteration commit should look normal: there is no PR to stay
+        # quiet for, and no trigger commit worth saving up.
+        ci_trigger_mode = "every"
+        pr_number = None
+    elif args.wip:
+        if args.resume and not (auto_commit and not dry_run):
+            # Without commits a --wip run is a single pass with no state worth
+            # resuming, and resuming one would be actively harmful: the loop's
+            # resume reset stashes the very working tree being reviewed.
+            parser.error(
+                "--wip without commits is a single pass; there is nothing to "
+                "resume. Drop --resume, or allow commits so the work is "
+                "scaffolded first."
+            )
+        if auto_commit and not dry_run:
+            # The scaffolding commit becomes HEAD, so a target that resolves
+            # at loop time — "HEAD", or the branch we are sitting on — would
+            # then name the scaffolding commit itself and the diff would come
+            # out empty.  Pin it to what HEAD means right now.  On resume that
+            # pinning already happened and the restored value wins.
+            if restored_target is None:
+                pinned = resolve_commit(target)
+                if pinned is None:
+                    parser.error(f"-t/--target: not a commit: {target!r}")
+                target = pinned
+        elif max_loop and max_loop > 1:
+            logging.getLogger(__name__).warning(
+                "--wip without commits runs a single iteration; "
+                "-n %d has no effect.",
+                max_loop,
+            )
+        # Findings describe uncommitted code that is not in any PR, so a
+        # comment on the branch's PR would point at nothing.
+        pr_number = None
+    else:
+        pr_number = _detect_pr_number(current_branch)
+        # The target is re-read on every iteration, so one that moves with
+        # HEAD slides forward as the loop's own fix commits land: the range
+        # shrinks off its oldest end and the commits that fall out of it stop
+        # being reviewed — silently, since the diff still looks healthy.  Pin
+        # it to what it means now.  A ref of its own keeps its name, which the
+        # reviewer prompt and the run report both read better for.  The
+        # --commit and --wip paths above pin their own targets already, and a
+        # resumed run inherits the pinning its first run did.
+        if (
+            auto_commit
+            and not dry_run
+            and restored_target is None
+            and not _is_stable_target(target, current_branch)
+        ):
+            pinned = resolve_commit(target)
+            if pinned is None:
+                parser.error(f"-t/--target: not a commit: {target!r}")
+            target = pinned
+
+    # COMMIT_SCOPE_PUSH describes the auto-created review/* branch only; a
+    # normal branch run must always push, or its first fix commit stays local.
+    push_branch = (
+        _resolve_bool(args.push, rc.get("COMMIT_SCOPE_PUSH"), False)
+        if scope_commit
+        else True
+    )
+    if args.wip:
+        # Not configurable: pushing here would publish unfinished work — and
+        # the scaffolding commit holding it — to a shared branch.
+        push_branch = False
+
     return LoopConfig(
         current_branch=current_branch,
         target_branch=target,
@@ -484,6 +681,12 @@ def parse_review_loop_args(
         reviewer_backend=reviewer_backend,
         reviewer_context=reviewer_context,
         ci_trigger_mode=ci_trigger_mode,
+        scope_commit=scope_commit,
+        scope_diff_file=(log_dir / "scope.diff") if scope_commit else None,
+        push_branch=push_branch,
+        wip=args.wip,
+        wip_base=wip_base,
+        wip_scaffold=wip_scaffold,
     )
 
 

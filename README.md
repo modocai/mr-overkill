@@ -94,14 +94,31 @@ overkill refactor-suggest -n 1 --dry-run
 overkill review-loop [OPTIONS]
 
 Options:
-  -t, --target <branch>    Target branch to diff against (default: develop)
+  -t, --target <rev>       Target to diff against (default: develop). Accepts any
+                           git revision, not just a branch name: a SHA, a tag, or
+                           HEAD~5 all work, so you can review "everything since
+                           commit X" without opening a PR. A revision that moves
+                           with HEAD is pinned to a SHA when the run starts, so
+                           the loop's own fix commits cannot shrink the range.
+  --commit <rev>           Review an already-merged commit instead of the branch
+                           diff. Creates a review/<sha>-<ts> branch off HEAD and
+                           applies fixes there; no PR is created. <rev> is a single
+                           commit — ranges are not supported. Excludes -t.
+  --push                   Push the auto-created review branch (default: local only)
+  --wip                    Include uncommitted working-tree changes in the review.
+                           With commits enabled they are parked in a scaffolding
+                           commit that is unwound when the run finishes, so no
+                           commit is left behind either way. Excludes --commit.
   -n, --max-loop <N>       Maximum review-fix iterations (required, unless --resume)
   --max-subloop <N>        Maximum self-review sub-iterations per fix (default: 4)
   --no-self-review         Disable self-review (equivalent to --max-subloop 0)
   --dry-run                Run review only, do not fix
   --no-auto-commit         Fix but do not commit/push (single iteration)
   --resume                 Resume from a previously interrupted run (reuses existing logs)
-  --reviewer-backend <be>  Reviewer backend: claude|codex (default: codex)
+  --fix-nits               Also flag nits and style issues during self-review
+  --context <text>         Additional context for the reviewer (design intent,
+                           constraints)
+  --reviewer-backend <be>  Reviewer backend: claude|codex|gemini (default: codex)
   --ci-trigger-mode <m>    CI trigger policy: every|last-only|none (default: last-only).
                            'last-only' tags each iteration commit with [skip ci]
                            and pushes a single empty trigger commit on PASS —
@@ -119,7 +136,107 @@ Examples:
   overkill review-loop --resume              # resume an interrupted run
   overkill review-loop -n 2 --reviewer-backend claude  # use Claude as reviewer
   overkill review-loop -n 10 --ci-trigger-mode last-only  # CI fires once on PASS
+
+  # Review only what landed after a given commit, before opening a PR
+  overkill review-loop -t abc123 -n 3
+  overkill review-loop -t "$(git merge-base origin/develop HEAD)" -n 3
+
+  # Improve a commit that is already merged
+  overkill review-loop --commit abc123 -n 1 --dry-run   # report only, no branch
+  overkill review-loop --commit abc123 -n 3             # fix on a review/* branch
+
+  # Review work you have not committed yet
+  overkill review-loop --wip -n 1 --dry-run   # report only, nothing touched
+  overkill review-loop --wip -n 3             # fix it, still uncommitted at the end
 ```
+
+### Reviewing an already-merged commit
+
+`--commit` exists for the case the branch diff cannot express: a change that
+already landed, which you now want to improve.
+
+1. The commit's diff is written to `.overkill/logs/scope.diff`. It is computed
+   against the commit's **first parent**, so merge commits produce a real patch
+   — `git show` prints nothing for those.
+2. A `review/<sha>-<timestamp>` branch is created off your current HEAD and the
+   fixes are committed there. The branch stays local unless you pass `--push`,
+   and no PR is created or commented on.
+3. The reviewer treats `scope.diff` as *scope only*. Since other commits may
+   have landed since, it must confirm each finding against the file's current
+   contents and cite current line numbers.
+
+Run it from a clean, up-to-date checkout of the branch the commit lives on:
+
+```bash
+git switch main && git pull
+overkill review-loop --commit abc123 -n 3
+```
+
+**After upgrading, re-run `overkill init`** in each repo — `--commit` and
+`--wip` need the `${REVIEW_SCOPE_NOTE}` marker that the refreshed review prompts
+carry, and the run aborts with an explanatory error if it is missing. Note that
+`init` overwrites `.overkill/prompts/active/`, so back up any customised prompts
+first.
+
+### Reviewing work you have not committed yet
+
+Without `--wip` the review scope is `git diff <target>...<current>` — committed
+work only. A dirty tree is rejected outright, and under `--dry-run` it is
+silently left out of scope. `--wip` pulls it in.
+
+How it gets there depends on whether the run is allowed to commit:
+
+| Command | Mechanism | Iterations | Commits left behind |
+|---|---|---|---|
+| `--wip --dry-run` | worktree diff written to `.overkill/logs/wip.diff` | 1 (review only) | none |
+| `--wip --no-auto-commit` | same | 1 | none |
+| `--wip` | scaffolding commit, unwound at the end | up to `-n` | none |
+
+Both paths end the same way: your working tree is dirty again, with the fixes
+applied on top of your own edits. Only the iteration count differs. Multiple
+iterations need commits because the loop detects convergence from the commit
+graph, so `--wip` parks your work in a throwaway commit, lets the loop run
+against it unchanged, and then removes the scaffolding with
+`git reset --mixed`.
+
+```bash
+overkill review-loop --wip -n 3
+git diff                              # your work plus the fixes, uncommitted
+cat .overkill/logs/wip-fixes.diff     # just what the loop changed
+```
+
+Worth knowing before you use it:
+
+- **Nothing is ever pushed** in `--wip` mode, and no PR is commented on. This is
+  not configurable — the scaffolding commit holds unfinished work.
+- **`git add -A` sweeps in anything `.gitignore` does not cover.** The file list
+  is printed before the scaffolding commit is made. Nothing is pushed and the
+  commit is unwound, but check the list if you keep untracked secrets around.
+- **A staged/unstaged split does not survive.** `git reset --mixed` leaves
+  everything unstaged.
+- **If the run is interrupted the scaffolding stays.** The command to undo it is
+  printed at the start and the base commit is saved to
+  `.overkill/logs/wip-base.txt`; `--wip --resume` picks an interrupted run back
+  up, parking the work again if the scaffolding is already gone. A run that
+  already finished is left alone. Resume needs commits enabled — the other two
+  modes are a single pass with nothing to resume. A *fresh* `--wip` run refuses
+  to start on top of leftover scaffolding rather than nest a second commit on
+  it, which would strand the earlier draft on the branch — including when the
+  scaffolding sits behind fix commits the interrupted run already made. A
+  resume refuses too if you have committed normally on top of it, because
+  unwinding would rewind that commit into uncommitted changes.
+- **A resumed run's `wip-fixes.diff` only covers the iterations after the
+  resume.** Re-parking folds the earlier attempt's fixes in with your own work,
+  so they cannot be told apart again; that attempt's diff is kept beside it as
+  `wip-fixes-<sha>.diff`.
+- **Commit hooks are skipped** for the run's own commits. Work in progress
+  routinely fails hooks it will pass once finished, and every commit `--wip`
+  makes is torn down again.
+- **An unfinished merge, rebase, cherry-pick or revert blocks the mode.** The
+  scaffolding commit would conclude the operation, and unwinding would then
+  reset past it.
+- **New files are included.** They are staged as intent-to-add so the reviewer
+  can see them, then unstaged again.
 
 ## Usage: overkill refactor-suggest
 
@@ -141,7 +258,7 @@ Options:
   --resume                 Resume from a previously interrupted run (reuses existing logs)
   --with-review            Run review-loop after PR creation (default: 4 iterations)
   --with-review-loops <N>  Set review-loop iteration count (implies --with-review)
-  --reviewer-backend <be>  Reviewer backend: claude|codex (default: codex)
+  --reviewer-backend <be>  Reviewer backend: claude|codex|gemini (default: codex)
   --diagnostic-log         Save full Claude event stream to sidecar files
   --no-budget-gate         Skip token-budget checks and run regardless
                            (same as OVERKILL_SKIP_BUDGET=1)

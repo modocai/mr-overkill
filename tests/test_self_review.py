@@ -403,6 +403,63 @@ class TestFixNitsGuidelines:
         "mr_overkill.self_review.changed_files_since_snapshot",
         return_value=["src/foo.py"],
     )
+    def test_scope_note_joins_the_guidelines(
+        self,
+        mock_changed: MagicMock,
+        mock_diff: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """scope_note reaches the prompt without displacing fix-nits."""
+        prompts = _make_prompts(tmp_path)
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        def write_diff(
+            changed: list[str], output: Path, cwd: Path | None
+        ) -> None:
+            output.write_text("diff --git a/foo b/foo\n")
+
+        mock_diff.side_effect = write_diff
+
+        captured_prompt: list[str] = []
+
+        def fake_retry(
+            output_path: Path, label: str, cmd_args: list[str], **kw: object
+        ) -> bool:
+            captured_prompt.append(str(kw.get("stdin", "")))
+            output_path.write_text(
+                json.dumps({
+                    "findings": [],
+                    "overall_correctness": "patch is correct",
+                })
+            )
+            return True
+
+        self_review_subloop(
+            pre_fix_snapshot=_make_snapshot(),
+            max_subloop=4,
+            log_dir=log_dir,
+            iteration=1,
+            review_json_str="{}",
+            retry_fn=fake_retry,
+            budget_fn=MagicMock(return_value=True),
+            fix_fn=MagicMock(),
+            prompts_dir=prompts,
+            current_branch="feat/x",
+            target_branch="develop",
+            fix_nits=True,
+            scope_note="\n### the author's draft is in here too\n",
+        )
+
+        assert len(captured_prompt) == 1
+        assert "Fix nits and potential issues" in captured_prompt[0]
+        assert "the author's draft is in here too" in captured_prompt[0]
+
+    @patch("mr_overkill.self_review._generate_diff")
+    @patch(
+        "mr_overkill.self_review.changed_files_since_snapshot",
+        return_value=["src/foo.py"],
+    )
     def test_fix_nits_false_empty_guidelines(
         self,
         mock_changed: MagicMock,

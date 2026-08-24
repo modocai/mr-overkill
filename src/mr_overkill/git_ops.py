@@ -204,9 +204,18 @@ def commit_and_push(
     snapshot: list[WorktreeSnapshot],
     message: str,
     branch: str = "",
+    push: bool = True,
+    no_verify: bool = False,
     cwd: Path | None = None,
 ) -> bool:
     """Commit files changed since snapshot and push if upstream exists.
+
+    ``push=False`` keeps the commit local unconditionally.  An empty *branch*
+    is not enough for that: ``_push_current_branch`` pushes whenever an
+    upstream already exists, which a resumed review branch may well have.
+
+    ``no_verify=True`` skips commit hooks.  Only throwaway commits should ask
+    for it — see the WIP scaffolding in ``wip_scope``.
 
     Returns ``True`` if a commit was made, ``False`` if nothing to commit.
     Raises ``RuntimeError`` if ``git commit`` or ``git push`` fails.
@@ -225,7 +234,11 @@ def commit_and_push(
 
     # Commit
     result = _run(
-        ["git", "commit", "-m", message, "--pathspec-from-file=-"],
+        [
+            "git", "commit",
+            *(["--no-verify"] if no_verify else []),
+            "-m", message, "--pathspec-from-file=-",
+        ],
         cwd=cwd,
         input=pathspec,
     )
@@ -234,7 +247,10 @@ def commit_and_push(
 
     logger.info("Committed.")
 
-    _push_current_branch(branch=branch, cwd=cwd)
+    if push:
+        _push_current_branch(branch=branch, cwd=cwd)
+    else:
+        logger.info("Push disabled — commit stays local.")
     return True
 
 

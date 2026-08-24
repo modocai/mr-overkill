@@ -63,6 +63,7 @@ class FinalStatus(_StrEnum):
     STASH_CONFLICT = "stash_conflict"
     REVIEW_FAILED = "review_failed"
     COMMIT_PUSH_ERROR = "commit_push_error"
+    FINDINGS_UNFIXED = "findings_unfixed"
 
 
 # ── Dataclasses ──────────────────────────────────────────────────────
@@ -193,6 +194,27 @@ class LoopConfig:
     # Refactor-specific
     scope: str | None = None  # micro | module | layer | full
     skip_initial_no_diff: bool = False  # refactor: 1st iteration has no diff
+
+    # Commit-scope review: review an already-merged commit instead of the
+    # branch diff.  ``scope_commit`` doubles as the mode discriminator.
+    scope_commit: str | None = None
+    # Path of the scope artefact for whichever scope mode is active:
+    # ``scope.diff`` for commit scope, ``wip.diff`` for WIP scope.
+    scope_diff_file: Path | None = None
+    # Whether commit_and_push may publish the branch.  Commit-scope runs
+    # create a throwaway ``review/*`` branch and keep it local by default,
+    # even if that branch already has an upstream from an earlier push.
+    push_branch: bool = True
+
+    # WIP scope: pull uncommitted working-tree changes into the review.  With
+    # commits allowed the work is parked in a scaffolding commit that is torn
+    # down afterwards; without them the reviewer gets a worktree diff instead.
+    wip: bool = False
+    wip_base: str | None = None  # HEAD before scaffolding — the unwind target
+    wip_scaffold: str | None = None  # the scaffolding commit itself
+    # Cleared when a run keeps the recorded metadata but scaffolds nothing, so
+    # the unwind cannot mistake an unrelated HEAD for scaffolding of its own.
+    wip_unwind: bool = True
 
 
 @dataclass(frozen=True)
