@@ -17,6 +17,7 @@ import pytest
 from mr_overkill.wip_scope import (
     SCAFFOLD_MESSAGE,
     create_scaffold_commit,
+    head_is_scaffold,
     is_in_head,
     merge_base,
     operation_in_progress,
@@ -345,6 +346,28 @@ class TestIsInHead:
         _git(tmp_git_repo, "reset", "--quiet", "--mixed", base)
 
         assert is_in_head(scaffold, tmp_git_repo) is False
+
+
+class TestHeadIsScaffold:
+    def test_a_leftover_scaffolding_commit_is_recognised(
+        self, tmp_git_repo: Path
+    ) -> None:
+        # What a run killed before its unwind leaves behind.
+        (tmp_git_repo / "feature.py").write_text("x = 1\n")
+        assert create_scaffold_commit(tmp_git_repo) is not None
+
+        assert head_is_scaffold(tmp_git_repo) is True
+
+    def test_an_ordinary_commit_is_not(self, tmp_git_repo: Path) -> None:
+        assert head_is_scaffold(tmp_git_repo) is False
+
+    def test_an_unwound_scaffold_is_not(self, tmp_git_repo: Path) -> None:
+        base = _git(tmp_git_repo, "rev-parse", "HEAD")
+        (tmp_git_repo / "feature.py").write_text("x = 1\n")
+        assert create_scaffold_commit(tmp_git_repo) is not None
+        _git(tmp_git_repo, "reset", "--quiet", "--mixed", base)
+
+        assert head_is_scaffold(tmp_git_repo) is False
 
 
 class TestSaveMetadata:

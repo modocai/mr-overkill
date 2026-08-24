@@ -251,6 +251,20 @@ def _prepare_wip_scope(config: LoopConfig) -> bool:
     if head is None:
         logger.error("--wip requires a repository with at least one commit.")
         return False
+    # Only on a fresh run: the re-park path above already proved HEAD is the
+    # recorded base, and a leftover scaffolding commit *is* what it re-parks
+    # onto, so refusing there would block the very resume this points at.
+    if not config.resume and wip_scope.head_is_scaffold():
+        logger.error(
+            "HEAD is already a scaffolding commit (%s) — an earlier --wip run "
+            "was interrupted before it could unwind. Scaffolding on top of it "
+            "would leave that commit, and the work parked in it, on the branch "
+            "for good. Either pick that run up with --resume, or undo it "
+            "first:\n  git reset --mixed %s^",
+            head[:7],
+            head,
+        )
+        return False
     scaffold = wip_scope.create_scaffold_commit()
     if scaffold is None:
         return False

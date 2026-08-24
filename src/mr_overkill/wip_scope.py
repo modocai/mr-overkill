@@ -206,6 +206,18 @@ def create_scaffold_commit(cwd: Path | None = None) -> str | None:
     return sha or None
 
 
+def head_is_scaffold(cwd: Path | None = None) -> bool:
+    """Whether HEAD is itself a leftover scaffolding commit.
+
+    The subject is the only signal that survives a wiped log directory, so it
+    is what a fresh run has to go on: the metadata files are read back on
+    ``--resume`` alone, and a run interrupted before its unwind is exactly the
+    case that has to be caught here.
+    """
+    result = _run(["git", "log", "-1", "--format=%s"], cwd)
+    return result.returncode == 0 and result.stdout.strip() == SCAFFOLD_MESSAGE
+
+
 def is_in_head(commit: str, cwd: Path | None = None) -> bool:
     """Whether *commit* is an ancestor of HEAD (or HEAD itself)."""
     return _run(

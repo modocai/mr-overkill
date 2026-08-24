@@ -217,7 +217,9 @@ Worth knowing before you use it:
   `.overkill/logs/wip-base.txt`; `--wip --resume` picks an interrupted run back
   up, parking the work again if the scaffolding is already gone. A run that
   already finished is left alone. Resume needs commits enabled — the other two
-  modes are a single pass with nothing to resume.
+  modes are a single pass with nothing to resume. A *fresh* `--wip` run refuses
+  to start on top of leftover scaffolding rather than nest a second commit on
+  it, which would strand the earlier draft on the branch.
 - **A resumed run's `wip-fixes.diff` only covers the iterations after the
   resume.** Re-parking folds the earlier attempt's fixes in with your own work,
   so they cannot be told apart again; that attempt's diff is kept beside it as

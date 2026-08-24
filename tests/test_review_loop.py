@@ -550,6 +550,7 @@ class TestPrepareWipScope:
     ) -> None:
         mock_ws.uncommitted_files.return_value = ["a.py"]
         mock_ws.operation_in_progress.return_value = None
+        mock_ws.head_is_scaffold.return_value = False
         mock_resolve.return_value = "b" * 40
         mock_ws.create_scaffold_commit.return_value = "c" * 40
         config = self._config(make_loop_config, tmp_path)
@@ -616,6 +617,60 @@ class TestPrepareWipScope:
         )
         assert _prepare_wip_scope(config) is True
         mock_ws.create_scaffold_commit.assert_not_called()
+
+    @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_fresh_run_refuses_to_nest_on_leftover_scaffolding(
+        self,
+        mock_ws: MagicMock,
+        mock_resolve: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # A run killed before its unwind leaves the scaffolding in HEAD, and a
+        # fresh run reads no metadata back.  Scaffolding on top of it would make
+        # the leftover commit this run's base, overwrite wip-base.txt with it,
+        # and unwind only as far as it — stranding the earlier draft in a commit
+        # on the branch while the loop reports the tree merely dirty.
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.operation_in_progress.return_value = None
+        mock_ws.head_is_scaffold.return_value = True
+        mock_resolve.return_value = "b" * 40
+        config = self._config(make_loop_config, tmp_path)
+
+        assert _prepare_wip_scope(config) is False
+        mock_ws.create_scaffold_commit.assert_not_called()
+        mock_ws.save_metadata.assert_not_called()
+
+    @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
+    @patch("mr_overkill.review_loop.wip_scope")
+    def test_resume_may_repark_onto_leftover_scaffolding(
+        self,
+        mock_ws: MagicMock,
+        mock_resolve: MagicMock,
+        tmp_path: Path,
+        make_loop_config: Callable[..., LoopConfig],
+    ) -> None:
+        # The refusal above is what --resume is pointed at, so it must not fire
+        # here: a leftover scaffolding commit is exactly what the re-park path
+        # legitimately builds on once it has proved HEAD is the recorded base.
+        mock_ws.is_in_head.return_value = False
+        mock_ws.uncommitted_files.return_value = ["a.py"]
+        mock_ws.operation_in_progress.return_value = None
+        mock_ws.head_is_scaffold.return_value = True
+        mock_resolve.return_value = "b" * 40
+        mock_ws.create_scaffold_commit.return_value = "d" * 40
+        config = self._config(
+            make_loop_config,
+            tmp_path,
+            resume=True,
+            wip_base="b" * 40,
+            wip_scaffold="c" * 40,
+        )
+        self._resumable_logs(config)
+
+        assert _prepare_wip_scope(config) is True
+        mock_ws.create_scaffold_commit.assert_called_once()
 
     @patch("mr_overkill.review_loop.commit_scope.resolve_commit")
     @patch("mr_overkill.review_loop.wip_scope")
