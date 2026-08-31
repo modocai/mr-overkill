@@ -16,6 +16,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
+from mr_overkill import workspace_policy
 from mr_overkill.models import WorktreeSnapshot
 
 logger = logging.getLogger(__name__)
@@ -222,7 +223,7 @@ def commit_and_push(
     """
     changed = changed_files_since_snapshot(
         snapshot, cwd=cwd,
-        exclude_prefixes=(".overkill/logs/", ".review-loop/logs/"),
+        exclude_prefixes=workspace_policy.LOG_PREFIXES,
     )
     if not changed:
         logger.info("No file changes after fix — nothing to commit.")

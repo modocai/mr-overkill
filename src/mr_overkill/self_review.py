@@ -11,6 +11,7 @@ import string
 import subprocess
 from pathlib import Path
 
+from mr_overkill import workspace_policy
 from mr_overkill.git_ops import changed_files_since_snapshot
 from mr_overkill.json_extract import (
     inject_refactoring_plan,
@@ -104,7 +105,7 @@ def self_review_subloop(
         # Check if fix produced changes
         changed = changed_files_since_snapshot(
             pre_fix_snapshot, cwd=cwd,
-            exclude_prefixes=(".overkill/logs/", ".review-loop/logs/"),
+            exclude_prefixes=workspace_policy.LOG_PREFIXES,
         )
         if not changed:
             logger.info("No working tree changes from fix — skipping self-review.")

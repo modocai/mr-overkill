@@ -22,15 +22,15 @@ import logging
 import subprocess
 from pathlib import Path
 
+from mr_overkill import workspace_policy
 from mr_overkill.git_ops import git_all_dirty
 
 logger = logging.getLogger(__name__)
 
 SCAFFOLD_MESSAGE = "wip: review-loop scaffolding [skip ci]"
 
-# Log artefacts are not part of anyone's work in progress.  Same list as
-# ``git_ops.commit_and_push``'s ``exclude_prefixes``.
-_LOG_PREFIXES = (".overkill/logs/", ".review-loop/logs/")
+# Log artefacts are not part of anyone's work in progress.
+_LOG_PREFIXES = workspace_policy.LOG_PREFIXES
 
 
 def _run(
