@@ -50,16 +50,29 @@ _TIER_MAP: dict[str, str] = {
 }
 
 
-def detect_tier(telemetry_dir: Path | None = None) -> str:
+#: Reported in place of a tier that could not be determined.
+UNKNOWN_TIER = "unknown"
+
+
+def detect_tier(telemetry_dir: Path | None = None) -> str | None:
     """Read rateLimitTier from Claude Code telemetry files.
 
-    Returns ``'pro'``, ``'max5'``, or ``'max20'``.
+    Returns ``'pro'``, ``'max5'``, ``'max20'``, or ``None`` when the tier
+    cannot be determined.
+
+    ``None`` rather than a default on purpose.  This value is only ever used
+    as the denominator of a usage percentage, so guessing it does not degrade
+    gracefully: guessing ``pro`` for a max20 account reports 995% where the
+    truth is 49%, and the run blocks on a budget it has not used.  Telemetry
+    formats change — ``user_attributes`` disappeared from the files once
+    already — so not knowing has to be sayable.
     """
     if telemetry_dir is None:
         telemetry_dir = Path.home() / ".claude" / "telemetry"
 
     if not telemetry_dir.is_dir():
-        return "pro"
+        logger.debug("No telemetry directory at %s — tier unknown.", telemetry_dir)
+        return None
 
     best_ts = ""
     best_tier = ""
@@ -113,7 +126,20 @@ def detect_tier(telemetry_dir: Path | None = None) -> str:
                 best_ts = ts
                 best_tier = str(tier_raw)
 
-    return _TIER_MAP.get(best_tier, "pro")
+    if not best_tier:
+        logger.warning(
+            "No rateLimitTier found in %s — cannot size the token limit. "
+            "Local budget estimates will be skipped in favour of OAuth data.",
+            telemetry_dir,
+        )
+        return None
+    tier = _TIER_MAP.get(best_tier)
+    if tier is None:
+        logger.warning(
+            "Unrecognised rateLimitTier %r — cannot size the token limit.",
+            best_tier,
+        )
+    return tier
 
 
 def check_oauth() -> BudgetStatus | None:
@@ -179,7 +205,9 @@ def check_oauth() -> BudgetStatus | None:
             logger.debug("OAuth: no utilization in response")
             return None
 
-        tier = detect_tier()
+        # Only a label here: OAuth reports utilization directly, so an
+        # unknown tier costs nothing on this path.
+        tier = detect_tier() or UNKNOWN_TIER
         seven_day = data.get("seven_day")
 
         return BudgetStatus(
@@ -207,9 +235,15 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
 
     Scans files modified in the last 5 hours, sums token usage
     (deduplicating by message.id), and calculates percentage.
+
+    ``five_hour_used_pct`` is ``None`` when tokens were used but the tier —
+    and so the limit to measure them against — could not be determined.  A
+    percentage from a guessed limit is worse than no percentage at all:
+    ``budget_sufficient`` treats ``None`` as "assume OK", where a wrong number
+    blocks the run outright.
     """
     tier = detect_tier()
-    limit = _TIER_LIMITS.get(tier, _TIER_LIMITS["pro"])
+    limit = _TIER_LIMITS.get(tier) if tier else None
 
     if projects_dir is None:
         projects_dir = Path.home() / ".claude" / "projects"
@@ -260,24 +294,39 @@ def check_local(projects_dir: Path | None = None) -> BudgetStatus:
     for usage in seen_ids.values():
         total_tokens += _sum_usage(usage)
 
-    pct = (int(total_tokens) * 100 // limit) if total_tokens > 0 and limit > 0 else 0
+    pct: int | None
+    if total_tokens <= 0:
+        # Nothing used needs no denominator.
+        pct = 0
+    elif limit:
+        pct = int(total_tokens) * 100 // limit
+    else:
+        pct = None
 
-    logger.info(
-        "Local estimate: %d%% (%d weighted tokens / %d limit, "
-        "tier=%s, %d deduplicated messages)",
-        pct,
-        int(total_tokens),
-        limit,
-        tier,
-        len(seen_ids),
-    )
+    if pct is None:
+        logger.warning(
+            "Local estimate unavailable: %d weighted tokens over %d "
+            "deduplicated messages, but no tier to size the limit against.",
+            int(total_tokens),
+            len(seen_ids),
+        )
+    else:
+        logger.info(
+            "Local estimate: %d%% (%d weighted tokens / %s limit, "
+            "tier=%s, %d deduplicated messages)",
+            pct,
+            int(total_tokens),
+            limit if limit else "unknown",
+            tier or UNKNOWN_TIER,
+            len(seen_ids),
+        )
 
     return BudgetStatus(
         five_hour_used_pct=pct,
         seven_day_used_pct=None,
         tokens_used=int(total_tokens),
         mode="local",
-        tier=tier,
+        tier=tier or UNKNOWN_TIER,
         resets_at=None,
         seven_day_resets_at=None,
         estimated=True,

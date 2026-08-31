@@ -3,19 +3,65 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
-from mr_overkill.budget.claude import check_local, detect_tier
+import pytest
+
+from mr_overkill.budget import BudgetScope, budget_sufficient
+from mr_overkill.budget.claude import (
+    UNKNOWN_TIER,
+    check_local,
+    detect_tier,
+)
+from mr_overkill.models import BudgetStatus
 
 
 class TestDetectTier:
     def test_no_telemetry_dir(self, tmp_path: Path) -> None:
-        assert detect_tier(tmp_path / "nonexistent") == "pro"
+        # Not "pro". Defaulting to the smallest plan turns "I don't know"
+        # into a 995% reading on a max20 account.
+        assert detect_tier(tmp_path / "nonexistent") is None
 
     def test_empty_telemetry_dir(self, tmp_path: Path) -> None:
         telemetry = tmp_path / "telemetry"
         telemetry.mkdir()
-        assert detect_tier(telemetry) == "pro"
+        assert detect_tier(telemetry) is None
+
+    def test_telemetry_without_the_key(self, tmp_path: Path) -> None:
+        """Regression: the shape the telemetry actually has now.
+
+        ``user_attributes`` stopped appearing in these files, which is what
+        made every lookup miss and every account look like ``pro``.
+        """
+        telemetry = tmp_path / "telemetry"
+        telemetry.mkdir()
+        (telemetry / "1p_failed_events.abc.json").write_text(
+            json.dumps({
+                "event_type": "ClaudeCodeInternalEvent",
+                "event_data": {
+                    "event_name": "tengu_event_loop_stall",
+                    "client_timestamp": "2026-08-28T01:16:18.117Z",
+                    "model": "claude-opus-5",
+                    "auth": {"account_uuid": "f0689dd4"},
+                },
+            })
+        )
+        assert detect_tier(telemetry) is None
+
+    def test_unrecognised_tier_value(self, tmp_path: Path) -> None:
+        # A plan the map has never heard of — "team", say — is not "pro".
+        telemetry = tmp_path / "telemetry"
+        telemetry.mkdir()
+        (telemetry / "event.json").write_text(
+            json.dumps({
+                "event_data": {
+                    "client_timestamp": "2026-01-01T00:00:00Z",
+                    "user_attributes": {"rateLimitTier": "some_new_plan"},
+                }
+            })
+        )
+        assert detect_tier(telemetry) is None
 
     def test_max5_tier(self, tmp_path: Path) -> None:
         telemetry = tmp_path / "telemetry"
@@ -89,3 +135,56 @@ class TestCheckLocal:
         status = check_local(projects)
         assert status.five_hour_used_pct == 0
         assert status.tokens_used == 0
+
+
+class TestLocalEstimateWithoutATier:
+    """Without a tier there is no denominator, so there is no percentage."""
+
+    def _session(self, projects: Path, weighted_tokens: int) -> None:
+        session = projects / "proj" / "session.jsonl"
+        session.parent.mkdir(parents=True)
+        session.write_text(json.dumps({
+            "type": "assistant",
+            "timestamp": datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+            "message": {
+                "id": "msg_1",
+                "usage": {"input_tokens": weighted_tokens, "output_tokens": 0},
+            },
+        }))
+
+    def test_tokens_used_but_no_tier_reports_no_percentage(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "mr_overkill.budget.claude.detect_tier", lambda *a, **k: None
+        )
+        projects = tmp_path / "projects"
+        self._session(projects, 19_909_525)
+
+        status = check_local(projects)
+
+        # The incident: this used to be 995%, from a limit nobody verified.
+        assert status.five_hour_used_pct is None
+        assert status.tokens_used == 19_909_525
+        assert status.tier == UNKNOWN_TIER
+
+    def test_no_tokens_still_reports_zero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Nothing used needs no denominator, so an unknown tier costs nothing.
+        monkeypatch.setattr(
+            "mr_overkill.budget.claude.detect_tier", lambda *a, **k: None
+        )
+        projects = tmp_path / "projects"
+        projects.mkdir()
+
+        assert check_local(projects).five_hour_used_pct == 0
+
+    def test_budget_gate_treats_no_percentage_as_go(self) -> None:
+        # budget_sufficient's existing "no data — assume OK" branch is what
+        # makes returning None safe rather than merely honest.
+        status = BudgetStatus(
+            five_hour_used_pct=None, seven_day_used_pct=None, tokens_used=1,
+            mode="local", tier=UNKNOWN_TIER, resets_at=None, estimated=True,
+        )
+        assert budget_sufficient(BudgetScope.MICRO, status) is True
