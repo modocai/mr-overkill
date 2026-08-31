@@ -414,16 +414,28 @@ def check_token_budget() -> BudgetStatus:
 
     if cached is not None:
         if cached.five_hour_used_pct is not None:
-            # Use the higher 5h value between cached and local to avoid
-            # underreporting when cache is stale.
+            # Prefer the higher of the two, so a stale cache cannot
+            # under-report.  Only when the local estimate has a percentage at
+            # all: without a known tier it has no denominator, and letting it
+            # win then would replace a real reading with a guess — which is
+            # how a 44% cache once became a 995% refusal.
             if (
                 local.five_hour_used_pct is not None
                 and local.five_hour_used_pct > cached.five_hour_used_pct
             ):
-                cached = dataclasses.replace(
+                logger.info(
+                    "Using cached OAuth budget data, raised from %d%% to the "
+                    "higher local estimate of %d%%.",
+                    cached.five_hour_used_pct,
+                    local.five_hour_used_pct,
+                )
+                return dataclasses.replace(
                     cached, five_hour_used_pct=local.five_hour_used_pct,
                 )
-            logger.info("Using cached OAuth budget data.")
+            logger.info(
+                "Using cached OAuth budget data (%d%% used).",
+                cached.five_hour_used_pct,
+            )
             return cached
         # 5-hour expired but 7-day still valid — merge 7-day into local.
         logger.info(

@@ -12,6 +12,7 @@ from mr_overkill.budget import BudgetScope, budget_sufficient
 from mr_overkill.budget.claude import (
     UNKNOWN_TIER,
     check_local,
+    check_token_budget,
     detect_tier,
 )
 from mr_overkill.models import BudgetStatus
@@ -188,3 +189,62 @@ class TestLocalEstimateWithoutATier:
             mode="local", tier=UNKNOWN_TIER, resets_at=None, estimated=True,
         )
         assert budget_sufficient(BudgetScope.MICRO, status) is True
+
+
+class TestCachedOAuthMerge:
+    """A cached OAuth reading is real data; the local estimate may not be."""
+
+    _CACHED = BudgetStatus(
+        five_hour_used_pct=44, seven_day_used_pct=49, tokens_used=0,
+        mode="oauth", tier="pro", resets_at=None, estimated=False,
+    )
+
+    def _run(
+        self, local: BudgetStatus, monkeypatch: pytest.MonkeyPatch
+    ) -> BudgetStatus:
+        monkeypatch.setattr(
+            "mr_overkill.budget.claude.check_oauth", lambda: None
+        )
+        monkeypatch.setattr(
+            "mr_overkill.budget.claude._load_cache", lambda: self._CACHED
+        )
+        monkeypatch.setattr(
+            "mr_overkill.budget.claude.check_local", lambda: local
+        )
+        return check_token_budget()
+
+    def test_a_percentageless_local_estimate_cannot_override_the_cache(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The incident, end to end.
+
+        OAuth was rate-limited, the tier could not be detected, and the local
+        estimate's 995% replaced a cached 44% — while the log still said it
+        was using cached OAuth data.
+        """
+        local = BudgetStatus(
+            five_hour_used_pct=None, seven_day_used_pct=None,
+            tokens_used=19_909_525, mode="local", tier=UNKNOWN_TIER,
+            resets_at=None, estimated=True,
+        )
+        assert self._run(local, monkeypatch).five_hour_used_pct == 44
+
+    def test_a_higher_trustworthy_local_estimate_still_wins(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The behaviour the merge exists for: a stale cache must not
+        # under-report when the local estimate is usable.
+        local = BudgetStatus(
+            five_hour_used_pct=70, seven_day_used_pct=None, tokens_used=7,
+            mode="local", tier="max20", resets_at=None, estimated=True,
+        )
+        assert self._run(local, monkeypatch).five_hour_used_pct == 70
+
+    def test_a_lower_local_estimate_does_not_pull_the_cache_down(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        local = BudgetStatus(
+            five_hour_used_pct=5, seven_day_used_pct=None, tokens_used=7,
+            mode="local", tier="max20", resets_at=None, estimated=True,
+        )
+        assert self._run(local, monkeypatch).five_hour_used_pct == 44
