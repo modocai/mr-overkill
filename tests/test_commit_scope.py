@@ -11,11 +11,14 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from mr_overkill.commit_scope import (
     EMPTY_TREE_SHA,
     commit_base,
     commit_headline,
     create_branch_at_head,
+    empty_tree_sha,
     is_ancestor_of_head,
     is_merge_commit,
     resolve_commit,
@@ -59,6 +62,42 @@ class TestCommitBase:
     def test_root_commit_uses_empty_tree(self, tmp_git_repo: Path) -> None:
         root = _git(tmp_git_repo, "rev-parse", "HEAD")
         assert commit_base(root, tmp_git_repo) == EMPTY_TREE_SHA
+
+    def test_root_commit_in_a_sha256_repo(self, sha256_repo: Path) -> None:
+        """Regression: the hardcoded SHA-1 id does not exist here.
+
+        ``git diff`` against it fails, ``write_scope_diff`` reports 0 bytes,
+        and the caller says the commit is empty — which is a lie about the
+        commit rather than a report of the real failure.
+        """
+        root = _git(sha256_repo, "rev-parse", "HEAD")
+        base = commit_base(root, sha256_repo)
+
+        assert base != EMPTY_TREE_SHA
+        assert len(base) == 64
+        # The point of the id: it has to be usable as a diff argument.
+        _git(sha256_repo, "diff", base, root)
+
+    def test_scope_diff_of_a_sha256_root_commit_is_not_empty(
+        self, sha256_repo: Path, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        out = tmp_path_factory.mktemp("scope") / "scope.diff"
+        root = _git(sha256_repo, "rev-parse", "HEAD")
+
+        assert write_scope_diff(root, out, sha256_repo) > 0
+        assert "README.md" in out.read_text()
+
+
+class TestEmptyTreeSha:
+    def test_follows_the_repository_object_format(
+        self, tmp_git_repo: Path, sha256_repo: Path
+    ) -> None:
+        assert empty_tree_sha(tmp_git_repo) == EMPTY_TREE_SHA
+        assert len(empty_tree_sha(sha256_repo)) == 64
+
+    def test_falls_back_when_git_cannot_be_asked(self, tmp_path: Path) -> None:
+        # Outside a repository there is no object format to follow.
+        assert empty_tree_sha(tmp_path) == EMPTY_TREE_SHA
 
     def test_merge_commit_uses_first_parent(self, tmp_git_repo: Path) -> None:
         merge = _make_merge(tmp_git_repo)
@@ -195,3 +234,22 @@ class TestCreateBranchAtHead:
         assert create_branch_at_head("review/abc-3", tmp_git_repo) is True
         _git(tmp_git_repo, "checkout", "-q", "-")
         assert create_branch_at_head("review/abc-3", tmp_git_repo) is False
+
+
+@pytest.fixture()
+def sha256_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A repository using SHA-256 object ids, where the SHA-1 empty tree
+    does not resolve.  Skipped on git builds without ``--object-format``."""
+    repo = tmp_path_factory.mktemp("sha256-repo")
+    made = subprocess.run(
+        ["git", "init", "--object-format=sha256", "."],
+        cwd=repo, capture_output=True, text=True, check=False,
+    )
+    if made.returncode != 0:
+        pytest.skip("git does not support --object-format=sha256")
+    _git(repo, "config", "user.email", "test@test.com")
+    _git(repo, "config", "user.name", "Test")
+    (repo / "README.md").write_text("# sha256\n")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "initial")
+    return repo
