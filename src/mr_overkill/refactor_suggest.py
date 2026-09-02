@@ -10,6 +10,7 @@ import logging
 import subprocess
 from datetime import UTC, datetime
 
+from mr_overkill import workspace_policy
 from mr_overkill.agents import (
     create_fix_agent,
     create_review_agent,
@@ -18,7 +19,11 @@ from mr_overkill.agents import (
 from mr_overkill.budget import budget_gate_disabled, budget_sufficient
 from mr_overkill.budget.claude import check_token_budget as claude_budget
 from mr_overkill.budget.codex import check_token_budget as codex_budget
-from mr_overkill.git_ops import git_all_dirty, stash_allowlisted, unstash_allowlisted
+from mr_overkill.git_ops import (
+    git_all_dirty,
+    stash_allowlisted,
+    unstash_allowlisted,
+)
 from mr_overkill.loop_engine import PreFixConfirmFn, review_fix_loop
 from mr_overkill.models import (
     BudgetScope,
@@ -108,18 +113,7 @@ def _get_budget_status(tool: str) -> BudgetStatus:
 # ── Branch management ────────────────────────────────────────────────
 
 
-_ALLOWLISTED_FILES = [
-    ".gitignore",
-    ".overkill/.overkillrc",
-    ".overkill/.refactorsuggestrc",
-    # Legacy paths for pre-migration users
-    ".overkillrc",
-    ".reviewlooprc",
-    ".refactorsuggestrc",
-    ".review-loop/.overkillrc",
-    ".review-loop/.reviewlooprc",
-    ".review-loop/.refactorsuggestrc",
-]
+_ALLOWLISTED_FILES = sorted(workspace_policy.ALLOWLISTED_FILES)
 
 
 def create_refactor_branch(
@@ -348,13 +342,7 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
 
     # Reject non-allowlisted dirty files before creating a branch
     if not config.dry_run and not config.resume:
-        allowlisted = set(_ALLOWLISTED_FILES)
-        non_allowed = [
-            f for f in git_all_dirty(None)
-            if f not in allowlisted
-            and not f.startswith(".overkill/logs/")
-            and not f.startswith(".review-loop/logs/")
-        ]
+        non_allowed = workspace_policy.non_allowlisted(git_all_dirty(None))
         if non_allowed:
             logger.error(
                 "Working tree is not clean. Commit or stash your changes "

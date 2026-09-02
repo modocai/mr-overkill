@@ -9,10 +9,12 @@ from contextlib import contextmanager
 from importlib.resources import as_file, files
 from pathlib import Path
 
+from mr_overkill import workspace_policy
+
 logger = logging.getLogger(__name__)
 
-_OVERKILL_DIR = ".overkill"
-_LEGACY_DIR = ".review-loop"
+_OVERKILL_DIR = workspace_policy.WORKSPACE_DIR
+_LEGACY_DIR = workspace_policy.LEGACY_WORKSPACE_DIR
 
 
 @contextmanager
@@ -69,8 +71,16 @@ def _copy_rc_files(data: Path, dest: Path) -> list[str]:
     manifest: list[str] = []
     project_root = dest.parent
     rc_pairs = [
-        (".overkillrc.example", ".overkillrc", ".reviewlooprc"),
-        (".refactorsuggestrc.example", ".refactorsuggestrc", None),
+        (
+            f"{workspace_policy.RC_NAME}.example",
+            workspace_policy.RC_NAME,
+            workspace_policy.LEGACY_RC_NAME,
+        ),
+        (
+            f"{workspace_policy.REFACTOR_RC_NAME}.example",
+            workspace_policy.REFACTOR_RC_NAME,
+            None,
+        ),
     ]
     for example_name, live_name, legacy_name in rc_pairs:
         live_path = dest / live_name
@@ -98,8 +108,8 @@ def _copy_rc_files(data: Path, dest: Path) -> list[str]:
 def _ensure_gitignore(project_root: Path) -> None:
     """Add ``.overkill/`` to ``.gitignore`` if absent."""
     gitignore = project_root / ".gitignore"
-    marker = ".overkill/"
-    legacy_marker = ".review-loop/"
+    marker = f"{_OVERKILL_DIR}/"
+    legacy_marker = f"{_LEGACY_DIR}/"
 
     if gitignore.is_file():
         content = gitignore.read_text(encoding="utf-8")
@@ -167,8 +177,8 @@ def _migrate_legacy_dir(target_dir: Path) -> None:
     logger.info("Migrated %s/ → %s/", _LEGACY_DIR, _OVERKILL_DIR)
 
     # Rename legacy RC file inside the migrated directory
-    old_rc = dest / ".reviewlooprc"
-    new_rc = dest / ".overkillrc"
+    old_rc = dest / workspace_policy.LEGACY_RC_NAME
+    new_rc = dest / workspace_policy.RC_NAME
     if old_rc.is_file() and not new_rc.is_file():
         old_rc.rename(new_rc)
         logger.info("Renamed .reviewlooprc → .overkillrc")
