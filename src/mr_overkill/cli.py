@@ -84,12 +84,14 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         return {}
 
     git_root = Path(result.stdout.strip())
-    rc_path, legacy_dir = workspace_policy.workspace_paths(git_root, rc_name)
+    rc_path = workspace_policy.workspace_path(git_root, rc_name)
+    legacy_dir = workspace_policy.legacy_workspace_path(git_root, rc_name)
     if not rc_path.is_file():
         # Also check for the legacy rc name in the legacy directory
         legacy_old_name = (
-            git_root / workspace_policy.LEGACY_WORKSPACE_DIR
-            / workspace_policy.LEGACY_RC_NAME
+            workspace_policy.legacy_workspace_path(
+                git_root, workspace_policy.LEGACY_RC_NAME
+            )
             if rc_name == workspace_policy.RC_NAME else None
         )
         # Legacy repo-root name: .overkillrc was .reviewlooprc

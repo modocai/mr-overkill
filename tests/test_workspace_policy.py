@@ -14,7 +14,10 @@ from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from mr_overkill import (
+    cli,
     git_ops,
     init,
     refactor_suggest,
@@ -183,3 +186,121 @@ class TestInitSharesTheConstants:
 
         written = (tmp_path / ".gitignore").read_text()
         assert f"{workspace_policy.WORKSPACE_DIR}/" in written
+
+
+class TestNamedLayoutAccessors:
+    def test_current_and_legacy(self, tmp_path: Path) -> None:
+        assert workspace_policy.workspace_path(tmp_path, "logs") == (
+            tmp_path / workspace_policy.WORKSPACE_DIR / "logs"
+        )
+        assert workspace_policy.legacy_workspace_path(tmp_path, "logs") == (
+            tmp_path / workspace_policy.LEGACY_WORKSPACE_DIR / "logs"
+        )
+
+
+class TestLegacyRcResolution:
+    """`_load_rc_file` walks five layouts that are all still in the wild.
+
+    Nothing pinned them before, and this refactor rewrote the walk.
+    """
+
+    LAYOUTS = (
+        ".overkill/.overkillrc",
+        ".review-loop/.overkillrc",
+        ".review-loop/.reviewlooprc",
+        ".overkillrc",
+        ".reviewlooprc",
+    )
+
+    def _repo(self, tmp_path: Path, layout: str, value: str) -> Path:
+        subprocess.run(["git", "init", "-q", "."], cwd=tmp_path, check=True)
+        rc = tmp_path / layout
+        rc.parent.mkdir(parents=True, exist_ok=True)
+        rc.write_text(f"TARGET_BRANCH={value}\n")
+        return tmp_path
+
+    @pytest.mark.parametrize("layout", LAYOUTS)
+    def test_each_layout_is_found(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layout: str
+    ) -> None:
+        repo = self._repo(tmp_path, layout, "found")
+        monkeypatch.chdir(repo)
+
+        loaded = cli._load_rc_file(workspace_policy.RC_NAME)
+
+        assert loaded.get("TARGET_BRANCH") == "found", layout
+
+    def test_current_layout_wins_over_legacy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = self._repo(tmp_path, ".overkill/.overkillrc", "current")
+        legacy = repo / ".review-loop" / ".overkillrc"
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text("TARGET_BRANCH=legacy\n")
+        monkeypatch.chdir(repo)
+
+        assert cli._load_rc_file(workspace_policy.RC_NAME)["TARGET_BRANCH"] == (
+            "current"
+        )
+
+    def test_no_rc_anywhere(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        subprocess.run(["git", "init", "-q", "."], cwd=tmp_path, check=True)
+        monkeypatch.chdir(tmp_path)
+
+        assert cli._load_rc_file(workspace_policy.RC_NAME) == {}
+
+
+class TestLogDirResolution:
+    """`_resolve_log_dir` replaced two near-identical blocks; neither was
+    covered."""
+
+    def test_prefers_the_current_layout(self, tmp_path: Path) -> None:
+        (tmp_path / ".overkill" / "logs").mkdir(parents=True)
+        (tmp_path / ".review-loop" / "logs").mkdir(parents=True)
+
+        assert cli._resolve_log_dir(tmp_path, resume=False) == (
+            tmp_path / ".overkill" / "logs"
+        )
+
+    def test_falls_back_to_legacy_when_only_it_exists(self, tmp_path: Path) -> None:
+        (tmp_path / ".review-loop" / "logs").mkdir(parents=True)
+
+        assert cli._resolve_log_dir(tmp_path, resume=False) == (
+            tmp_path / ".review-loop" / "logs"
+        )
+
+    def test_defaults_to_current_when_neither_exists(self, tmp_path: Path) -> None:
+        assert cli._resolve_log_dir(tmp_path, resume=False) == (
+            tmp_path / ".overkill" / "logs"
+        )
+
+    def test_resume_follows_the_metadata_in_a_mixed_repo(
+        self, tmp_path: Path
+    ) -> None:
+        # Both layouts present but only the legacy one holds the run being
+        # resumed; picking the empty one would report nothing to resume.
+        (tmp_path / ".overkill" / "logs").mkdir(parents=True)
+        legacy = tmp_path / ".review-loop" / "logs"
+        legacy.mkdir(parents=True)
+        (legacy / "max-loop.txt").write_text("4")
+
+        assert cli._resolve_log_dir(tmp_path, resume=True) == legacy
+
+    def test_resume_keeps_the_current_layout_when_it_has_the_metadata(
+        self, tmp_path: Path
+    ) -> None:
+        current = tmp_path / ".overkill" / "logs"
+        current.mkdir(parents=True)
+        (current / "max-loop.txt").write_text("4")
+        legacy = tmp_path / ".review-loop" / "logs"
+        legacy.mkdir(parents=True)
+        (legacy / "max-loop.txt").write_text("4")
+
+        assert cli._resolve_log_dir(tmp_path, resume=True) == current
+
+    def test_refactor_subdirectory(self, tmp_path: Path) -> None:
+        assert cli._resolve_log_dir(tmp_path, "refactor", resume=False) == (
+            tmp_path / ".overkill" / "logs" / "refactor"
+        )

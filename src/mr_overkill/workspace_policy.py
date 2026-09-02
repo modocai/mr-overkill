@@ -81,10 +81,23 @@ def non_allowlisted(paths: Iterable[str]) -> list[str]:
     return [p for p in paths if not is_tool_owned(p)]
 
 
+def workspace_path(root: Path, *parts: str) -> Path:
+    """*parts* under the current workspace directory."""
+    return root / WORKSPACE_DIR / Path(*parts)
+
+
+def legacy_workspace_path(root: Path, *parts: str) -> Path:
+    """*parts* under the pre-rebrand workspace directory."""
+    return root / LEGACY_WORKSPACE_DIR / Path(*parts)
+
+
 def workspace_paths(root: Path, *parts: str) -> list[Path]:
     """The current and legacy locations of *parts* under *root*, in that order.
 
-    Callers walk the list and take the first that exists, so a current layout
-    always wins over a leftover legacy one.
+    For callers that walk the list and take the first that exists, so a
+    current layout always wins over a leftover legacy one.  A caller that
+    wants one specific layout should name it — see :func:`workspace_path` and
+    :func:`legacy_workspace_path` — rather than unpack this by position, which
+    would break the day a third layout is added.
     """
     return [root / d / Path(*parts) for d in _WORKSPACE_DIRS]
