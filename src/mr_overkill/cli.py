@@ -13,7 +13,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from mr_overkill import __version__
+from mr_overkill import __version__, workspace_policy
 from mr_overkill.commit_scope import resolve_commit
 from mr_overkill.models import BudgetScope, LoopConfig
 
@@ -84,17 +84,21 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         return {}
 
     git_root = Path(result.stdout.strip())
-    rc_path = git_root / ".overkill" / rc_name
+    rc_path = workspace_policy.workspace_path(git_root, rc_name)
+    legacy_dir = workspace_policy.legacy_workspace_path(git_root, rc_name)
     if not rc_path.is_file():
-        # Fall back to the legacy .review-loop/ location
-        legacy_dir = git_root / ".review-loop" / rc_name
-        # Also check for legacy .reviewlooprc name in .review-loop/
+        # Also check for the legacy rc name in the legacy directory
         legacy_old_name = (
-            git_root / ".review-loop" / ".reviewlooprc"
-            if rc_name == ".overkillrc" else None
+            workspace_policy.legacy_workspace_path(
+                git_root, workspace_policy.LEGACY_RC_NAME
+            )
+            if rc_name == workspace_policy.RC_NAME else None
         )
         # Legacy repo-root name: .overkillrc was .reviewlooprc
-        legacy_root_name = ".reviewlooprc" if rc_name == ".overkillrc" else rc_name
+        legacy_root_name = (
+            workspace_policy.LEGACY_RC_NAME
+            if rc_name == workspace_policy.RC_NAME else rc_name
+        )
         legacy_root = git_root / legacy_root_name
         if legacy_dir.is_file():
             logging.getLogger(__name__).warning(
@@ -177,9 +181,11 @@ def _resolve_prompts_dir(prompts_dir: str) -> Path:
         git_root = Path(result.stdout.strip())
         resolved = git_root / prompts_dir
         # Legacy fallback: .overkill/... → .review-loop/...
-        if not resolved.is_dir() and ".overkill/" in prompts_dir:
+        current_prefix = f"{workspace_policy.WORKSPACE_DIR}/"
+        legacy_prefix = f"{workspace_policy.LEGACY_WORKSPACE_DIR}/"
+        if not resolved.is_dir() and current_prefix in prompts_dir:
             legacy = git_root / prompts_dir.replace(
-                ".overkill/", ".review-loop/", 1
+                current_prefix, legacy_prefix, 1
             )
             if legacy.is_dir():
                 logging.getLogger(__name__).warning(
@@ -189,9 +195,9 @@ def _resolve_prompts_dir(prompts_dir: str) -> Path:
                 )
                 return legacy
         # Inverse fallback: .review-loop/... → .overkill/...
-        if not resolved.is_dir() and ".review-loop/" in prompts_dir:
+        if not resolved.is_dir() and legacy_prefix in prompts_dir:
             migrated = git_root / prompts_dir.replace(
-                ".review-loop/", ".overkill/", 1
+                legacy_prefix, current_prefix, 1
             )
             if migrated.is_dir():
                 logging.getLogger(__name__).warning(
@@ -202,6 +208,24 @@ def _resolve_prompts_dir(prompts_dir: str) -> Path:
                 return migrated
         return resolved
     return p
+
+
+def _resolve_log_dir(git_root: Path, *parts: str, resume: bool) -> Path:
+    """Log directory for this run, preferring the current workspace layout.
+
+    A repo half-migrated between the two layouts can hold both, so a resume
+    additionally prefers whichever directory actually has the run metadata —
+    picking the empty one would report there is nothing to resume.
+    """
+    candidates = workspace_policy.workspace_paths(git_root, "logs", *parts)
+    log_dir = next((c for c in candidates if c.is_dir()), candidates[0])
+    if resume and not (log_dir / "max-loop.txt").is_file():
+        with_metadata = next(
+            (c for c in candidates if (c / "max-loop.txt").is_file()), None
+        )
+        if with_metadata is not None:
+            log_dir = with_metadata
+    return log_dir
 
 
 def _int_from_rc(
@@ -403,7 +427,7 @@ def parse_review_loop_args(
             )
 
     # Load rc file defaults
-    rc = _load_rc_file(".overkillrc")
+    rc = _load_rc_file(workspace_policy.RC_NAME)
 
     # Resolve values with precedence: CLI > rc file > defaults
     target = args.target or rc.get("TARGET_BRANCH", "develop")
@@ -449,7 +473,7 @@ def parse_review_loop_args(
     budget_scope_str = rc.get("BUDGET_SCOPE", "micro")
 
     prompts_dir = _resolve_prompts_dir(
-        rc.get("PROMPTS_DIR", ".overkill/prompts/active")
+        rc.get("PROMPTS_DIR", workspace_policy.DEFAULT_PROMPTS_DIR)
     )
 
     current_branch = _detect_current_branch()
@@ -462,18 +486,7 @@ def parse_review_loop_args(
         check=False,
     )
     git_root = Path(result.stdout.strip()) if result.returncode == 0 else Path(".")
-    log_dir = git_root / ".overkill" / "logs"
-    if not log_dir.is_dir():
-        legacy_log = git_root / ".review-loop" / "logs"
-        if legacy_log.is_dir():
-            log_dir = legacy_log
-
-    # In mixed-state repos, fall back to legacy logs when resume metadata
-    # is missing from the preferred directory.
-    if args.resume and not (log_dir / "max-loop.txt").is_file():
-        legacy_log = git_root / ".review-loop" / "logs"
-        if (legacy_log / "max-loop.txt").is_file():
-            log_dir = legacy_log
+    log_dir = _resolve_log_dir(git_root, resume=args.resume)
 
     # Restore saved values on resume when not explicitly given
     restored_target = None
@@ -818,7 +831,7 @@ def parse_refactor_suggest_args(
     args = parser.parse_args(argv)
 
     # Load rc file defaults
-    rc = _load_rc_file(".refactorsuggestrc")
+    rc = _load_rc_file(workspace_policy.REFACTOR_RC_NAME)
 
     # Resolve values: CLI > rc > defaults
     scope = args.scope or rc.get("SCOPE", "auto")
@@ -880,7 +893,7 @@ def parse_refactor_suggest_args(
     budget_scope_str = rc.get("BUDGET_SCOPE", "module")
 
     prompts_dir = _resolve_prompts_dir(
-        rc.get("PROMPTS_DIR", ".overkill/prompts/active")
+        rc.get("PROMPTS_DIR", workspace_policy.DEFAULT_PROMPTS_DIR)
     )
 
     current_branch = _detect_current_branch()
@@ -896,18 +909,7 @@ def parse_refactor_suggest_args(
         Path(result.stdout.strip()) if result.returncode == 0
         else Path(".")
     )
-    log_dir = git_root / ".overkill" / "logs" / "refactor"
-    if not log_dir.is_dir():
-        legacy_log = git_root / ".review-loop" / "logs" / "refactor"
-        if legacy_log.is_dir():
-            log_dir = legacy_log
-
-    # In mixed-state repos, fall back to legacy logs when resume metadata
-    # is missing from the preferred directory.
-    if args.resume and not (log_dir / "max-loop.txt").is_file():
-        legacy_log = git_root / ".review-loop" / "logs" / "refactor"
-        if (legacy_log / "max-loop.txt").is_file():
-            log_dir = legacy_log
+    log_dir = _resolve_log_dir(git_root, "refactor", resume=args.resume)
 
     # Restore saved values on resume when not explicitly given
     if args.resume:

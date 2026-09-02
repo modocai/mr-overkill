@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Protocol
 
-from mr_overkill import wip_scope
+from mr_overkill import wip_scope, workspace_policy
 from mr_overkill.git_ops import (
     commit_and_push,
     diff_hash,
@@ -513,16 +513,7 @@ def review_fix_loop(
         # f. Stash allowlisted files
         try:
             allowed_stashed = stash_allowlisted(
-                [
-                    ".gitignore",
-                    ".overkill/.overkillrc",
-                    ".overkill/.refactorsuggestrc",
-                    # Legacy paths for pre-migration users
-                    ".reviewlooprc",
-                    ".refactorsuggestrc",
-                    ".review-loop/.reviewlooprc",
-                    ".review-loop/.refactorsuggestrc",
-                ],
+                sorted(workspace_policy.ALLOWLISTED_FILES),
                 cwd=cwd,
             )
         except RuntimeError:
@@ -697,24 +688,7 @@ def _validate_target_branch(target: str, cwd: Path | None) -> bool:
 
 def _reject_dirty_worktree(cwd: Path | None) -> list[str]:
     """Return non-allowlisted dirty files, or empty list if clean."""
-    allowlisted = {
-        ".gitignore",
-        ".overkill/.overkillrc",
-        ".overkill/.refactorsuggestrc",
-        # Legacy paths for pre-migration users
-        ".overkillrc",
-        ".reviewlooprc",
-        ".refactorsuggestrc",
-        ".review-loop/.overkillrc",
-        ".review-loop/.reviewlooprc",
-        ".review-loop/.refactorsuggestrc",
-    }
-    return [
-        f for f in git_all_dirty(cwd)
-        if f not in allowlisted
-        and not f.startswith(".overkill/logs/")
-        and not f.startswith(".review-loop/logs/")
-    ]
+    return workspace_policy.non_allowlisted(git_all_dirty(cwd))
 
 
 def _no_diff(target: str, current: str, cwd: Path | None) -> bool:
