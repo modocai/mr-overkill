@@ -20,14 +20,35 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# ``git hash-object -t tree /dev/null`` — the canonical empty tree.  Diffing
-# against it turns a root commit (which has no parent to diff against) into a
-# plain "everything was added" patch.
+#: The empty tree under SHA-1, git's default object format.  Only a fallback
+#: for when git cannot be asked — :func:`empty_tree_sha` is the real answer,
+#: because a repository created with ``--object-format=sha256`` has a
+#: different one and this id does not resolve there at all.
 EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 
 def _run(cmd: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)
+
+
+def empty_tree_sha(cwd: Path | None = None) -> str:
+    """The empty tree's object id in *this* repository's object format.
+
+    Diffing against it turns a root commit — which has no parent to diff
+    against — into a plain "everything was added" patch.  Asking git rather
+    than hardcoding the SHA-1 value is what makes that work in a repository
+    using SHA-256, where the hardcoded id resolves to nothing and the diff
+    fails with a message about an empty commit instead.
+    """
+    result = _run(["git", "hash-object", "-t", "tree", "/dev/null"], cwd)
+    sha = result.stdout.strip()
+    if result.returncode != 0 or not sha:
+        logger.debug(
+            "Could not compute the empty tree id (%s); falling back to SHA-1.",
+            result.stderr.strip() or f"exit {result.returncode}",
+        )
+        return EMPTY_TREE_SHA
+    return sha
 
 
 def resolve_commit(rev: str, cwd: Path | None = None) -> str | None:
@@ -57,7 +78,7 @@ def commit_base(sha: str, cwd: Path | None = None) -> str:
     result = _run(["git", "rev-list", "--parents", "-n", "1", sha], cwd)
     fields = result.stdout.split()
     if len(fields) < 2:
-        return EMPTY_TREE_SHA
+        return empty_tree_sha(cwd)
     return fields[1]
 
 
