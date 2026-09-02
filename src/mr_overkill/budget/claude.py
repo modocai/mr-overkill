@@ -64,7 +64,7 @@ def detect_tier(
     cannot be determined.
 
     Pass ``warn=False`` from callers that only use the tier as a display
-    label.  The warnings below say the budget cannot be sized, which is only
+    label.  The warning below says the budget cannot be sized, which is only
     true where the tier is a denominator; on the OAuth path it is noise, and
     the budget gate re-checks per agent invocation, so it repeats.
 
@@ -135,12 +135,13 @@ def detect_tier(
                 best_tier = str(tier_raw)
 
     if not best_tier:
-        if warn:
-            logger.warning(
-                "No rateLimitTier found in %s — cannot size the token limit. "
-                "Local budget estimates will be skipped in favour of OAuth data.",
-                telemetry_dir,
-            )
+        # Debug, not a warning: the only caller that sizes a limit with this
+        # is check_local(), which logs its own accurate message when the
+        # missing tier actually costs it a percentage.
+        logger.debug(
+            "No rateLimitTier found in %s — cannot size the token limit.",
+            telemetry_dir,
+        )
         return None
     tier = _TIER_MAP.get(best_tier)
     if tier is None and warn:

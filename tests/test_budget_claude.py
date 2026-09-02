@@ -50,6 +50,23 @@ class TestDetectTier:
         )
         assert detect_tier(telemetry) is None
 
+    def test_missing_tier_does_not_warn(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """check_local() owns the warning for a missing tier, not this.
+
+        Warning here too meant saying the same thing twice per agent
+        invocation, and this version of it was wrong on the only path it
+        fires from: the local estimate runs because OAuth already failed.
+        """
+        telemetry = tmp_path / "telemetry"
+        telemetry.mkdir()
+
+        with caplog.at_level("WARNING", logger="mr_overkill.budget.claude"):
+            assert detect_tier(telemetry) is None
+
+        assert caplog.records == []
+
     def test_unrecognised_tier_value(self, tmp_path: Path) -> None:
         # A plan the map has never heard of — "team", say — is not "pro".
         telemetry = tmp_path / "telemetry"
