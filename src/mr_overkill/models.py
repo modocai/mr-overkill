@@ -80,8 +80,10 @@ class BudgetStatus:
     five_hour_used_pct: int | None
     seven_day_used_pct: int | None
     tokens_used: int  # weighted sum for local estimation (not raw count)
-    mode: str  # "oauth" | "local" | "session_log" | "apikey" | "no_data"
-    tier: str  # "pro" | "max5" | "max20"
+    # "oauth" | "local" | "session_log" | "apikey" | "no_data" | "synthetic" | "unknown"
+    mode: str
+    # "" means the checker has no tier concept; budget_report relies on it.
+    tier: str  # "pro" | "max5" | "max20" | "unknown" | ""
     resets_at: str | None
     seven_day_resets_at: str | None = None
     estimated: bool = False

@@ -64,6 +64,21 @@ class TestDetectTier:
         )
         assert detect_tier(telemetry) is None
 
+    def test_pro_tier(self, tmp_path: Path) -> None:
+        # The plain "default" plan is Pro. It used to resolve through the
+        # catch-all rather than the map, so removing the catch-all dropped it.
+        telemetry = tmp_path / "telemetry"
+        telemetry.mkdir()
+        (telemetry / "event.json").write_text(
+            json.dumps({
+                "event_data": {
+                    "client_timestamp": "2025-01-01T00:00:00Z",
+                    "user_attributes": {"rateLimitTier": "default"},
+                }
+            })
+        )
+        assert detect_tier(telemetry) == "pro"
+
     def test_max5_tier(self, tmp_path: Path) -> None:
         telemetry = tmp_path / "telemetry"
         telemetry.mkdir()

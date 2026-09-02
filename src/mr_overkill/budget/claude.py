@@ -45,6 +45,7 @@ _TIER_LIMITS: dict[str, int] = {
 }
 
 _TIER_MAP: dict[str, str] = {
+    "default": "pro",
     "default_claude_max_20x": "max20",
     "default_claude_max_5x": "max5",
 }
