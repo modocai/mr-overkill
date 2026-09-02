@@ -55,11 +55,18 @@ _TIER_MAP: dict[str, str] = {
 UNKNOWN_TIER = "unknown"
 
 
-def detect_tier(telemetry_dir: Path | None = None) -> str | None:
+def detect_tier(
+    telemetry_dir: Path | None = None, *, warn: bool = True
+) -> str | None:
     """Read rateLimitTier from Claude Code telemetry files.
 
     Returns ``'pro'``, ``'max5'``, ``'max20'``, or ``None`` when the tier
     cannot be determined.
+
+    Pass ``warn=False`` from callers that only use the tier as a display
+    label.  The warnings below say the budget cannot be sized, which is only
+    true where the tier is a denominator; on the OAuth path it is noise, and
+    the budget gate re-checks per agent invocation, so it repeats.
 
     ``None`` rather than a default on purpose.  This value is only ever used
     as the denominator of a usage percentage, so guessing it does not degrade
@@ -128,14 +135,15 @@ def detect_tier(telemetry_dir: Path | None = None) -> str | None:
                 best_tier = str(tier_raw)
 
     if not best_tier:
-        logger.warning(
-            "No rateLimitTier found in %s — cannot size the token limit. "
-            "Local budget estimates will be skipped in favour of OAuth data.",
-            telemetry_dir,
-        )
+        if warn:
+            logger.warning(
+                "No rateLimitTier found in %s — cannot size the token limit. "
+                "Local budget estimates will be skipped in favour of OAuth data.",
+                telemetry_dir,
+            )
         return None
     tier = _TIER_MAP.get(best_tier)
-    if tier is None:
+    if tier is None and warn:
         logger.warning(
             "Unrecognised rateLimitTier %r — cannot size the token limit.",
             best_tier,
@@ -207,8 +215,8 @@ def check_oauth() -> BudgetStatus | None:
             return None
 
         # Only a label here: OAuth reports utilization directly, so an
-        # unknown tier costs nothing on this path.
-        tier = detect_tier() or UNKNOWN_TIER
+        # unknown tier costs nothing on this path — hence warn=False.
+        tier = detect_tier(warn=False) or UNKNOWN_TIER
         seven_day = data.get("seven_day")
 
         return BudgetStatus(
