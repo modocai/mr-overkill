@@ -36,7 +36,7 @@ from mr_overkill.retry import (
     wait_for_budget,
 )
 from mr_overkill.self_review import self_review_subloop
-from mr_overkill.two_step_fix import claude_two_step_fix
+from mr_overkill.two_step_fix import backend_command, claude_two_step_fix
 
 logger = logging.getLogger(__name__)
 
@@ -308,6 +308,9 @@ def _budget_check(
         return codex_budget_sufficient(scope)
     if tool == "gemini":
         return gemini_budget_sufficient(scope)
+    if tool == "agy":
+        logger.info("Antigravity: no local budget data; relying on CLI quota errors.")
+        return True
     return True
 
 
@@ -357,6 +360,28 @@ class _RetryFn:
         **kw: object,
     ) -> bool:
         stdin = kw.get("stdin")
+        if cmd_args[0] == "codex":
+            return retry_codex_cmd(
+                output_path.with_suffix(".stderr"), label,
+                [*cmd_args, "-o", str(output_path)],
+                stdin=str(stdin) if stdin is not None else None,
+                max_wait=self._config.retry_max_wait,
+                initial_wait=self._config.retry_initial_wait,
+            )
+        if cmd_args[0] == "agy":
+            # agy print mode takes the prompt as an argument, not Gemini's dash.
+            return retry_gemini_cmd(
+                output_path, label, [*cmd_args, "-p", str(stdin or "")],
+                max_wait=self._config.retry_max_wait,
+                initial_wait=self._config.retry_initial_wait,
+            )
+        if cmd_args[0] == "gemini":
+            return retry_gemini_cmd(
+                output_path, label, cmd_args,
+                stdin=str(stdin) if stdin is not None else None,
+                max_wait=self._config.retry_max_wait,
+                initial_wait=self._config.retry_initial_wait,
+            )
         return retry_claude_cmd(
             output_path,
             label,
@@ -607,7 +632,7 @@ class ClaudeRefactorReviewAgent(ReviewAgent):
 
 
 class GeminiReviewAgent(ReviewAgent):
-    """Gemini-based reviewer for the standard review-loop."""
+    """Gemini/Antigravity reviewer for the standard review-loop."""
 
     def __init__(self, config: LoopConfig) -> None:
         self._config = config
@@ -615,6 +640,7 @@ class GeminiReviewAgent(ReviewAgent):
 
     def __call__(self, output_path: Path, iteration: int) -> bool:
         config = self._config
+        backend = "agy" if config.reviewer_backend == "agy" else "gemini"
         prompt_file = config.prompts_dir / "gemini-review.prompt.md"
         if not prompt_file.is_file():
             logger.error("Review prompt not found: %s", prompt_file)
@@ -624,23 +650,22 @@ class GeminiReviewAgent(ReviewAgent):
         if prompt_text is None:
             return False
 
-        if not self._budget_fn("gemini", config.budget_scope, 0):
+        if not self._budget_fn(backend, config.budget_scope, 0):
             raise BudgetTimeoutError(
-                f"Gemini budget timeout (iteration {iteration})."
+                f"{backend} budget timeout (iteration {iteration})."
             )
 
-        return retry_gemini_cmd(
+        return _make_retry_fn(config)(
             output_path,
-            "Gemini review",
-            ["gemini", "--sandbox", "--approval-mode", "yolo", "-p", "-"],
+            f"{backend} review",
+            (backend_command("agy") if backend == "agy" else
+             ["gemini", "--sandbox", "--approval-mode", "yolo", "-p", "-"]),
             stdin=prompt_text,
-            max_wait=config.retry_max_wait,
-            initial_wait=config.retry_initial_wait,
         )
 
 
 class GeminiRefactorReviewAgent(ReviewAgent):
-    """Gemini-based reviewer for scope-specific refactor analysis."""
+    """Gemini/Antigravity reviewer for scope-specific refactor analysis."""
 
     def __init__(self, config: LoopConfig, scope: str) -> None:
         self._config = config
@@ -649,6 +674,7 @@ class GeminiRefactorReviewAgent(ReviewAgent):
 
     def __call__(self, output_path: Path, iteration: int) -> bool:
         config = self._config
+        backend = "agy" if config.reviewer_backend == "agy" else "gemini"
         scope = self._scope
 
         # Refresh source file list each iteration
@@ -680,23 +706,22 @@ class GeminiRefactorReviewAgent(ReviewAgent):
             ),
         })
 
-        if not self._budget_fn("gemini", config.budget_scope, 0):
+        if not self._budget_fn(backend, config.budget_scope, 0):
             raise BudgetTimeoutError(
-                f"Gemini budget timeout (iteration {iteration})."
+                f"{backend} budget timeout (iteration {iteration})."
             )
 
-        return retry_gemini_cmd(
+        return _make_retry_fn(config)(
             output_path,
-            "Gemini analysis",
-            ["gemini", "--sandbox", "--approval-mode", "yolo", "-p", "-"],
+            f"{backend} analysis",
+            (backend_command("agy") if backend == "agy" else
+             ["gemini", "--sandbox", "--approval-mode", "yolo", "-p", "-"]),
             stdin=prompt_text,
-            max_wait=config.retry_max_wait,
-            initial_wait=config.retry_initial_wait,
         )
 
 
-class ClaudeFixAgent(FixAgent):
-    """Claude-based fixer using configurable two-step fix prompts."""
+class BackendFixAgent(FixAgent):
+    """Selected CLI fixer using configurable two-step fix prompts."""
 
     def __init__(
         self,
@@ -732,11 +757,12 @@ class ClaudeFixAgent(FixAgent):
             opinion_prompt=self._opinion_prompt,
             execute_prompt=self._execute_prompt,
             fix_history=str(kw.get("fix_history", "")),
+            backend=config.fixer_backend,
         )
 
 
-class ClaudeSelfReviewAgent(SelfReviewAgent):
-    """Claude-based self-review agent wrapping self_review_subloop."""
+class BackendSelfReviewAgent(SelfReviewAgent):
+    """Self-review using the configured backend, defaulting to the fixer."""
 
     def __init__(
         self,
@@ -785,7 +811,13 @@ class ClaudeSelfReviewAgent(SelfReviewAgent):
                 else ""
             ),
             original_review_json=json.loads(review_json_str),
+            backend=config.self_reviewer_backend or config.fixer_backend,
         )
+
+
+# Backward-compatible names for integrations importing the original classes.
+ClaudeFixAgent = BackendFixAgent
+ClaudeSelfReviewAgent = BackendSelfReviewAgent
 
 
 # ── Factory functions ────────────────────────────────────────────────
@@ -811,12 +843,12 @@ def create_review_agent(
     if scope is not None:
         if backend == "claude":
             return ClaudeRefactorReviewAgent(config, scope)
-        if backend == "gemini":
+        if backend in ("gemini", "agy"):
             return GeminiRefactorReviewAgent(config, scope)
         return CodexRefactorReviewAgent(config, scope)
     if backend == "claude":
         return ClaudeReviewAgent(config)
-    if backend == "gemini":
+    if backend in ("gemini", "agy"):
         return GeminiReviewAgent(config)
     return CodexReviewAgent(config)
 
@@ -837,12 +869,12 @@ def create_fix_agent(
         ``"refactor"`` for the refactor-specific fixer.
     """
     if variant == "refactor":
-        return ClaudeFixAgent(
+        return BackendFixAgent(
             config,
             opinion_prompt="claude-refactor-fix.prompt.md",
             execute_prompt="claude-refactor-fix-execute.prompt.md",
         )
-    return ClaudeFixAgent(config)
+    return BackendFixAgent(config)
 
 
 def create_self_review_agent(
@@ -858,4 +890,4 @@ def create_self_review_agent(
     fixer : FixAgent
         The fix agent to use for re-fix attempts during self-review.
     """
-    return ClaudeSelfReviewAgent(config, fixer)
+    return BackendSelfReviewAgent(config, fixer)

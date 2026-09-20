@@ -54,3 +54,9 @@
 # Save full Claude event stream (tool calls, reasoning) to .stream.jsonl files.
 # Useful for debugging missed findings. (default: false)
 # DIAGNOSTIC_LOG=false
+
+# Role backends: claude, codex, gemini, or agy (Antigravity).
+# REVIEWER_BACKEND="codex"
+# FIXER_BACKEND="claude"
+# Self-review follows FIXER_BACKEND unless explicitly overridden.
+# SELF_REVIEWER_BACKEND="gemini"
