@@ -315,7 +315,7 @@ def _run_gemini_once(
                 check=False,
             )
     except FileNotFoundError:
-        logger.error("[%s] gemini CLI not found on PATH.", label)
+        logger.error("[%s] %s CLI not found on PATH.", label, cmd_args[0])
         return 1
 
     return result.returncode
@@ -326,6 +326,7 @@ def retry_codex_cmd(
     label: str,
     cmd_args: list[str],
     *,
+    stdin: str | None = None,
     max_wait: int = DEFAULT_MAX_WAIT,
     initial_wait: int = DEFAULT_INITIAL_WAIT,
     _sleep_fn: SleepFn = time.sleep,
@@ -347,7 +348,8 @@ def retry_codex_cmd(
             try:
                 result = subprocess.run(
                     cmd_args,
-                    stdin=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL if stdin is None else None,
+                    input=stdin,
                     stderr=ef,
                     text=True,
                     check=False,

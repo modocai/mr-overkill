@@ -1,4 +1,4 @@
-"""Self-review sub-loop for verifying and re-fixing Claude's changes.
+"""Self-review sub-loop for verifying and re-fixing changes.
 
 Implements the :class:`SelfReviewFn` Protocol from ``loop_engine``.
 """
@@ -24,6 +24,7 @@ from mr_overkill.models import (
     RetryFn,
     WorktreeSnapshot,
 )
+from mr_overkill.two_step_fix import backend_command
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ def self_review_subloop(
     scope_note: str = "",
     original_review_json: dict[str, object] | None = None,
     cwd: Path | None = None,
+    backend: str = "claude",
 ) -> str:
     """Run self-review sub-loop: review fixes then re-fix if needed.
 
@@ -120,16 +122,16 @@ def self_review_subloop(
             break
 
         logger.info(
-            "Running Claude self-review (sub-iteration %d/%d)...",
-            j,
+            "Running %s self-review (sub-iteration %d/%d)...",
+            backend, j,
             max_subloop,
         )
 
         sr_file = log_dir / f"self-review-{iteration}-{j}.json"
 
         # Pre-flight budget check
-        if not budget_fn("claude", budget_scope, 0):
-            logger.warning("Claude budget timeout before self-review.")
+        if not budget_fn(backend, budget_scope, 0):
+            logger.warning("%s budget timeout before self-review.", backend)
             break
 
         # Run self-review
@@ -158,10 +160,7 @@ def self_review_subloop(
         ok = retry_fn(
             sr_file,
             "self-review",
-            [
-                "claude", "-p", "-",
-                "--allowedTools", "Read,Glob,Grep",
-            ],
+            backend_command(backend),
             stdin=prompt_text,
         )
         if not ok:

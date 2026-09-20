@@ -136,6 +136,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "RETRY_INITIAL_WAIT", "BUDGET_SCOPE", "DIAGNOSTIC_LOG",
         "SCOPE", "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
         "REVIEW_LOOPS", "FIX_NITS", "REVIEWER_BACKEND",
+        "FIXER_BACKEND", "SELF_REVIEWER_BACKEND",
         "REVIEWER_CONTEXT", "CI_TRIGGER_MODE", "NO_BUDGET_GATE",
         "COMMIT_SCOPE_PUSH",
     }
@@ -356,9 +357,17 @@ def parse_review_loop_args(
         ),
     )
     parser.add_argument(
+        "--fixer-backend", choices=["claude", "codex", "gemini", "agy"],
+        default=None, help="Backend for fixes (default: claude)",
+    )
+    parser.add_argument(
+        "--self-reviewer-backend", choices=["claude", "codex", "gemini", "agy"],
+        default=None, help="Backend for self-review (default: same as fixer)",
+    )
+    parser.add_argument(
         "--reviewer-backend",
         default=None,
-        choices=["claude", "codex", "gemini"],
+        choices=["claude", "codex", "gemini", "agy"],
         help="Backend for code review (default: codex)",
     )
     parser.add_argument(
@@ -506,6 +515,14 @@ def parse_review_loop_args(
                 parser.error(
                     f"--resume requires {saved} or explicit --max-loop"
                 )
+        for attr, filename in (
+            ("fixer_backend", "fixer-backend.txt"),
+            ("self_reviewer_backend", "self-reviewer-backend.txt"),
+        ):
+            if getattr(args, attr) is None:
+                saved = log_dir / filename
+                if saved.is_file():
+                    setattr(args, attr, saved.read_text().strip())
         if args.reviewer_backend is None:
             saved = log_dir / "reviewer-backend.txt"
             if saved.is_file():
@@ -570,10 +587,24 @@ def parse_review_loop_args(
     if max_loop is not None and max_loop < 1:
         parser.error("--max-loop must be a positive integer")
 
+    fixer_backend = args.fixer_backend or rc.get("FIXER_BACKEND", "claude")
+    self_reviewer_backend = (
+        (args.self_reviewer_backend if args.self_reviewer_backend is not None
+         else rc.get("SELF_REVIEWER_BACKEND")) or None
+    )
+    for key, backend in (
+        ("FIXER_BACKEND", fixer_backend),
+        ("SELF_REVIEWER_BACKEND", self_reviewer_backend),
+    ):
+        if backend is not None and backend not in ("claude", "codex", "gemini", "agy"):
+            parser.error(
+                f"{key} must be 'claude', 'codex', 'gemini', or 'agy', got {backend!r}"
+            )
+
     reviewer_backend = args.reviewer_backend or rc.get("REVIEWER_BACKEND", "codex")
-    if reviewer_backend not in ("claude", "codex", "gemini"):
+    if reviewer_backend not in ("claude", "codex", "gemini", "agy"):
         parser.error(
-            f"REVIEWER_BACKEND must be 'claude', 'codex', or 'gemini',"
+            f"REVIEWER_BACKEND must be 'claude', 'codex', 'gemini', or 'agy',"
             f" got {reviewer_backend!r}"
         )
 
@@ -692,6 +723,8 @@ def parse_review_loop_args(
         prompts_dir=prompts_dir,
         pr_number=pr_number,
         reviewer_backend=reviewer_backend,
+        fixer_backend=fixer_backend,
+        self_reviewer_backend=self_reviewer_backend,
         reviewer_context=reviewer_context,
         ci_trigger_mode=ci_trigger_mode,
         scope_commit=scope_commit,
@@ -822,9 +855,17 @@ def parse_refactor_suggest_args(
         help="Review-loop iterations (implies --with-review)",
     )
     parser.add_argument(
+        "--fixer-backend", choices=["claude", "codex", "gemini", "agy"],
+        default=None, help="Backend for fixes (default: claude)",
+    )
+    parser.add_argument(
+        "--self-reviewer-backend", choices=["claude", "codex", "gemini", "agy"],
+        default=None, help="Backend for self-review (default: same as fixer)",
+    )
+    parser.add_argument(
         "--reviewer-backend",
         default=None,
-        choices=["claude", "codex", "gemini"],
+        choices=["claude", "codex", "gemini", "agy"],
         help="Backend for code review (default: codex)",
     )
 
@@ -928,6 +969,14 @@ def parse_refactor_suggest_args(
             saved = log_dir / "scope.txt"
             if saved.is_file():
                 scope = saved.read_text().strip()
+        for attr, filename in (
+            ("fixer_backend", "fixer-backend.txt"),
+            ("self_reviewer_backend", "self-reviewer-backend.txt"),
+        ):
+            if getattr(args, attr) is None:
+                saved = log_dir / filename
+                if saved.is_file():
+                    setattr(args, attr, saved.read_text().strip())
         if args.reviewer_backend is None:
             saved = log_dir / "reviewer-backend.txt"
             if saved.is_file():
@@ -946,10 +995,24 @@ def parse_refactor_suggest_args(
             f"Got {scope!r}"
         )
 
+    fixer_backend = args.fixer_backend or rc.get("FIXER_BACKEND", "claude")
+    self_reviewer_backend = (
+        (args.self_reviewer_backend if args.self_reviewer_backend is not None
+         else rc.get("SELF_REVIEWER_BACKEND")) or None
+    )
+    for key, backend in (
+        ("FIXER_BACKEND", fixer_backend),
+        ("SELF_REVIEWER_BACKEND", self_reviewer_backend),
+    ):
+        if backend is not None and backend not in ("claude", "codex", "gemini", "agy"):
+            parser.error(
+                f"{key} must be 'claude', 'codex', 'gemini', or 'agy', got {backend!r}"
+            )
+
     reviewer_backend = args.reviewer_backend or rc.get("REVIEWER_BACKEND", "codex")
-    if reviewer_backend not in ("claude", "codex", "gemini"):
+    if reviewer_backend not in ("claude", "codex", "gemini", "agy"):
         parser.error(
-            f"REVIEWER_BACKEND must be 'claude', 'codex', or 'gemini',"
+            f"REVIEWER_BACKEND must be 'claude', 'codex', 'gemini', or 'agy',"
             f" got {reviewer_backend!r}"
         )
 
@@ -975,6 +1038,8 @@ def parse_refactor_suggest_args(
         prompts_dir=prompts_dir,
         scope=scope,
         reviewer_backend=reviewer_backend,
+        fixer_backend=fixer_backend,
+        self_reviewer_backend=self_reviewer_backend,
         ci_trigger_mode="every",
     )
 

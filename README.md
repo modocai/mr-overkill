@@ -118,7 +118,9 @@ Options:
   --fix-nits               Also flag nits and style issues during self-review
   --context <text>         Additional context for the reviewer (design intent,
                            constraints)
-  --reviewer-backend <be>  Reviewer backend: claude|codex|gemini (default: codex)
+  --reviewer-backend <be>  Reviewer backend: claude|codex|gemini|agy (default: codex)
+  --fixer-backend <be>     Fixer backend: claude|codex|gemini|agy (default: claude)
+  --self-reviewer-backend <be>  Self-review backend (default: same as fixer)
   --ci-trigger-mode <m>    CI trigger policy: every|last-only|none (default: last-only).
                            'last-only' tags each iteration commit with [skip ci]
                            and pushes a single empty trigger commit on PASS —
@@ -258,7 +260,9 @@ Options:
   --resume                 Resume from a previously interrupted run (reuses existing logs)
   --with-review            Run review-loop after PR creation (default: 4 iterations)
   --with-review-loops <N>  Set review-loop iteration count (implies --with-review)
-  --reviewer-backend <be>  Reviewer backend: claude|codex|gemini (default: codex)
+  --reviewer-backend <be>  Reviewer backend: claude|codex|gemini|agy (default: codex)
+  --fixer-backend <be>     Fixer backend: claude|codex|gemini|agy (default: claude)
+  --self-reviewer-backend <be>  Self-review backend (default: same as fixer)
   --diagnostic-log         Save full Claude event stream to sidecar files
   --no-budget-gate         Skip token-budget checks and run regardless
                            (same as OVERKILL_SKIP_BUDGET=1)
@@ -307,10 +311,10 @@ Creates:
 
 ```
 1. Collect source file list (git ls-files)
-2. Reviewer (Codex or Claude) analyzes the full codebase for scope-specific refactoring opportunities
+2. Reviewer (Codex, Claude, or Gemini) analyzes the full codebase for scope-specific refactoring opportunities
 3. (layer/full) Display refactoring plan and wait for confirmation
-4. Claude applies refactoring (two-step: opinion → execute)
-5. Claude self-reviews changes, re-fixes if needed
+4. The selected fixer applies refactoring (two-step: opinion → execute)
+5. The selected self-reviewer checks changes, re-fixes if needed
 6. Auto-commit & push to refactoring branch
 7. Repeat until clean or max iterations reached
 8. (--create-pr) Create draft PR
@@ -330,7 +334,9 @@ TARGET_BRANCH="main"
 MAX_LOOP=5
 MAX_SUBLOOP=4
 AUTO_COMMIT=true
-REVIEWER_BACKEND="codex"    # or "claude"
+REVIEWER_BACKEND="codex"    # claude | codex | gemini | agy
+FIXER_BACKEND="claude"      # claude | codex | gemini | agy
+# SELF_REVIEWER_BACKEND="gemini"  # omitted: follows FIXER_BACKEND
 PROMPTS_DIR="./custom-prompts"
 ```
 
@@ -349,7 +355,9 @@ AUTO_APPROVE=false
 CREATE_PR=false
 WITH_REVIEW=false
 REVIEW_LOOPS=4
-REVIEWER_BACKEND="codex"    # or "claude"
+REVIEWER_BACKEND="codex"    # claude | codex | gemini | agy
+FIXER_BACKEND="claude"      # claude | codex | gemini | agy
+# SELF_REVIEWER_BACKEND="gemini"  # omitted: follows FIXER_BACKEND
 PROMPTS_DIR="./custom-prompts"
 ```
 
@@ -361,13 +369,13 @@ PROMPTS_DIR="./custom-prompts"
 3. Loop (iteration 1..N):
    a. Generate diff: git diff $TARGET...$CURRENT
    b. Empty diff → exit
-   c. Reviewer (Codex or Claude, via --reviewer-backend) reviews the diff → JSON with findings
+   c. Reviewer (Codex, Claude, or Gemini, via --reviewer-backend) reviews the diff → JSON with findings
    d. No findings + "patch is correct" → exit
-   e. Claude fixes all issues (P0-P3)
+   e. The selected fixer fixes all issues (P0-P3)
    f. Sub-loop (1..MAX_SUBLOOP):
-      - Claude self-reviews the uncommitted fixes (git diff)
+      - The selected self-reviewer checks the uncommitted fixes (git diff)
       - If clean → break
-      - Claude re-fixes based on self-review findings
+      - The selected fixer re-fixes based on self-review findings
    g. Auto-commit all fixes + re-fixes to branch
    h. Push to remote (updates PR)
    i. Post review/fix/self-review summary as PR comment
@@ -531,3 +539,49 @@ uv run pytest --tb=short
 ## License
 
 [MIT](LICENSE) &copy; 2026 ModocAI
+
+### Selecting role backends
+
+Both `review-loop` and `refactor-suggest` accept independent reviewer and fixer
+backends. Defaults remain Codex review and Claude fix. Self-review follows the
+fixer unless `--self-reviewer-backend` / `SELF_REVIEWER_BACKEND` is set.
+
+```sh
+overkill review-loop -n 3 --reviewer-backend gemini --fixer-backend codex
+# Optional independent verification of the fix:
+overkill review-loop -n 3 --fixer-backend codex --self-reviewer-backend claude
+```
+
+Install and authenticate each selected CLI before running. Codex fixes use
+`workspace-write`; Gemini fixes use sandboxed `yolo` mode. Opinion and self-review
+use Codex `read-only` or Gemini `plan` mode (requires a Gemini CLI supporting that
+mode). Claude retains its existing two-step session. Codex and Gemini receive the
+opinion and original findings explicitly in the editing step. Existing
+`claude-*-fix*` and `claude-self-review` prompt filenames remain shared templates
+for compatibility with custom prompt directories.
+
+CLI options override rc settings. `--resume` restores saved role selections unless
+explicitly overridden on the command line; an inherited self-review selection
+continues to follow the fixer. `--no-self-review` still disables this stage.
+
+Antigravity CLI is supported explicitly as `agy` for all three roles:
+
+```sh
+overkill review-loop -n 3 --reviewer-backend agy --fixer-backend codex
+overkill refactor-suggest --scope module --fixer-backend agy
+```
+
+Google announced the consumer transition from Gemini CLI on May 19, 2026, with
+free/Pro/Ultra access ending June 18; enterprise and paid API-key access remain.
+See the [official announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
+Existing `gemini` selections continue to invoke `gemini`; no automatic executable
+or account switching occurs. Authenticate `agy` separately before use.
+
+Antigravity uses `--mode plan` for review/opinion and `--mode accept-edits` for
+fixes, with `--sandbox` in both. It does not bypass permissions: shell commands
+may be denied in headless mode unless your Antigravity policy permits them.
+Use an up-to-date CLI that applies `--mode` to headless runs. Antigravity shares
+the existing `gemini-*` review prompts. Local Antigravity quota preflight data is
+not available; runtime errors go through the retry/error handling path.
+See [headless mode](https://antigravity.google/docs/cli/headless/) and
+[execution modes](https://www.antigravity.google/docs/cli/modes/).

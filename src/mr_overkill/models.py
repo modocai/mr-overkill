@@ -56,6 +56,8 @@ class FinalStatus(_StrEnum):
     CODEX_BUDGET_TIMEOUT = "codex_budget_timeout"
     CLAUDE_ERROR = "claude_error"
     CLAUDE_BUDGET_TIMEOUT = "claude_budget_timeout"
+    AGY_ERROR = "agy_error"
+    AGY_BUDGET_TIMEOUT = "agy_budget_timeout"
     GEMINI_ERROR = "gemini_error"
     GEMINI_BUDGET_TIMEOUT = "gemini_budget_timeout"
     PARSE_ERROR = "parse_error"
@@ -189,7 +191,10 @@ class LoopConfig:
     pr_number: str | None = None
 
     # Reviewer backend
-    reviewer_backend: str = "codex"  # "codex" | "claude" | "gemini"
+    reviewer_backend: str = "codex"  # "codex" | "claude" | "gemini" | "agy"
+
+    fixer_backend: str = "claude"
+    self_reviewer_backend: str | None = None  # None follows fixer_backend
 
     # Additional context for the reviewer
     reviewer_context: str = ""
