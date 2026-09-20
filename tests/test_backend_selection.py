@@ -149,6 +149,7 @@ def test_resume_preserves_inheritance(
 
 def test_agy_retry_uses_print_argument(tmp_path: Path) -> None:
     config = LoopConfig("feat/test", "develop", 1)
+    (tmp_path / "output").write_text("Done")
     with patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as run:
         assert _RetryFn(config)(
             tmp_path / "output", "agy fix", backend_command("agy", edit=True),
@@ -170,6 +171,7 @@ def test_agy_reviewer(tmp_path: Path, refactor: bool) -> None:
         "feat/test", "develop", 1, reviewer_backend="agy",
         prompts_dir=tmp_path, log_dir=tmp_path, skip_budget_gate=True,
     )
+    (tmp_path / "review.json").write_text('{"findings": []}')
     for name in ("gemini-review.prompt.md", "gemini-refactor-module.prompt.md"):
         (tmp_path / name).write_text("Review $CURRENT_BRANCH")
     with (
@@ -195,3 +197,38 @@ def test_codex_retry_pipes_prompt(tmp_path: Path) -> None:
         )
     assert run.call_args.kwargs["input"] == "body"
     assert run.call_args.kwargs["stdin"] is None
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_agy_empty_success_is_failure(tmp_path: Path, exists: bool) -> None:
+    output = tmp_path / "result"
+    if exists:
+        output.write_text("  ")
+    config = LoopConfig("feat/test", "develop", 1)
+    with patch("mr_overkill.agents.retry_gemini_cmd", return_value=True):
+        assert not _RetryFn(config)(output, "review", backend_command("agy"))
+
+
+@pytest.mark.parametrize("override", [None, "claude"])
+def test_chained_review_preserves_roles(override: str | None) -> None:
+    from mr_overkill.__main__ import main
+
+    config = LoopConfig(
+        "feat/test", "develop", 1, reviewer_backend="agy", fixer_backend="codex",
+        self_reviewer_backend=override,
+    )
+    extra = MagicMock(with_review=True, review_loops=2, create_pr=False)
+    with (
+        patch("sys.argv", ["overkill", "refactor-suggest"]),
+        patch("mr_overkill.cli.parse_refactor_suggest_args", return_value=(config, extra)),
+        patch("mr_overkill.refactor_suggest.run", return_value=0),
+        patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="1")),
+        patch("mr_overkill.cli.parse_review_loop_args", return_value=config) as parse,
+        patch("mr_overkill.review_loop.run", return_value=0),
+        pytest.raises(SystemExit) as exc,
+    ):
+        main()
+    assert exc.value.code == 0
+    argv = parse.call_args.args[0]
+    assert argv[argv.index("--fixer-backend") + 1] == "codex"
+    assert argv[argv.index("--self-reviewer-backend") + 1] == (override or "codex")

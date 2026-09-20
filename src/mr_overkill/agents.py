@@ -370,11 +370,22 @@ class _RetryFn:
             )
         if cmd_args[0] == "agy":
             # agy print mode takes the prompt as an argument, not Gemini's dash.
-            return retry_gemini_cmd(
+            ok = retry_gemini_cmd(
                 output_path, label, [*cmd_args, "-p", str(stdin or "")],
                 max_wait=self._config.retry_max_wait,
                 initial_wait=self._config.retry_initial_wait,
             )
+            if ok and (
+                not output_path.is_file()
+                or not output_path.read_text(encoding="utf-8").strip()
+            ):
+                logger.error(
+                    "[%s] agy produced no response. Check %s for headless "
+                    "permission denials or authentication errors.",
+                    label, output_path.with_suffix(".stderr"),
+                )
+                return False
+            return ok
         if cmd_args[0] == "gemini":
             return retry_gemini_cmd(
                 output_path, label, cmd_args,
