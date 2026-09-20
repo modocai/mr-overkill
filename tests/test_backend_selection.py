@@ -220,7 +220,9 @@ def test_chained_review_preserves_roles(override: str | None) -> None:
     extra = MagicMock(with_review=True, review_loops=2, create_pr=False)
     with (
         patch("sys.argv", ["overkill", "refactor-suggest"]),
-        patch("mr_overkill.cli.parse_refactor_suggest_args", return_value=(config, extra)),
+        patch(
+            "mr_overkill.cli.parse_refactor_suggest_args", return_value=(config, extra),
+        ),
         patch("mr_overkill.refactor_suggest.run", return_value=0),
         patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="1")),
         patch("mr_overkill.cli.parse_review_loop_args", return_value=config) as parse,
