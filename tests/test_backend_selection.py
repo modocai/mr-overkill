@@ -234,3 +234,29 @@ def test_chained_review_preserves_roles(override: str | None) -> None:
     argv = parse.call_args.args[0]
     assert argv[argv.index("--fixer-backend") + 1] == "codex"
     assert argv[argv.index("--self-reviewer-backend") + 1] == (override or "codex")
+
+
+@pytest.mark.parametrize("refactor", [False, True])
+@pytest.mark.parametrize("self_backend", [None, "gemini"])
+def test_real_rc_file_role_selection(
+    tmp_path: Path, refactor: bool, self_backend: str | None,
+) -> None:
+    workspace = tmp_path / ".overkill"
+    workspace.mkdir()
+    filename = ".refactorsuggestrc" if refactor else ".overkillrc"
+    content = 'FIXER_BACKEND="agy"\nREVIEWER_BACKEND="codex"\n'
+    if self_backend:
+        content += f'SELF_REVIEWER_BACKEND="{self_backend}"\n'
+    (workspace / filename).write_text(content)
+    with (
+        patch("mr_overkill.cli._detect_current_branch", return_value="feat/test"),
+        patch("mr_overkill.cli._detect_pr_number", return_value=None),
+        patch("mr_overkill.cli.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout=str(tmp_path),
+        )),
+    ):
+        config = (parse_refactor_suggest_args(["-n", "1"])[0] if refactor
+                  else parse_review_loop_args(["-n", "1"]))
+    assert config.fixer_backend == "agy"
+    assert config.self_reviewer_backend == self_backend
+    assert config.reviewer_backend == "codex"

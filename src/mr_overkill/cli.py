@@ -136,6 +136,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "RETRY_INITIAL_WAIT", "BUDGET_SCOPE", "DIAGNOSTIC_LOG",
         "SCOPE", "AUTO_APPROVE", "CREATE_PR", "WITH_REVIEW",
         "REVIEW_LOOPS", "FIX_NITS", "REVIEWER_BACKEND",
+        "FIXER_BACKEND", "SELF_REVIEWER_BACKEND",
         "REVIEWER_CONTEXT", "CI_TRIGGER_MODE", "NO_BUDGET_GATE",
         "COMMIT_SCOPE_PUSH",
     }
