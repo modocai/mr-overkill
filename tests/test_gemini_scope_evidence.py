@@ -173,9 +173,9 @@ def test_wip_followup_does_not_review_incomplete_capture(tmp_path: Path):
     ("gemini", "--include-directories"), ("agy", "--add-dir"),
 ])
 def test_evidence_workspace_is_scoped_and_removed(backend: str, flag: str):
-    from mr_overkill.agents import _google_review_evidence
+    from mr_overkill.review_evidence import google_review_evidence
 
-    with _google_review_evidence(backend, "scoped evidence") as (path, command):
+    with google_review_evidence(backend, "scoped evidence") as (path, command):
         assert path.read_text() == "scoped evidence"
         assert command[command.index(flag) + 1] == str(path.parent)
         assert ".overkill" not in path.parts
