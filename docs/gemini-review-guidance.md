@@ -156,3 +156,14 @@ For no-commit WIP follow-ups, the original author snapshot remains immutable.
 Current tracked working-tree changes and an untracked-file inventory supplement
 it, so file-only reviewers can inspect fixes without staging or committing user
 files. The follow-up note explicitly requires current-file line verification.
+
+A live repository check exposed a further distinction absent from tiny fixtures:
+Gemini's file tool respects ignore rules, including `.overkill/`. Durable evidence
+is still logged there, but each provider call receives a temporary evidence-only
+workspace (`--include-directories` for Gemini; `--add-dir` for AGY), removed when
+the call finishes. This also applies to refactor source-file inventories. No
+repository ignore settings are disabled. A live Gemini probe from this ignored-log
+repository successfully read a sentinel via the additional temporary directory.
+An empty review with zero confidence is rejected rather than counted as all_clear.
+The fixed prompt benchmark measures guidance with readable fixture evidence;
+the full repository review additionally validates the ignored-log transport.

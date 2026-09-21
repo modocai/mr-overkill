@@ -36,7 +36,7 @@ def test_branch_evidence_uses_requested_target_without_external_diff(tmp_path: P
         "release-base...feature", "--",
     ]
     assert (tmp_path / "out.diff").read_text() == "captured branch diff"
-    assert str(tmp_path / "out.diff") in retry.call_args.kwargs["stdin"]
+    assert "Captured evidence file:" in retry.call_args.kwargs["stdin"]
 
 
 @pytest.mark.parametrize("wip", [False, True])
@@ -51,7 +51,7 @@ def test_scope_artifact_does_not_require_reviewer_shell(tmp_path: Path, wip: boo
         assert GeminiReviewAgent(config)(tmp_path / "out", 1)
     git.assert_not_called()
     assert (tmp_path / "out.diff").read_text() == "captured scoped diff"
-    assert str(tmp_path / "out.diff") in retry.call_args.kwargs["stdin"]
+    assert "Captured evidence file:" in retry.call_args.kwargs["stdin"]
 
 
 @pytest.mark.parametrize("missing_artifact", [False, True])
@@ -122,7 +122,10 @@ def test_large_diff_is_read_from_file_not_argv(tmp_path: Path, backend: str) -> 
     prompt = command[-1] if backend == "agy" else retry.call_args.kwargs["stdin"]
     assert len(prompt) < 10_000
     evidence = output.with_suffix(".diff")
-    assert str(evidence.resolve()) in prompt
+    flag = "--add-dir" if backend == "agy" else "--include-directories"
+    readable_dir = Path(command[command.index(flag) + 1])
+    assert str(readable_dir / "evidence.txt") in prompt
+    assert not readable_dir.exists()
     assert evidence.read_text() == diff
     assert "+large diff evidence" not in prompt
 
@@ -163,4 +166,49 @@ def test_wip_followup_does_not_review_incomplete_capture(tmp_path: Path):
         patch("mr_overkill.agents.retry_gemini_cmd") as retry,
     ):
         assert not GeminiReviewAgent(config)(tmp_path / "review.json", 2)
+    retry.assert_not_called()
+
+
+@pytest.mark.parametrize("backend,flag", [
+    ("gemini", "--include-directories"), ("agy", "--add-dir"),
+])
+def test_evidence_workspace_is_scoped_and_removed(backend: str, flag: str):
+    from mr_overkill.agents import _google_review_evidence
+
+    with _google_review_evidence(backend, "scoped evidence") as (path, command):
+        assert path.read_text() == "scoped evidence"
+        assert command[command.index(flag) + 1] == str(path.parent)
+        assert ".overkill" not in path.parts
+        assert "plan" in command
+    assert not path.parent.exists()
+
+
+def test_zero_confidence_no_findings_is_not_success(tmp_path: Path) -> None:
+    config = config_for(tmp_path)
+    output = tmp_path / "review.json"
+    output.write_text(
+        '{"findings": [], "overall_correctness": "patch is correct", '
+        '"overall_explanation": "Could not read evidence", '
+        '"overall_confidence_score": 0.0}'
+    )
+    with (
+        patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout="diff",
+        )),
+        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True),
+    ):
+        assert not GeminiReviewAgent(config)(output, 1)
+
+
+def test_refactor_inventory_failure_stops_before_provider(tmp_path: Path) -> None:
+    from mr_overkill.agents import GeminiRefactorReviewAgent
+
+    config = config_for(tmp_path)
+    with (
+        patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
+            returncode=1, stdout="",
+        )),
+        patch("mr_overkill.agents.retry_gemini_cmd") as retry,
+    ):
+        assert not GeminiRefactorReviewAgent(config, "module")(tmp_path / "out", 1)
     retry.assert_not_called()
