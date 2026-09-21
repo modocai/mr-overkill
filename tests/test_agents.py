@@ -274,12 +274,16 @@ class TestClaudeRefactorReviewAgent:
 
 
 class TestGeminiReviewAgent:
+    @patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
+        returncode=0, stdout="diff evidence",
+    ))
     @patch("mr_overkill.agents._make_budget_fn")
     @patch("mr_overkill.agents.retry_gemini_cmd", return_value=True)
     def test_calls_gemini_with_rendered_prompt(
         self,
         mock_retry: MagicMock,
         mock_budget_factory: MagicMock,
+        mock_diff: MagicMock,
         tmp_path: Path,
         make_loop_config: Callable[..., LoopConfig],
     ) -> None:
