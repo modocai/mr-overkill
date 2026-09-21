@@ -579,6 +579,20 @@ opinion and original findings explicitly in the editing step. Existing
 `claude-*-fix*` and `claude-self-review` prompt filenames remain shared templates
 for compatibility with custom prompt directories.
 
+Gemini reviewers (including refactoring analysis) also use sandboxed `plan` mode,
+never `yolo`. Overkill supplies the requested diff directly because plan mode may
+disable shell tools; commit/WIP scope remains authoritative. The bundled Gemini
+prompts include evidence-driven review guidance without invoking an installed
+`/code-review` command, changing the target to `origin/HEAD`, or replacing the
+JSON/P0-P3 contract. Refresh existing local prompt copies with `overkill init`
+after inspecting any customizations. Permission failures are not code defects;
+there is no automatic fallback to editing mode.
+
+Plan mode is a CLI permission policy, not a guarantee against every possible
+side effect (for example, Gemini permits its own plan-directory writes). See
+[`docs/gemini-review-guidance.md`](docs/gemini-review-guidance.md) for provenance,
+headless verification limits, and the reproducible prompt benchmark.
+
 CLI options override rc settings. `--resume` restores saved role selections unless
 explicitly overridden on the command line; an inherited self-review selection
 continues to follow the fixer. `--no-self-review` still disables this stage.

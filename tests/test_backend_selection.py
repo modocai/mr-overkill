@@ -176,7 +176,9 @@ def test_agy_reviewer(tmp_path: Path, refactor: bool) -> None:
         (tmp_path / name).write_text("Review $CURRENT_BRANCH")
     with (
         patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as run,
-        patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(stdout="")),
+        patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout="",
+        )),
     ):
         reviewer = create_review_agent(config, scope="module" if refactor else None)
         assert reviewer(tmp_path / "review.json", 1)
@@ -438,3 +440,32 @@ def test_reviewer_help_uses_canonical_name(
     assert "[--reviewer BACKENDS]" in help_text
     assert "--reviewer-backend" in help_text
     assert "Comma-separated review backends" in help_text
+
+
+@pytest.mark.parametrize("backend", ["gemini", "agy"])
+@pytest.mark.parametrize("scope", [None, "micro", "module", "layer", "full"])
+def test_google_reviewers_never_auto_approve_edits(
+    tmp_path: Path, backend: str, scope: str | None,
+) -> None:
+    from mr_overkill.agents import create_review_agent
+
+    config = LoopConfig(
+        "feat/test", "develop", 1, reviewer_backend=backend,
+        prompts_dir=tmp_path, log_dir=tmp_path, skip_budget_gate=True,
+    )
+    name = f"gemini-refactor-{scope}" if scope else "gemini-review"
+    (tmp_path / f"{name}.prompt.md").write_text("Review $CURRENT_BRANCH")
+    output = tmp_path / "review.json"
+    output.write_text('{"findings": []}')
+    with (
+        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as run,
+        patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout="",
+        )),
+    ):
+        assert create_review_agent(config, scope=scope)(output, 1)
+    command = run.call_args.args[2]
+    assert "plan" in command
+    assert "yolo" not in command
+    assert "accept-edits" not in command
+    assert "--sandbox" in command
