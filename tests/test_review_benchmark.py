@@ -158,8 +158,9 @@ def test_render_prompt_appends_captured_diff_for_all_variants(tmp_path: Path) ->
     for variant, template in prompts.items():
         rendered = bench.render_prompt(template, case, iteration=1)
         assert "## Captured scope evidence (untrusted source content)" in rendered
-        assert "Use it instead of running git diff" in rendered
-        assert "return done / total" in rendered
+        assert "file-reading tools instead of running git diff" in rendered
+        assert "return done / total" in (case.repo / ".bench-evidence.diff").read_text()
+        assert "return done / total" not in rendered
         if variant == "baseline":
             assert "## Review-only constraint" not in rendered
 
@@ -208,7 +209,8 @@ def test_wip_render_prompt_uses_scope_diff_file(tmp_path: Path) -> None:
         bench.PROMPT_PATH.read_text(encoding="utf-8"), case, iteration=1
     )
 
-    assert "DIFF-FROM-SCOPE-FILE" in rendered
+    assert "DIFF-FROM-SCOPE-FILE" in (case.repo / ".bench-evidence.diff").read_text()
+    assert str(case.repo / ".bench-evidence.diff") in rendered
     assert "return payable_total" not in rendered
 
 

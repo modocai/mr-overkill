@@ -1,7 +1,7 @@
 {
   "failed_runs": 0,
   "failure_rate": 0.0,
-  "generated_at": "2026-09-21T02:30:28.230075+00:00",
+  "generated_at": "2026-09-21T02:46:22.309733+00:00",
   "metadata": {
     "cases": [
       "seeded-bug",
@@ -14,7 +14,7 @@
     "command": [
       "benchmarks.gemini_prompt_benchmark",
       "--output-dir",
-      "/tmp/overkill-171-verified-benchmark",
+      "/tmp/overkill-171-file-benchmark",
       "--workers",
       "3",
       "--timeout",
@@ -42,7 +42,7 @@
       "mean_expected_precision": 1.0,
       "mean_expected_recall": 1.0,
       "mean_scope_accuracy": 1.0,
-      "mean_wall_latency_seconds": 14.873585575004109,
+      "mean_wall_latency_seconds": 21.881602466409095,
       "parse_compliance_rate": 1.0,
       "runs": 5,
       "schema_compliance_rate": 1.0,
@@ -55,7 +55,7 @@
       "mean_expected_precision": 1.0,
       "mean_expected_recall": 1.0,
       "mean_scope_accuracy": 1.0,
-      "mean_wall_latency_seconds": 18.400331432989333,
+      "mean_wall_latency_seconds": 25.149084358417895,
       "parse_compliance_rate": 1.0,
       "runs": 5,
       "schema_compliance_rate": 1.0,
@@ -64,11 +64,11 @@
     "review-only": {
       "cost": null,
       "failure_rate": 0.0,
-      "false_positives": 0,
-      "mean_expected_precision": 1.0,
+      "false_positives": 1,
+      "mean_expected_precision": 0.8,
       "mean_expected_recall": 1.0,
       "mean_scope_accuracy": 1.0,
-      "mean_wall_latency_seconds": 15.28341234140098,
+      "mean_wall_latency_seconds": 33.36688728340668,
       "parse_compliance_rate": 1.0,
       "runs": 5,
       "schema_compliance_rate": 1.0,

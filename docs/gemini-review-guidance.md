@@ -13,7 +13,9 @@ Gemini CLI 0.60.0 plan mode can remove the shell tool entirely. Overkill therefo
 captures branch diff evidence itself using Git with external diff and textconv
 helpers disabled. Commit and no-commit WIP reviews receive their captured scope
 artifact instead; later commit-review iterations also receive the fixer branch
-diff. Failure to obtain evidence aborts review before calling the model. Current
+diff. Both providers read per-review evidence files to avoid command-line size
+limits, including Gemini sandbox wrappers that internally move stdin into argv.
+Failure to obtain evidence aborts review before calling the model. Current
 source files remain available through the CLI's file-reading tools.
 
 The guidance asks the reviewer to establish intent, trace affected callers and
@@ -105,37 +107,39 @@ they are observational evidence, not a sandbox, and do not audit global CLI cach
 
 ## Recorded smoke results
 
-Run: 2026-09-20 America/New_York (2026-09-21 02:30 UTC), Gemini CLI 0.60.0,
+Run: 2026-09-20 America/New_York (2026-09-21 02:46 UTC), Gemini CLI 0.60.0,
 provider-configured model (not pinned), three concurrent isolated fixtures,
 240-second per-call limit. [Machine-readable aggregate](../benchmarks/results/gemini-171-2026-09-20.json)
 includes template hashes and invocation metadata. Five cases per variant:
 
-| Variant | Precision | Recall | FP | Parsed schema | Scope | Mean latency | Writes |
+| Variant | Mean precision | Mean recall | FP | Parsed schema | Scope | Mean latency | Writes |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Baseline | 1.00 | 1.00 | 0 | 100% | 100% | 18.40s | 0 |
-| Review-only | 1.00 | 1.00 | 0 | 100% | 100% | 15.28s | 0 |
-| Adapted | 1.00 | 1.00 | 0 | 100% | 100% | 14.87s | 0 |
+| Baseline | 1.00 | 1.00 | 0 | 100% | 100% | 25.15s | 0 |
+| Review-only | 0.80 | 1.00 | 1 | 100% | 100% | 33.37s | 0 |
+| Adapted | 1.00 | 1.00 | 0 | 100% | 100% | 21.88s | 0 |
 
 All 15 invocations exited successfully; no fixture file, ref, config, or logical
 index changes were observed. Overkill's tolerant JSON extractor accepted every
-response. A separate raw `json.loads` check accepted 4/5 baseline responses (one
-used Markdown fences) and 5/5 for both other variants. Thus "parsed schema" is
+response. A separate raw `json.loads` check accepted 5/5 baseline and review-only responses, and 4/5 adapted
+responses (one used Markdown fences). Thus "parsed schema" is
 not a claim of strict raw JSON compliance. All nine seeded-defect responses
-matched their expected source locations; the six clean/permission-error cases
-returned no findings. Cost remains unknown.
+matched their expected source locations. One review-only clean-patch run
+reported a speculative positional-argument usability concern (counted as a false
+positive); the other five clean/permission-error responses had no findings. Cost remains unknown.
 
 Conclusion: the adapted prompt retained detection and scope accuracy on this
-small corpus; it did **not** demonstrate higher precision/recall than the other
-variants. Latency differences are descriptive, not a reliable speedup claim.
-Several conditional zero-division findings were over-prioritized as P0, including
-by the adapted prompt: priority calibration remains a limitation, not a measured
+small corpus; the one review-only false positive does **not** establish a
+statistically meaningful precision improvement. Recall was identical across variants. Latency differences are descriptive, not a reliable speedup claim.
+Several conditional findings were over-prioritized as P0, including a coupon
+edge case in the adapted prompt: priority calibration remains a limitation, not a measured
 success. The primary improvement is removal of review-time edit auto-approval
 and preservation of scope/output contracts without provider slash commands.
 
 Exploratory runs were excluded after fixture review found an unintended second
 bug in a seeded case and a type-coercion regression in the supposed clean case.
-The recorded run uses the corrected, regression-tested fixtures for every
-variant. Raw audit artifacts are under `/tmp/overkill-171-verified-benchmark` on
+The recorded run uses file-based evidence and corrected, regression-tested
+fixtures for every variant. Precision/recall are case means including clean cases;
+pooled precision for review-only is 3/4 (0.75), versus 3/3 for the other variants. Raw audit artifacts are under `/tmp/overkill-171-file-benchmark` on
 the execution machine; rerunning the harness produces a fresh independent report.
 
 ## PR review corrections
@@ -143,7 +147,12 @@ the execution machine; rerunning the harness produces a fresh independent report
 The first Gemini+Codex Overkill review identified two transport/runtime issues:
 AGY receives its prompt in argv, so large captured diffs now go to a per-review
 `.diff` artifact referenced by the prompt, rather than into command-line arguments.
-A >3 MB regression test checks this path. Gemini continues to receive evidence
-on stdin. The live benchmark now explicitly requires POSIX (Linux/macOS/WSL),
+A >3 MB regression test checks this path. Gemini uses the same evidence-file transport because its sandbox wrapper can
+move stdin into argv internally. The live benchmark now explicitly requires POSIX (Linux/macOS/WSL),
 rejecting native Windows before process creation because wrapper-only termination
 cannot guarantee cleanup of children holding stdout/stderr pipes.
+
+For no-commit WIP follow-ups, the original author snapshot remains immutable.
+Current tracked working-tree changes and an untracked-file inventory supplement
+it, so file-only reviewers can inspect fixes without staging or committing user
+files. The follow-up note explicitly requires current-file line verification.

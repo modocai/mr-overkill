@@ -35,7 +35,8 @@ def test_branch_evidence_uses_requested_target_without_external_diff(tmp_path: P
         "git", "diff", "--no-ext-diff", "--no-textconv", "-U5",
         "release-base...feature", "--",
     ]
-    assert "captured branch diff" in retry.call_args.kwargs["stdin"]
+    assert (tmp_path / "out.diff").read_text() == "captured branch diff"
+    assert str(tmp_path / "out.diff") in retry.call_args.kwargs["stdin"]
 
 
 @pytest.mark.parametrize("wip", [False, True])
@@ -49,7 +50,8 @@ def test_scope_artifact_does_not_require_reviewer_shell(tmp_path: Path, wip: boo
     ):
         assert GeminiReviewAgent(config)(tmp_path / "out", 1)
     git.assert_not_called()
-    assert "captured scoped diff" in retry.call_args.kwargs["stdin"]
+    assert (tmp_path / "out.diff").read_text() == "captured scoped diff"
+    assert str(tmp_path / "out.diff") in retry.call_args.kwargs["stdin"]
 
 
 @pytest.mark.parametrize("missing_artifact", [False, True])
@@ -78,12 +80,12 @@ def test_commit_followup_includes_fix_diff(tmp_path: Path) -> None:
         patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
             returncode=0, stdout="subsequent fix diff",
         )),
-        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as retry,
+        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True),
     ):
         assert GeminiReviewAgent(config)(tmp_path / "out", 2)
-    prompt = retry.call_args.kwargs["stdin"]
-    assert "historical commit diff" in prompt
-    assert "subsequent fix diff" in prompt
+    evidence = (tmp_path / "out.diff").read_text()
+    assert "historical commit diff" in evidence
+    assert "subsequent fix diff" in evidence
 
 
 @pytest.mark.parametrize("scope", ["review", "micro", "module", "layer", "full"])
@@ -103,8 +105,9 @@ def test_bundled_google_guidance_preserves_output_and_scope(scope: str) -> None:
         assert "${SOURCE_FILES_PATH}" in text
 
 
-def test_agy_large_diff_is_read_from_file_not_argv(tmp_path: Path) -> None:
-    config = config_for(tmp_path, reviewer_backend="agy")
+@pytest.mark.parametrize("backend", ["gemini", "agy"])
+def test_large_diff_is_read_from_file_not_argv(tmp_path: Path, backend: str) -> None:
+    config = config_for(tmp_path, reviewer_backend=backend)
     diff = "+large diff evidence\n" * 160_000
     output = tmp_path / "review.json"
     output.write_text('{"findings": []}')
@@ -116,8 +119,48 @@ def test_agy_large_diff_is_read_from_file_not_argv(tmp_path: Path) -> None:
     ):
         assert GeminiReviewAgent(config)(output, 1)
     command = retry.call_args.args[2]
-    assert len(command[-1]) < 10_000
+    prompt = command[-1] if backend == "agy" else retry.call_args.kwargs["stdin"]
+    assert len(prompt) < 10_000
     evidence = output.with_suffix(".diff")
-    assert str(evidence.resolve()) in command[-1]
+    assert str(evidence.resolve()) in prompt
     assert evidence.read_text() == diff
-    assert "+large diff evidence" not in command[-1]
+    assert "+large diff evidence" not in prompt
+
+
+def test_wip_followup_preserves_draft_and_supplies_current_evidence(tmp_path: Path):
+    original = tmp_path / "wip.diff"
+    original.write_text("author draft")
+    config = config_for(tmp_path, wip=True, scope_diff_file=original)
+    with (
+        patch("mr_overkill.agents.subprocess.run", side_effect=[
+            MagicMock(returncode=0, stdout="current tracked draft and fixes"),
+            MagicMock(returncode=0, stdout="new helper.py\0draft.py\0"),
+        ]) as git,
+        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as retry,
+    ):
+        assert GeminiReviewAgent(config)(tmp_path / "review.json", 2)
+    assert git.call_args_list[0].args[0][-2:] == ["HEAD", "--"]
+    assert git.call_args_list[1].args[0] == [
+        "git", "ls-files", "--others", "--exclude-standard", "-z",
+    ]
+    evidence = (tmp_path / "review.diff").read_text()
+    assert "author draft" in evidence
+    assert "current tracked draft and fixes" in evidence
+    assert '"new helper.py"' in evidence
+    assert original.read_text() == "author draft"
+    assert "frozen draft snapshot" in retry.call_args.kwargs["stdin"]
+
+
+def test_wip_followup_does_not_review_incomplete_capture(tmp_path: Path):
+    original = tmp_path / "wip.diff"
+    original.write_text("author draft")
+    config = config_for(tmp_path, wip=True, scope_diff_file=original)
+    with (
+        patch("mr_overkill.agents.subprocess.run", side_effect=[
+            MagicMock(returncode=1, stdout=""),
+            MagicMock(returncode=0, stdout=""),
+        ]),
+        patch("mr_overkill.agents.retry_gemini_cmd") as retry,
+    ):
+        assert not GeminiReviewAgent(config)(tmp_path / "review.json", 2)
+    retry.assert_not_called()

@@ -31,7 +31,7 @@ uv run python -m benchmarks.gemini_prompt_benchmark \
 Notes:
 - The harness sets `GEMINI_CLI_TRUST_WORKSPACE=true` only for the Gemini child process because its generated fixture repos are known-safe.
 - Do not commit raw output directories; keep them under `/tmp` or another external archive path.
-- The harness appends captured diff evidence for every variant so prompt comparisons do not depend on Gemini shell availability.
+- The harness references captured diff evidence files for every variant so prompt comparisons do not depend on Gemini shell availability.
 
 ## Fixture Provenance and Limits
 
@@ -40,7 +40,7 @@ Notes:
 `Review-only constraint` section. These are not copied Google extension assets.
 The adapted variant is loaded directly from the working production template.
 
-All variants share the same read-only command and appended diff, so this measures
+All variants share the same read-only command and captured diff file, so this measures
 prompt differences, not historical write-enabled execution. Seeded regressions
 have existing callers/tests. The non-default target includes an `origin/HEAD`
 decoy; WIP changes are deliberately uncommitted. The sandbox case contains a
