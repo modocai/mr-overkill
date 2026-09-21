@@ -365,7 +365,8 @@ def parse_review_loop_args(
         default=None, help="Backend for self-review (default: same as fixer)",
     )
     parser.add_argument(
-        "--reviewer-backend",
+        "--reviewer", "--reviewer-backend",
+        dest="reviewer_backend",
         default=None,
         choices=["claude", "codex", "gemini", "agy"],
         help="Backend for code review (default: codex)",
@@ -863,7 +864,8 @@ def parse_refactor_suggest_args(
         default=None, help="Backend for self-review (default: same as fixer)",
     )
     parser.add_argument(
-        "--reviewer-backend",
+        "--reviewer", "--reviewer-backend",
+        dest="reviewer_backend",
         default=None,
         choices=["claude", "codex", "gemini", "agy"],
         help="Backend for code review (default: codex)",

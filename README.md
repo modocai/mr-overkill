@@ -118,7 +118,7 @@ Options:
   --fix-nits               Also flag nits and style issues during self-review
   --context <text>         Additional context for the reviewer (design intent,
                            constraints)
-  --reviewer-backend <be>  Reviewer backend: claude|codex|gemini|agy (default: codex)
+  --reviewer <be>  Reviewer backend: claude|codex|gemini|agy (default: codex)
   --fixer-backend <be>     Fixer backend: claude|codex|gemini|agy (default: claude)
   --self-reviewer-backend <be>  Self-review backend (default: same as fixer)
   --ci-trigger-mode <m>    CI trigger policy: every|last-only|none (default: last-only).
@@ -136,7 +136,7 @@ Examples:
   overkill review-loop -n 1 --dry-run        # single review, no fixes
   overkill review-loop -n 3 --no-self-review # disable self-review sub-loop
   overkill review-loop --resume              # resume an interrupted run
-  overkill review-loop -n 2 --reviewer-backend claude  # use Claude as reviewer
+  overkill review-loop -n 2 --reviewer claude  # use Claude as reviewer
   overkill review-loop -n 10 --ci-trigger-mode last-only  # CI fires once on PASS
 
   # Review only what landed after a given commit, before opening a PR
@@ -260,7 +260,7 @@ Options:
   --resume                 Resume from a previously interrupted run (reuses existing logs)
   --with-review            Run review-loop after PR creation (default: 4 iterations)
   --with-review-loops <N>  Set review-loop iteration count (implies --with-review)
-  --reviewer-backend <be>  Reviewer backend: claude|codex|gemini|agy (default: codex)
+  --reviewer <be>  Reviewer backend: claude|codex|gemini|agy (default: codex)
   --fixer-backend <be>     Fixer backend: claude|codex|gemini|agy (default: claude)
   --self-reviewer-backend <be>  Self-review backend (default: same as fixer)
   --diagnostic-log         Save full Claude event stream to sidecar files
@@ -369,7 +369,7 @@ PROMPTS_DIR="./custom-prompts"
 3. Loop (iteration 1..N):
    a. Generate diff: git diff $TARGET...$CURRENT
    b. Empty diff → exit
-   c. Reviewer (Codex, Claude, or Gemini, via --reviewer-backend) reviews the diff → JSON with findings
+   c. Reviewer (Codex, Claude, or Gemini, via --reviewer) reviews the diff → JSON with findings
    d. No findings + "patch is correct" → exit
    e. The selected fixer fixes all issues (P0-P3)
    f. Sub-loop (1..MAX_SUBLOOP):
@@ -543,11 +543,13 @@ uv run pytest --tb=short
 ### Selecting role backends
 
 Both `review-loop` and `refactor-suggest` accept independent reviewer and fixer
-backends. Defaults remain Codex review and Claude fix. Self-review follows the
+backends. `--reviewer` selects the review backend; `--reviewer-backend` remains
+a compatible alias. The rc key `REVIEWER_BACKEND` is unchanged.
+Defaults remain Codex review and Claude fix. Self-review follows the
 fixer unless `--self-reviewer-backend` / `SELF_REVIEWER_BACKEND` is set.
 
 ```sh
-overkill review-loop -n 3 --reviewer-backend gemini --fixer-backend codex
+overkill review-loop -n 3 --reviewer gemini --fixer-backend codex
 # Optional independent verification of the fix:
 overkill review-loop -n 3 --fixer-backend codex --self-reviewer-backend claude
 ```
@@ -567,7 +569,7 @@ continues to follow the fixer. `--no-self-review` still disables this stage.
 Antigravity CLI is supported explicitly as `agy` for all three roles:
 
 ```sh
-overkill review-loop -n 3 --reviewer-backend agy --fixer-backend codex
+overkill review-loop -n 3 --reviewer agy --fixer-backend codex
 overkill refactor-suggest --scope module --fixer-backend agy
 ```
 

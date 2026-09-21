@@ -366,7 +366,7 @@ class TestParseReviewLoopArgs:
             returncode=0, stdout="/tmp/repo"
         )
         config = parse_review_loop_args([
-            "-n", "1", "--reviewer-backend", "claude",
+            "-n", "1", "--reviewer", "claude",
         ])
         assert config.reviewer_backend == "claude"
 
@@ -408,7 +408,7 @@ class TestParseReviewLoopArgs:
             returncode=0, stdout="/tmp/repo"
         )
         config = parse_review_loop_args([
-            "-n", "1", "--reviewer-backend", "codex",
+            "-n", "1", "--reviewer", "codex",
         ])
         assert config.reviewer_backend == "codex"
 
@@ -448,7 +448,7 @@ class TestParseReviewLoopArgs:
             returncode=0, stdout="/tmp/repo"
         )
         config = parse_review_loop_args([
-            "-n", "1", "--reviewer-backend", "gemini",
+            "-n", "1", "--reviewer", "gemini",
         ])
         assert config.reviewer_backend == "gemini"
 
@@ -722,7 +722,7 @@ class TestParseRefactorSuggestArgs:
             returncode=0, stdout="/tmp/repo"
         )
         config, _extra = parse_refactor_suggest_args([
-            "--reviewer-backend", "claude",
+            "--reviewer", "claude",
         ])
         assert config.reviewer_backend == "claude"
 
@@ -739,7 +739,7 @@ class TestParseRefactorSuggestArgs:
             returncode=0, stdout="/tmp/repo"
         )
         config, _extra = parse_refactor_suggest_args([
-            "--reviewer-backend", "gemini",
+            "--reviewer", "gemini",
         ])
         assert config.reviewer_backend == "gemini"
 

@@ -29,7 +29,7 @@ def test_role_cli_overrides_rc(tmp_path: Path, refactor: bool, backend: str) -> 
         )),
     ):
         args = ["-n", "1", "--fixer-backend", backend,
-                "--self-reviewer-backend", "gemini", "--reviewer-backend", "codex"]
+                "--self-reviewer-backend", "gemini", "--reviewer", "codex"]
         config = (parse_refactor_suggest_args(args)[0] if refactor
                   else parse_review_loop_args(args))
     assert config.fixer_backend == backend
@@ -232,6 +232,8 @@ def test_chained_review_preserves_roles(override: str | None) -> None:
         main()
     assert exc.value.code == 0
     argv = parse.call_args.args[0]
+    assert argv[argv.index("--reviewer") + 1] == "agy"
+    assert "--reviewer-backend" not in argv
     assert argv[argv.index("--fixer-backend") + 1] == "codex"
     assert argv[argv.index("--self-reviewer-backend") + 1] == (override or "codex")
 
@@ -260,3 +262,40 @@ def test_real_rc_file_role_selection(
     assert config.fixer_backend == "agy"
     assert config.self_reviewer_backend == self_backend
     assert config.reviewer_backend == "codex"
+
+
+@pytest.mark.parametrize("refactor", [False, True])
+@pytest.mark.parametrize("flag", ["--reviewer", "--reviewer-backend"])
+@pytest.mark.parametrize("backend", ["claude", "codex", "gemini", "agy"])
+def test_reviewer_option_names(
+    tmp_path: Path, refactor: bool, flag: str, backend: str,
+) -> None:
+    with (
+        patch("mr_overkill.cli._load_rc_file", return_value={
+            "REVIEWER_BACKEND": "claude",
+        }),
+        patch("mr_overkill.cli._detect_current_branch", return_value="feat/test"),
+        patch("mr_overkill.cli._detect_pr_number", return_value=None),
+        patch("mr_overkill.cli.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout=str(tmp_path),
+        )),
+    ):
+        args = ["-n", "1", flag, backend]
+        config = (parse_refactor_suggest_args(args)[0] if refactor
+                  else parse_review_loop_args(args))
+    assert config.reviewer_backend == backend
+
+
+@pytest.mark.parametrize("refactor", [False, True])
+def test_reviewer_help_uses_canonical_name(
+    refactor: bool, capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        if refactor:
+            parse_refactor_suggest_args(["--help"])
+        else:
+            parse_review_loop_args(["--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "[--reviewer {claude,codex,gemini,agy}]" in help_text
+    assert "--reviewer-backend" in help_text
