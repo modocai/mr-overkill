@@ -1,0 +1,78 @@
+{
+  "failed_runs": 0,
+  "failure_rate": 0.0,
+  "generated_at": "2026-09-21T02:30:28.230075+00:00",
+  "metadata": {
+    "cases": [
+      "seeded-bug",
+      "clean-patch",
+      "non-default-target",
+      "wip-scope",
+      "sandbox-failure"
+    ],
+    "cli_model_metadata": "manual: Gemini CLI/model auto-configured externally",
+    "command": [
+      "benchmarks.gemini_prompt_benchmark",
+      "--output-dir",
+      "/tmp/overkill-171-verified-benchmark",
+      "--workers",
+      "3",
+      "--timeout",
+      "240"
+    ],
+    "prompt_sha256": {
+      "adapted": "a5c298727c8a781366e2ddc688343ac01a967e18f1349c5d930f387548b75a4c",
+      "baseline": "422a631e2379c27bce0d35d89c8959c28726af0808187a30f106b7f734378365",
+      "review-only": "edaa3c969737018ab5d8d8dbb784e905b72086889ca28c35d461edf55cc8b5a0"
+    },
+    "timeout_seconds": 240,
+    "variants": [
+      "baseline",
+      "review-only",
+      "adapted"
+    ],
+    "workers": 3
+  },
+  "total_runs": 15,
+  "variants": {
+    "adapted": {
+      "cost": null,
+      "failure_rate": 0.0,
+      "false_positives": 0,
+      "mean_expected_precision": 1.0,
+      "mean_expected_recall": 1.0,
+      "mean_scope_accuracy": 1.0,
+      "mean_wall_latency_seconds": 14.873585575004109,
+      "parse_compliance_rate": 1.0,
+      "runs": 5,
+      "schema_compliance_rate": 1.0,
+      "unintended_change_runs": 0
+    },
+    "baseline": {
+      "cost": null,
+      "failure_rate": 0.0,
+      "false_positives": 0,
+      "mean_expected_precision": 1.0,
+      "mean_expected_recall": 1.0,
+      "mean_scope_accuracy": 1.0,
+      "mean_wall_latency_seconds": 18.400331432989333,
+      "parse_compliance_rate": 1.0,
+      "runs": 5,
+      "schema_compliance_rate": 1.0,
+      "unintended_change_runs": 0
+    },
+    "review-only": {
+      "cost": null,
+      "failure_rate": 0.0,
+      "false_positives": 0,
+      "mean_expected_precision": 1.0,
+      "mean_expected_recall": 1.0,
+      "mean_scope_accuracy": 1.0,
+      "mean_wall_latency_seconds": 15.28341234140098,
+      "parse_compliance_rate": 1.0,
+      "runs": 5,
+      "schema_compliance_rate": 1.0,
+      "unintended_change_runs": 0
+    }
+  }
+}

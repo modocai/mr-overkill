@@ -102,3 +102,38 @@ Cost is `null` (unknown), not zero: text-mode CLI output does not provide reliab
 billable token/cost accounting. Latency includes CLI startup and tool work.
 Snapshots compare tracked/untracked file content and Git state in the fixture;
 they are observational evidence, not a sandbox, and do not audit global CLI caches.
+
+## Recorded smoke results
+
+Run: 2026-09-20 America/New_York (2026-09-21 02:30 UTC), Gemini CLI 0.60.0,
+provider-configured model (not pinned), three concurrent isolated fixtures,
+240-second per-call limit. [Machine-readable aggregate](../benchmarks/results/gemini-171-2026-09-20.json)
+includes template hashes and invocation metadata. Five cases per variant:
+
+| Variant | Precision | Recall | FP | Parsed schema | Scope | Mean latency | Writes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 1.00 | 1.00 | 0 | 100% | 100% | 18.40s | 0 |
+| Review-only | 1.00 | 1.00 | 0 | 100% | 100% | 15.28s | 0 |
+| Adapted | 1.00 | 1.00 | 0 | 100% | 100% | 14.87s | 0 |
+
+All 15 invocations exited successfully; no fixture file, ref, config, or logical
+index changes were observed. Overkill's tolerant JSON extractor accepted every
+response. A separate raw `json.loads` check accepted 4/5 baseline responses (one
+used Markdown fences) and 5/5 for both other variants. Thus "parsed schema" is
+not a claim of strict raw JSON compliance. All nine seeded-defect responses
+matched their expected source locations; the six clean/permission-error cases
+returned no findings. Cost remains unknown.
+
+Conclusion: the adapted prompt retained detection and scope accuracy on this
+small corpus; it did **not** demonstrate higher precision/recall than the other
+variants. Latency differences are descriptive, not a reliable speedup claim.
+Several conditional zero-division findings were over-prioritized as P0, including
+by the adapted prompt: priority calibration remains a limitation, not a measured
+success. The primary improvement is removal of review-time edit auto-approval
+and preservation of scope/output contracts without provider slash commands.
+
+Exploratory runs were excluded after fixture review found an unintended second
+bug in a seeded case and a type-coercion regression in the supposed clean case.
+The recorded run uses the corrected, regression-tested fixtures for every
+variant. Raw audit artifacts are under `/tmp/overkill-171-verified-benchmark` on
+the execution machine; rerunning the harness produces a fresh independent report.
