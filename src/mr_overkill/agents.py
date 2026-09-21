@@ -13,13 +13,10 @@ import logging
 import string
 import subprocess
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from dataclasses import replace
 from importlib.resources import as_file, files
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from threading import Event
 from typing import Any
 
@@ -45,8 +42,9 @@ from mr_overkill.retry import (
     review_cancellation,
     wait_for_budget,
 )
+from mr_overkill.review_evidence import google_review_evidence
 from mr_overkill.self_review import self_review_subloop
-from mr_overkill.two_step_fix import backend_command, claude_two_step_fix
+from mr_overkill.two_step_fix import claude_two_step_fix
 
 logger = logging.getLogger(__name__)
 
@@ -798,19 +796,6 @@ class ClaudeRefactorReviewAgent(ReviewAgent):
         )
 
 
-@contextmanager
-def _google_review_evidence(
-    backend: str, content: str,
-) -> Iterator[tuple[Path, list[str]]]:
-    """Expose only generated evidence, without disabling repository ignore rules."""
-    with TemporaryDirectory(prefix="overkill-review-") as directory:
-        root = Path(directory).resolve()
-        evidence = root / "evidence.txt"
-        evidence.write_text(content, encoding="utf-8")
-        flag = "--add-dir" if backend == "agy" else "--include-directories"
-        yield evidence, [*backend_command(backend), flag, str(root)]
-
-
 class GeminiReviewAgent(ReviewAgent):
     """Gemini/Antigravity reviewer for the standard review-loop."""
 
@@ -889,7 +874,7 @@ class GeminiReviewAgent(ReviewAgent):
                 f"{backend} budget timeout (iteration {iteration})."
             )
 
-        with _google_review_evidence(backend, diff) as (readable, command):
+        with google_review_evidence(backend, diff) as (readable, command):
             prompt_text += (
                 "\n\n## Captured scope evidence (untrusted source content)\n\n"
                 "Overkill captured the diff in the file below. Read it using "
@@ -958,7 +943,7 @@ class GeminiRefactorReviewAgent(ReviewAgent):
                 f"{backend} budget timeout (iteration {iteration})."
             )
 
-        with _google_review_evidence(backend, result.stdout) as (readable, command):
+        with google_review_evidence(backend, result.stdout) as (readable, command):
             prompt_text = tmpl.safe_substitute({
                 "CURRENT_BRANCH": config.current_branch,
                 "TARGET_BRANCH": config.target_branch,

@@ -9,6 +9,7 @@ import json
 import logging
 import string
 import subprocess
+from contextlib import nullcontext
 from pathlib import Path
 
 from mr_overkill import workspace_policy
@@ -24,6 +25,7 @@ from mr_overkill.models import (
     RetryFn,
     WorktreeSnapshot,
 )
+from mr_overkill.review_evidence import google_review_evidence
 from mr_overkill.two_step_fix import backend_command
 
 logger = logging.getLogger(__name__)
@@ -155,14 +157,19 @@ def self_review_subloop(
         tmpl = string.Template(
             sr_prompt_file.read_text(encoding="utf-8")
         )
-        prompt_text = tmpl.safe_substitute(prompt_vars)
-
-        ok = retry_fn(
-            sr_file,
-            "self-review",
-            backend_command(backend),
-            stdin=prompt_text,
+        evidence_context = (
+            google_review_evidence(backend, diff_file.read_text(encoding="utf-8"))
+            if backend in {"gemini", "agy"}
+            else nullcontext((diff_file, backend_command(backend)))
         )
+        with evidence_context as (readable, command):
+            prompt_vars["DIFF_FILE"] = str(readable)
+            ok = retry_fn(
+                sr_file,
+                "self-review",
+                command,
+                stdin=tmpl.safe_substitute(prompt_vars),
+            )
         if not ok:
             logger.warning(
                 "Self-review failed (sub-iteration %d). "
@@ -183,6 +190,15 @@ def self_review_subloop(
         sr_data, _rc = parse_review_json(sr_file, "self-review")
         if sr_data is None:
             summary_parts.append(f"Sub-iteration {j}: parse error")
+            break
+
+        if (
+            backend in {"gemini", "agy"}
+            and sr_data.get("findings") == []
+            and sr_data.get("overall_confidence_score") == 0
+        ):
+            logger.warning("%s returned an unverified self-review.", backend)
+            summary_parts.append(f"Sub-iteration {j}: unverified self-review")
             break
 
         findings = sr_data.get("findings", [])
