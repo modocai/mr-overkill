@@ -88,7 +88,10 @@ def main() -> None:
             review_argv = [
                 "-t", config.target_branch,
                 "-n", str(extra.review_loops),
-                "--reviewer-backend", config.reviewer_backend,
+                "--reviewer", config.reviewer_backend,
+                "--fixer-backend", config.fixer_backend,
+                "--self-reviewer-backend",
+                config.self_reviewer_backend or config.fixer_backend,
             ]
             if config.skip_budget_gate:
                 review_argv.append("--no-budget-gate")

@@ -30,6 +30,7 @@ from mr_overkill.models import (
     BudgetStatus,
     FinalStatus,
     LoopConfig,
+    parse_reviewer_backends,
 )
 
 logger = logging.getLogger(__name__)
@@ -310,12 +311,13 @@ def run(config: LoopConfig, scope: str, *, create_pr: bool = False) -> int:
     if scope == "auto":
         if config.dry_run:
             # dry-run: only check the reviewer backend (fixer won't run)
-            tools = [config.reviewer_backend]
+            tools = parse_reviewer_backends(config.reviewer_backend)
         else:
-            # Fixer always uses Claude; add other backend only when it is the reviewer
-            tools = ["claude"]
-            if config.reviewer_backend in ("codex", "gemini"):
-                tools.append(config.reviewer_backend)
+            tools = list(dict.fromkeys([
+                config.fixer_backend, *parse_reviewer_backends(config.reviewer_backend),
+                *([config.self_reviewer_backend or config.fixer_backend]
+                  if config.max_subloop > 0 else []),
+            ]))
         resolved = resolve_auto_scope(
             tools=tools, skip_gate=config.skip_budget_gate,
         )

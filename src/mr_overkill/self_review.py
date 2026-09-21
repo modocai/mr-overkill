@@ -1,4 +1,4 @@
-"""Self-review sub-loop for verifying and re-fixing Claude's changes.
+"""Self-review sub-loop for verifying and re-fixing changes.
 
 Implements the :class:`SelfReviewFn` Protocol from ``loop_engine``.
 """
@@ -9,6 +9,7 @@ import json
 import logging
 import string
 import subprocess
+from contextlib import nullcontext
 from pathlib import Path
 
 from mr_overkill import workspace_policy
@@ -24,6 +25,8 @@ from mr_overkill.models import (
     RetryFn,
     WorktreeSnapshot,
 )
+from mr_overkill.review_evidence import google_review_evidence
+from mr_overkill.two_step_fix import backend_command
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +60,10 @@ def self_review_subloop(
     dry_run: bool = False,
     fix_nits: bool = False,
     scope_note: str = "",
+    scope_diff_file: Path | None = None,
     original_review_json: dict[str, object] | None = None,
     cwd: Path | None = None,
+    backend: str = "claude",
 ) -> str:
     """Run self-review sub-loop: review fixes then re-fix if needed.
 
@@ -87,6 +92,9 @@ def self_review_subloop(
     scope_note
         Extra calibration appended to the guidelines, for runs where the diff
         is not purely the fixer's work.
+    scope_diff_file
+        Immutable original WIP snapshot referenced by scope_note. Google
+        reviewers receive a readable copy alongside the current fix diff.
     original_review_json
         Parsed original review dict (for refactoring_plan injection).
     cwd
@@ -120,16 +128,16 @@ def self_review_subloop(
             break
 
         logger.info(
-            "Running Claude self-review (sub-iteration %d/%d)...",
-            j,
+            "Running %s self-review (sub-iteration %d/%d)...",
+            backend, j,
             max_subloop,
         )
 
         sr_file = log_dir / f"self-review-{iteration}-{j}.json"
 
         # Pre-flight budget check
-        if not budget_fn("claude", budget_scope, 0):
-            logger.warning("Claude budget timeout before self-review.")
+        if not budget_fn(backend, budget_scope, 0):
+            logger.warning("%s budget timeout before self-review.", backend)
             break
 
         # Run self-review
@@ -153,17 +161,25 @@ def self_review_subloop(
         tmpl = string.Template(
             sr_prompt_file.read_text(encoding="utf-8")
         )
-        prompt_text = tmpl.safe_substitute(prompt_vars)
-
-        ok = retry_fn(
-            sr_file,
-            "self-review",
-            [
-                "claude", "-p", "-",
-                "--allowedTools", "Read,Glob,Grep",
-            ],
-            stdin=prompt_text,
+        evidence_context = (
+            google_review_evidence(backend, diff_file.read_text(encoding="utf-8"))
+            if backend in {"gemini", "agy"}
+            else nullcontext((diff_file, backend_command(backend)))
         )
+        with evidence_context as (readable, command):
+            prompt_vars["DIFF_FILE"] = str(readable)
+            if backend in {"gemini", "agy"} and scope_diff_file is not None:
+                baseline = readable.parent / "wip-original.diff"
+                baseline.write_bytes(scope_diff_file.read_bytes())
+                prompt_vars["EXTRA_REVIEW_GUIDELINES"] = extra_guidelines.replace(
+                    f"`{scope_diff_file}`", f"`{baseline}`",
+                )
+            ok = retry_fn(
+                sr_file,
+                "self-review",
+                command,
+                stdin=tmpl.safe_substitute(prompt_vars),
+            )
         if not ok:
             logger.warning(
                 "Self-review failed (sub-iteration %d). "
@@ -184,6 +200,15 @@ def self_review_subloop(
         sr_data, _rc = parse_review_json(sr_file, "self-review")
         if sr_data is None:
             summary_parts.append(f"Sub-iteration {j}: parse error")
+            break
+
+        if (
+            backend in {"gemini", "agy"}
+            and sr_data.get("findings") == []
+            and sr_data.get("overall_confidence_score") == 0
+        ):
+            logger.warning("%s returned an unverified self-review.", backend)
+            summary_parts.append(f"Sub-iteration {j}: unverified self-review")
             break
 
         findings = sr_data.get("findings", [])

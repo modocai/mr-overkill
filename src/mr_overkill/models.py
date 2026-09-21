@@ -19,6 +19,17 @@ class BudgetTimeoutError(Exception):
     """Raised when a tool budget wait times out."""
 
 
+def parse_reviewer_backends(value: str) -> list[str]:
+    """Validate reviewer names and deduplicate in user-specified order."""
+    backends = [part.strip() for part in value.split(",")]
+    if any(name not in {"claude", "codex", "gemini", "agy"} for name in backends):
+        raise ValueError(
+            "REVIEWER_BACKEND must be a comma-separated list of "
+            f"'claude', 'codex', 'gemini', or 'agy', got {value!r}"
+        )
+    return list(dict.fromkeys(backends))
+
+
 # ── Enums ────────────────────────────────────────────────────────────
 
 
@@ -56,6 +67,8 @@ class FinalStatus(_StrEnum):
     CODEX_BUDGET_TIMEOUT = "codex_budget_timeout"
     CLAUDE_ERROR = "claude_error"
     CLAUDE_BUDGET_TIMEOUT = "claude_budget_timeout"
+    AGY_ERROR = "agy_error"
+    AGY_BUDGET_TIMEOUT = "agy_budget_timeout"
     GEMINI_ERROR = "gemini_error"
     GEMINI_BUDGET_TIMEOUT = "gemini_budget_timeout"
     PARSE_ERROR = "parse_error"
@@ -189,7 +202,10 @@ class LoopConfig:
     pr_number: str | None = None
 
     # Reviewer backend
-    reviewer_backend: str = "codex"  # "codex" | "claude" | "gemini"
+    reviewer_backend: str = "codex"  # Comma-separated reviewer backends
+
+    fixer_backend: str = "claude"
+    self_reviewer_backend: str | None = None  # None follows fixer_backend
 
     # Additional context for the reviewer
     reviewer_context: str = ""

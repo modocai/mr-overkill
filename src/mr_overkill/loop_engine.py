@@ -40,11 +40,13 @@ _BUDGET_TIMEOUT_STATUS: dict[str, FinalStatus] = {
     "claude": FinalStatus.CLAUDE_BUDGET_TIMEOUT,
     "codex": FinalStatus.CODEX_BUDGET_TIMEOUT,
     "gemini": FinalStatus.GEMINI_BUDGET_TIMEOUT,
+    "agy": FinalStatus.AGY_BUDGET_TIMEOUT,
 }
 _ERROR_STATUS: dict[str, FinalStatus] = {
     "claude": FinalStatus.CLAUDE_ERROR,
     "codex": FinalStatus.CODEX_ERROR,
     "gemini": FinalStatus.GEMINI_ERROR,
+    "agy": FinalStatus.AGY_ERROR,
 }
 
 
@@ -378,7 +380,7 @@ def review_fix_loop(
                         "No diff after fix — previous iteration had findings but "
                         "fixer produced no code changes.",
                     )
-                    final_status = FinalStatus.CLAUDE_ERROR
+                    final_status = _ERROR_STATUS[config.fixer_backend]
                 break
             elif had_findings:
                 logger.warning(
@@ -446,13 +448,13 @@ def review_fix_loop(
                 logger.error("Budget timeout during review (iteration %d).", i)
                 final_status = _BUDGET_TIMEOUT_STATUS.get(
                     config.reviewer_backend,
-                    FinalStatus.CODEX_BUDGET_TIMEOUT,
+                    FinalStatus.REVIEW_FAILED,
                 )
                 break
             if not review_ok:
                 final_status = _ERROR_STATUS.get(
                     config.reviewer_backend,
-                    FinalStatus.CODEX_ERROR,
+                    FinalStatus.REVIEW_FAILED,
                 )
                 break
 
@@ -532,7 +534,7 @@ def review_fix_loop(
                 logger.exception("Fixer raised an unexpected exception.")
                 fix_ok = False
             if not fix_ok:
-                final_status = FinalStatus.CLAUDE_ERROR
+                final_status = _ERROR_STATUS[config.fixer_backend]
                 break
 
             # i. Self-review sub-loop
@@ -752,6 +754,10 @@ def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
         (log_dir / "wip-scaffold.txt").unlink(missing_ok=True)
     (log_dir / "max-loop.txt").write_text(str(config.max_loop))
     (log_dir / "reviewer-backend.txt").write_text(config.reviewer_backend)
+    (log_dir / "fixer-backend.txt").write_text(config.fixer_backend)
+    (log_dir / "self-reviewer-backend.txt").write_text(
+        config.self_reviewer_backend or ""
+    )
     (log_dir / "reviewer-context.txt").write_text(config.reviewer_context)
     (log_dir / "ci-trigger-mode.txt").write_text(config.ci_trigger_mode)
     if config.scope:
