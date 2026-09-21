@@ -308,14 +308,24 @@ def test_cancel_stops_running_cli_and_retry_sleep(
     assert time.monotonic() - start < 5
 
 
-def test_parallel_cli_stdin_survives_communication_polling(tmp_path: Path) -> None:
+@pytest.mark.parametrize("size", [14, 200_000])
+def test_parallel_cli_stdin_survives_communication_polling(
+    tmp_path: Path, size: int,
+) -> None:
     code = "import sys,time; time.sleep(.4); print(sys.stdin.read(), file=sys.stderr)"
-    with review_cancellation(threading.Event()):
-        assert retry_codex_cmd(
-            tmp_path / "cli.stderr", "test", [sys.executable, "-c", code],
-            stdin="prompt content",
-        )
-    assert (tmp_path / "cli.stderr").read_text().strip() == "prompt content"
+    cancel = threading.Event()
+    timer = threading.Timer(5, cancel.set)
+    timer.start()  # Bound regressions where the child waits forever for stdin EOF.
+    try:
+        with review_cancellation(cancel):
+            assert retry_codex_cmd(
+                tmp_path / "cli.stderr", "test", [sys.executable, "-c", code],
+                stdin="x" * size,
+            )
+    finally:
+        timer.cancel()
+        timer.join()
+    assert (tmp_path / "cli.stderr").read_text().strip() == "x" * size
 
 
 @pytest.mark.parametrize("name", [
@@ -334,6 +344,28 @@ def test_gemini_reviewer_prompts_forbid_edits(name: str) -> None:
 def test_group_signal_denied_falls_back_to_direct_child(tmp_path: Path) -> None:
     with patch("mr_overkill.retry.os.killpg", side_effect=PermissionError):
         test_cancel_stops_running_cli_and_retry_sleep(tmp_path, False)
+
+
+def test_signal_denial_preserves_cancellation_and_reaps_child(tmp_path: Path) -> None:
+    cancel = threading.Event()
+    timer = threading.Timer(0.1, cancel.set)
+    timer.start()
+    try:
+        with (
+            patch("mr_overkill.retry.os.killpg",
+                  side_effect=PermissionError, create=True),
+            patch("mr_overkill.retry.subprocess.Popen.kill",
+                  side_effect=PermissionError),
+            review_cancellation(cancel),
+            pytest.raises(CancelledError),
+        ):
+            retry_codex_cmd(
+                tmp_path / "cli.stderr", "test",
+                [sys.executable, "-c", "import time; time.sleep(.4)"],
+            )
+    finally:
+        timer.cancel()
+        timer.join()
 
 
 @pytest.mark.parametrize("score,expected", [(0.9, 0.8), (None, 0.0), (2, 0.0)])

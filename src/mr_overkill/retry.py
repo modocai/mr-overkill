@@ -10,7 +10,7 @@ import signal
 import subprocess
 import time
 from collections.abc import Callable, Iterator
-from concurrent.futures import CancelledError
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from pathlib import Path
@@ -67,28 +67,37 @@ def _run_command(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[s
     kwargs.pop("check", None)
     if stdin is not None:
         kwargs["stdin"] = subprocess.PIPE
-    # A reviewer can spawn tools of its own; stop the entire process group.
-    with subprocess.Popen(cmd, start_new_session=True, **kwargs) as process:
+    # One communicate call owns stdin delivery while the reviewer polls for
+    # cancellation. Repeated timed communicate calls can truncate large inputs.
+    with (
+        subprocess.Popen(cmd, start_new_session=True, **kwargs) as process,
+        ThreadPoolExecutor(max_workers=1) as io_pool,
+    ):
+        communication = io_pool.submit(process.communicate, input=stdin)
         try:
             while True:
                 _check_cancelled()
                 try:
-                    stdout, stderr = process.communicate(input=stdin, timeout=0.2)
+                    stdout, stderr = communication.result(timeout=0.2)
                     return subprocess.CompletedProcess(
                         cmd, process.returncode, stdout, stderr,
                     )
-                except subprocess.TimeoutExpired:
-                    stdin = None  # communicate retains any buffered input.
+                except TimeoutError:
+                    continue
         except BaseException:
             with suppress(ProcessLookupError):
-                if os.name == "posix":
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except PermissionError:
-                        # Some sandboxes allow signalling the direct child only.
+                try:
+                    if os.name == "posix":
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except PermissionError:
+                            process.kill()
+                    else:
                         process.kill()
-                else:
-                    process.kill()
+                except PermissionError:
+                    # Preserve the original exception. If the OS denies both
+                    # signals, wait rather than abandon a running child.
+                    logger.warning("Cannot terminate reviewer; waiting for it to exit.")
             process.wait()
             raise
 
