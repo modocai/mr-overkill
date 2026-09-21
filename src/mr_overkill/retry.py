@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
+import signal
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from concurrent.futures import CancelledError, ThreadPoolExecutor
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from pathlib import Path
+from threading import Event
+from typing import Any
 
 from mr_overkill.classify import classify_cli_error
 from mr_overkill.models import BudgetCheckFn, BudgetScope, ErrorClass
@@ -23,6 +30,76 @@ DEFAULT_INITIAL_WAIT = 30
 MAX_SINGLE_SLEEP = 300
 BUDGET_POLL_INITIAL = 600
 BUDGET_POLL_MAX = 1200
+
+_review_cancel: ContextVar[Event | None] = ContextVar("review_cancel", default=None)
+
+
+@contextmanager
+def review_cancellation(event: Event) -> Iterator[None]:
+    """Bind cooperative cancellation to one parallel reviewer thread."""
+    token = _review_cancel.set(event)
+    try:
+        yield
+    finally:
+        _review_cancel.reset(token)
+
+
+def _check_cancelled() -> None:
+    event = _review_cancel.get()
+    if event is not None and event.is_set():
+        raise CancelledError("Review cancelled")
+
+
+def _sleep(seconds: float, sleep_fn: SleepFn) -> None:
+    event = _review_cancel.get()
+    if event is None:
+        sleep_fn(seconds)
+    elif event.wait(seconds):
+        raise CancelledError("Review cancelled")
+
+
+def _run_command(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    """Keep the ordinary run path; poll parallel CLI processes for cancellation."""
+    if _review_cancel.get() is None:
+        return subprocess.run(cmd, **kwargs)
+    _check_cancelled()
+    stdin = kwargs.pop("input", None)
+    kwargs.pop("check", None)
+    if stdin is not None:
+        kwargs["stdin"] = subprocess.PIPE
+    # One communicate call owns stdin delivery while the reviewer polls for
+    # cancellation. Repeated timed communicate calls can truncate large inputs.
+    with (
+        subprocess.Popen(cmd, start_new_session=True, **kwargs) as process,
+        ThreadPoolExecutor(max_workers=1) as io_pool,
+    ):
+        communication = io_pool.submit(process.communicate, input=stdin)
+        try:
+            while True:
+                _check_cancelled()
+                try:
+                    stdout, stderr = communication.result(timeout=0.2)
+                    return subprocess.CompletedProcess(
+                        cmd, process.returncode, stdout, stderr,
+                    )
+                except TimeoutError:
+                    continue
+        except BaseException:
+            with suppress(ProcessLookupError):
+                try:
+                    if os.name == "posix":
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except PermissionError:
+                            process.kill()
+                    else:
+                        process.kill()
+                except PermissionError:
+                    # Preserve the original exception. If the OS denies both
+                    # signals, wait rather than abandon a running child.
+                    logger.warning("Cannot terminate reviewer; waiting for it to exit.")
+            process.wait()
+            raise
 
 
 def extract_result_from_stream(stream_path: Path) -> str:
@@ -66,6 +143,7 @@ def wait_for_budget(
     Returns True if budget is OK, False on timeout.
     """
 
+    _check_cancelled()
     if budget_check_fn(tool, scope, 0):
         return True
 
@@ -86,7 +164,7 @@ def wait_for_budget(
             elapsed,
             max_wait,
         )
-        _sleep_fn(sleep_time)
+        _sleep(sleep_time, _sleep_fn)
         elapsed += sleep_time
 
         if budget_check_fn(tool, scope, 0):
@@ -126,6 +204,7 @@ def retry_claude_cmd(
     stream_file = output_path.with_suffix(".stream.jsonl") if diagnostic_log else None
 
     while True:
+        _check_cancelled()
         rc = _run_claude_once(
             cmd_args, stdin, output_path, stream_file, diagnostic_log, label
         )
@@ -175,7 +254,7 @@ def retry_claude_cmd(
             attempt,
             sleep_time,
         )
-        _sleep_fn(sleep_time)
+        _sleep(sleep_time, _sleep_fn)
         elapsed += sleep_time
         wait *= 2
 
@@ -196,7 +275,7 @@ def _run_claude_once(
                 stream_file.open("w", encoding="utf-8") as sf,
                 stderr_path.open("w", encoding="utf-8") as ef,
             ):
-                result = subprocess.run(
+                result = _run_command(
                     [*cmd_args, "--output-format", "stream-json"],
                     input=stdin,
                     stdout=sf,
@@ -214,7 +293,7 @@ def _run_claude_once(
                     )
         else:
             with output_path.open("w", encoding="utf-8") as of:
-                result = subprocess.run(
+                result = _run_command(
                     cmd_args,
                     input=stdin,
                     stdout=of,
@@ -250,6 +329,7 @@ def retry_gemini_cmd(
     attempt = 1
 
     while True:
+        _check_cancelled()
         rc = _run_gemini_once(cmd_args, stdin, output_path, label)
 
         if rc == 0:
@@ -288,7 +368,7 @@ def retry_gemini_cmd(
             attempt,
             sleep_time,
         )
-        _sleep_fn(sleep_time)
+        _sleep(sleep_time, _sleep_fn)
         elapsed += sleep_time
         wait *= 2
 
@@ -306,7 +386,7 @@ def _run_gemini_once(
             output_path.open("w", encoding="utf-8") as of,
             stderr_path.open("w", encoding="utf-8") as ef,
         ):
-            result = subprocess.run(
+            result = _run_command(
                 cmd_args,
                 input=stdin,
                 stdout=of,
@@ -344,9 +424,10 @@ def retry_codex_cmd(
     attempt = 1
 
     while True:
+        _check_cancelled()
         with stderr_path.open("w", encoding="utf-8") as ef:
             try:
-                result = subprocess.run(
+                result = _run_command(
                     cmd_args,
                     stdin=subprocess.DEVNULL if stdin is None else None,
                     input=stdin,
@@ -395,6 +476,6 @@ def retry_codex_cmd(
             attempt,
             sleep_time,
         )
-        _sleep_fn(sleep_time)
+        _sleep(sleep_time, _sleep_fn)
         elapsed += sleep_time
         wait *= 2

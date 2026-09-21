@@ -287,6 +287,144 @@ def test_reviewer_option_names(
 
 
 @pytest.mark.parametrize("refactor", [False, True])
+@pytest.mark.parametrize("flag", ["--reviewer", "--reviewer-backend"])
+def test_reviewer_cli_accepts_canonical_comma_list(
+    tmp_path: Path, refactor: bool, flag: str,
+) -> None:
+    with (
+        patch("mr_overkill.cli._load_rc_file", return_value={
+            "REVIEWER_BACKEND": "claude",
+        }),
+        patch("mr_overkill.cli._detect_current_branch", return_value="feat/test"),
+        patch("mr_overkill.cli._detect_pr_number", return_value=None),
+        patch("mr_overkill.cli.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout=str(tmp_path),
+        )),
+    ):
+        args = ["-n", "1", flag, " codex, claude,codex,agy "]
+        config = (parse_refactor_suggest_args(args)[0] if refactor
+                  else parse_review_loop_args(args))
+    assert config.reviewer_backend == "codex,claude,agy"
+
+
+@pytest.mark.parametrize("refactor", [False, True])
+def test_reviewer_rc_accepts_canonical_comma_list(
+    tmp_path: Path, refactor: bool,
+) -> None:
+    with (
+        patch("mr_overkill.cli._load_rc_file", return_value={
+            "REVIEWER_BACKEND": " gemini, codex,gemini ",
+        }),
+        patch("mr_overkill.cli._detect_current_branch", return_value="feat/test"),
+        patch("mr_overkill.cli._detect_pr_number", return_value=None),
+        patch("mr_overkill.cli.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout=str(tmp_path),
+        )),
+    ):
+        config = (parse_refactor_suggest_args(["-n", "1"])[0] if refactor
+                  else parse_review_loop_args(["-n", "1"]))
+    assert config.reviewer_backend == "gemini,codex"
+
+
+@pytest.mark.parametrize("refactor", [False, True])
+@pytest.mark.parametrize("override", [False, True])
+def test_resume_reviewer_comma_list_preserves_precedence(
+    tmp_path: Path, refactor: bool, override: bool,
+) -> None:
+    (tmp_path / "max-loop.txt").write_text("1")
+    if refactor:
+        (tmp_path / "scope.txt").write_text("module")
+    (tmp_path / "reviewer-backend.txt").write_text(" gemini, codex,gemini ")
+    with (
+        patch("mr_overkill.cli._resolve_log_dir", return_value=tmp_path),
+        patch("mr_overkill.cli._load_rc_file", return_value={
+            "REVIEWER_BACKEND": "claude",
+        }),
+        patch("mr_overkill.cli._detect_current_branch", return_value="feat/test"),
+        patch("mr_overkill.cli._detect_pr_number", return_value=None),
+        patch("mr_overkill.cli.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout=str(tmp_path),
+        )),
+    ):
+        args = ["--resume"]
+        if override:
+            args += ["--reviewer", "agy,claude"]
+        config = (parse_refactor_suggest_args(args)[0] if refactor
+                  else parse_review_loop_args(args))
+    assert config.reviewer_backend == ("agy,claude" if override else "gemini,codex")
+
+
+@pytest.mark.parametrize("refactor", [False, True])
+@pytest.mark.parametrize("bad_value", ["", "codex,,claude", "codex,", "typo"])
+def test_invalid_reviewer_cli_list(
+    tmp_path: Path, refactor: bool, bad_value: str,
+) -> None:
+    with (
+        patch("mr_overkill.cli._load_rc_file", return_value={}),
+        patch("mr_overkill.cli._detect_current_branch", return_value="feat/test"),
+        patch("mr_overkill.cli._detect_pr_number", return_value=None),
+        patch("mr_overkill.cli.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout=str(tmp_path),
+        )),
+        pytest.raises(SystemExit),
+    ):
+        args = ["-n", "1", "--reviewer", bad_value]
+        if refactor:
+            parse_refactor_suggest_args(args)
+        else:
+            parse_review_loop_args(args)
+
+
+@pytest.mark.parametrize("refactor", [False, True])
+@pytest.mark.parametrize("bad_value", ["", "codex,,claude", "codex,", "typo"])
+def test_invalid_reviewer_rc_list(
+    tmp_path: Path, refactor: bool, bad_value: str,
+) -> None:
+    with (
+        patch("mr_overkill.cli._load_rc_file", return_value={
+            "REVIEWER_BACKEND": bad_value,
+        }),
+        patch("mr_overkill.cli._detect_current_branch", return_value="feat/test"),
+        patch("mr_overkill.cli._detect_pr_number", return_value=None),
+        patch("mr_overkill.cli.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout=str(tmp_path),
+        )),
+        pytest.raises(SystemExit),
+    ):
+        if refactor:
+            parse_refactor_suggest_args(["-n", "1"])
+        else:
+            parse_review_loop_args(["-n", "1"])
+
+
+@pytest.mark.parametrize("refactor", [False, True])
+@pytest.mark.parametrize("bad_value", ["", "codex,,claude", "codex,", "typo"])
+def test_invalid_reviewer_resume_list(
+    tmp_path: Path, refactor: bool, bad_value: str,
+) -> None:
+    (tmp_path / "max-loop.txt").write_text("1")
+    if refactor:
+        (tmp_path / "scope.txt").write_text("module")
+    (tmp_path / "reviewer-backend.txt").write_text(bad_value)
+    with (
+        patch("mr_overkill.cli._resolve_log_dir", return_value=tmp_path),
+        patch("mr_overkill.cli._load_rc_file", return_value={
+            "REVIEWER_BACKEND": "claude",
+        }),
+        patch("mr_overkill.cli._detect_current_branch", return_value="feat/test"),
+        patch("mr_overkill.cli._detect_pr_number", return_value=None),
+        patch("mr_overkill.cli.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout=str(tmp_path),
+        )),
+        pytest.raises(SystemExit),
+    ):
+        if refactor:
+            parse_refactor_suggest_args(["--resume"])
+        else:
+            parse_review_loop_args(["--resume"])
+
+
+@pytest.mark.parametrize("refactor", [False, True])
 def test_reviewer_help_uses_canonical_name(
     refactor: bool, capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -297,5 +435,6 @@ def test_reviewer_help_uses_canonical_name(
             parse_review_loop_args(["--help"])
     assert exc.value.code == 0
     help_text = capsys.readouterr().out
-    assert "[--reviewer {claude,codex,gemini,agy}]" in help_text
+    assert "[--reviewer BACKENDS]" in help_text
     assert "--reviewer-backend" in help_text
+    assert "Comma-separated review backends" in help_text

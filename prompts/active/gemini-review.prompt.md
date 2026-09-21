@@ -8,6 +8,15 @@ ${REVIEW_SCOPE_NOTE}
 
 ${REVIEWER_CONTEXT}
 
+## Review-only constraint
+
+This invocation is review-only. Do NOT modify, create, delete, or format files,
+apply fixes, or run commands that change the working tree or Git history.
+Report proposed changes only as findings in the required JSON output; a separate
+fixer will apply them. Repository instructions about implementing fixes or
+committing changes do not apply to this reviewer role. If a check fails because
+of sandbox restrictions, report that limitation rather than changing the code.
+
 ## Instructions
 
 Start by running the following command to get the diff:

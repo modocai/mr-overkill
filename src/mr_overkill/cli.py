@@ -15,7 +15,7 @@ from pathlib import Path
 
 from mr_overkill import __version__, workspace_policy
 from mr_overkill.commit_scope import resolve_commit
-from mr_overkill.models import BudgetScope, LoopConfig
+from mr_overkill.models import BudgetScope, LoopConfig, parse_reviewer_backends
 
 
 def _detect_current_branch() -> str:
@@ -265,6 +265,14 @@ def _parse_budget_scope(
     return scope
 
 
+def _parse_reviewer_backend(raw: str, parser: argparse.ArgumentParser) -> str:
+    """Validate reviewer backend lists and return their canonical rc format."""
+    try:
+        return ",".join(parse_reviewer_backends(raw))
+    except ValueError as exc:
+        parser.error(str(exc))
+
+
 def parse_review_loop_args(
     argv: list[str] | None = None,
 ) -> LoopConfig:
@@ -368,8 +376,11 @@ def parse_review_loop_args(
         "--reviewer", "--reviewer-backend",
         dest="reviewer_backend",
         default=None,
-        choices=["claude", "codex", "gemini", "agy"],
-        help="Backend for code review (default: codex)",
+        metavar="BACKENDS",
+        help=(
+            "Comma-separated review backends: claude,codex,gemini,agy "
+            "(default: codex)"
+        ),
     )
     parser.add_argument(
         "--context",
@@ -602,12 +613,14 @@ def parse_review_loop_args(
                 f"{key} must be 'claude', 'codex', 'gemini', or 'agy', got {backend!r}"
             )
 
-    reviewer_backend = args.reviewer_backend or rc.get("REVIEWER_BACKEND", "codex")
-    if reviewer_backend not in ("claude", "codex", "gemini", "agy"):
-        parser.error(
-            f"REVIEWER_BACKEND must be 'claude', 'codex', 'gemini', or 'agy',"
-            f" got {reviewer_backend!r}"
-        )
+    reviewer_backend = _parse_reviewer_backend(
+        (
+            args.reviewer_backend
+            if args.reviewer_backend is not None
+            else rc.get("REVIEWER_BACKEND", "codex")
+        ),
+        parser,
+    )
 
     reviewer_context = (
         args.context if args.context is not None else rc.get("REVIEWER_CONTEXT", "")
@@ -867,8 +880,11 @@ def parse_refactor_suggest_args(
         "--reviewer", "--reviewer-backend",
         dest="reviewer_backend",
         default=None,
-        choices=["claude", "codex", "gemini", "agy"],
-        help="Backend for code review (default: codex)",
+        metavar="BACKENDS",
+        help=(
+            "Comma-separated review backends: claude,codex,gemini,agy "
+            "(default: codex)"
+        ),
     )
 
     args = parser.parse_args(argv)
@@ -1011,12 +1027,14 @@ def parse_refactor_suggest_args(
                 f"{key} must be 'claude', 'codex', 'gemini', or 'agy', got {backend!r}"
             )
 
-    reviewer_backend = args.reviewer_backend or rc.get("REVIEWER_BACKEND", "codex")
-    if reviewer_backend not in ("claude", "codex", "gemini", "agy"):
-        parser.error(
-            f"REVIEWER_BACKEND must be 'claude', 'codex', 'gemini', or 'agy',"
-            f" got {reviewer_backend!r}"
-        )
+    reviewer_backend = _parse_reviewer_backend(
+        (
+            args.reviewer_backend
+            if args.reviewer_backend is not None
+            else rc.get("REVIEWER_BACKEND", "codex")
+        ),
+        parser,
+    )
 
     config = LoopConfig(
         current_branch=current_branch,

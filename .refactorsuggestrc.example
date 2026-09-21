@@ -56,6 +56,7 @@
 # DIAGNOSTIC_LOG=false
 
 # Role backends: claude, codex, gemini, or agy (Antigravity).
+# REVIEWER_BACKEND also accepts comma lists for parallel reviewers.
 # REVIEWER_BACKEND="codex"
 # FIXER_BACKEND="claude"
 # Self-review follows FIXER_BACKEND unless explicitly overridden.
