@@ -448,13 +448,13 @@ def review_fix_loop(
                 logger.error("Budget timeout during review (iteration %d).", i)
                 final_status = _BUDGET_TIMEOUT_STATUS.get(
                     config.reviewer_backend,
-                    FinalStatus.CODEX_BUDGET_TIMEOUT,
+                    FinalStatus.REVIEW_FAILED,
                 )
                 break
             if not review_ok:
                 final_status = _ERROR_STATUS.get(
                     config.reviewer_backend,
-                    FinalStatus.CODEX_ERROR,
+                    FinalStatus.REVIEW_FAILED,
                 )
                 break
 

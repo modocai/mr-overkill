@@ -13,14 +13,18 @@ import logging
 import string
 import subprocess
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from importlib.resources import as_file, files
 from pathlib import Path
+from typing import Any
 
 from mr_overkill import commit_scope, wip_scope
 from mr_overkill.budget import SKIP_BUDGET_ENV_VAR, budget_gate_disabled
 from mr_overkill.budget.claude import claude_budget_sufficient
 from mr_overkill.budget.codex import codex_budget_sufficient
 from mr_overkill.budget.gemini import gemini_budget_sufficient
+from mr_overkill.json_extract import normalize_paths, parse_review_json
 from mr_overkill.models import (
     BudgetCheckFn,
     BudgetScope,
@@ -28,6 +32,7 @@ from mr_overkill.models import (
     LoopConfig,
     RetryFn,
     WorktreeSnapshot,
+    parse_reviewer_backends,
 )
 from mr_overkill.retry import (
     retry_claude_cmd,
@@ -445,6 +450,126 @@ class SelfReviewAgent(ABC):
 # ── Concrete implementations ────────────────────────────────────────
 
 
+class ParallelReviewAgent(ReviewAgent):
+    """Run isolated reviewer calls, then publish one complete combined review."""
+
+    def __init__(self, config: LoopConfig, scope: str | None = None) -> None:
+        self._config = config
+        self._scope = scope
+
+    def __call__(self, output_path: Path, iteration: int) -> bool:
+        # Never let a previous attempt's aggregate or child output masquerade
+        # as this attempt's result. All futures finish before the fixer can run.
+        output_path.unlink(missing_ok=True)
+        jobs = []
+        for backend in parse_reviewer_backends(self._config.reviewer_backend):
+            log_dir = self._config.log_dir / "reviewers" / backend
+            log_dir.mkdir(parents=True, exist_ok=True)
+            child_output = log_dir / output_path.name
+            child_output.unlink(missing_ok=True)
+            config = replace(self._config, reviewer_backend=backend, log_dir=log_dir)
+            jobs.append((
+                backend, create_review_agent(config, scope=self._scope), child_output,
+            ))
+
+        results: list[tuple[str, dict[str, Any]]] = []
+        failed = False
+        logger.info("Running reviewers in parallel: %s", ", ".join(
+            backend for backend, _, _ in jobs
+        ))
+        with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+            futures = [pool.submit(agent, path, iteration) for _, agent, path in jobs]
+            for (backend, _, path), future in zip(jobs, futures, strict=True):
+                try:
+                    if not future.result():
+                        logger.error("Reviewer %s failed; see %s", backend, path)
+                        failed = True
+                        continue
+                    data, _ = parse_review_json(path, f"{backend} review")
+                    if not _valid_parallel_review(data):
+                        logger.error("Invalid review from %s; see %s", backend, path)
+                        failed = True
+                        continue
+                    assert data is not None
+                    results.append((backend, normalize_paths(data, str(Path.cwd()))))
+                except Exception:
+                    logger.exception("Reviewer %s failed", backend)
+                    failed = True
+        if failed:
+            return False
+        output_path.write_text(json.dumps(_combine_reviews(results)), encoding="utf-8")
+        return True
+
+
+def _valid_parallel_review(data: dict[str, Any] | None) -> bool:
+    if data is None or not isinstance(data.get("findings"), list):
+        return False
+    if not all(isinstance(finding, dict) for finding in data["findings"]):
+        return False
+    if data.get("overall_correctness") not in (
+        "patch is correct", "patch is incorrect", "code is clean", "needs refactoring",
+    ):
+        return False
+    plan = data.get("refactoring_plan")
+    return plan is None or (
+        isinstance(plan, dict) and isinstance(plan.get("steps"), list)
+        and all(isinstance(step, dict) for step in plan["steps"])
+    )
+
+
+def _combine_reviews(results: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:
+    """Keep every distinct finding; deduplicate only identical normalised objects."""
+    findings: dict[str, dict[str, Any]] = {}
+    sources: dict[str, list[str]] = {}
+    plans = []
+    for backend, data in results:
+        for finding in data["findings"]:
+            key = json.dumps(finding, sort_keys=True)
+            findings.setdefault(key, dict(finding))
+            sources.setdefault(key, []).append(backend)
+        if data.get("refactoring_plan") is not None:
+            plans.append((backend, data["refactoring_plan"]))
+    for key, finding in findings.items():
+        finding["body"] = (
+            f"Reviewers: {', '.join(sources[key])}\n\n{finding.get('body', '')}"
+        )
+    clear = not findings and all(
+        data["overall_correctness"] in {"patch is correct", "code is clean"}
+        for _, data in results
+    )
+    combined: dict[str, Any] = {
+        "findings": list(findings.values()),
+        "overall_correctness": (
+            ("code is clean" if clear else "needs refactoring") if plans else
+            ("patch is correct" if clear else "patch is incorrect")
+        ),
+        "overall_explanation": "\n".join(
+            f"{backend}: {data['overall_correctness']}. "
+            f"{data.get('overall_explanation', '')}" for backend, data in results
+        ),
+    }
+    if plans:
+        steps: list[dict[str, Any]] = []
+        for backend, plan in plans:
+            for step in plan["steps"]:
+                steps.append({
+                    **step, "order": len(steps) + 1,
+                    "description": f"[{backend}] {step.get('description', '')}",
+                })
+        combined["refactoring_plan"] = {
+            "scope": plans[0][1].get("scope"),
+            "summary": "\n".join(
+                f"{backend}: {plan.get('summary', '')}" for backend, plan in plans
+            ),
+            "steps": steps,
+            "estimated_blast_radius": "; ".join(
+                f"{backend}: {plan.get('estimated_blast_radius', 'unknown')}"
+                for backend, plan in plans
+            ),
+        }
+    return combined
+
+
 class CodexReviewAgent(ReviewAgent):
     """Codex-based reviewer for the standard review-loop."""
 
@@ -850,7 +975,12 @@ def create_review_agent(
         returns a refactor-specific reviewer; otherwise returns the
         standard review-loop reviewer.
     """
-    backend = config.reviewer_backend
+    backends = parse_reviewer_backends(config.reviewer_backend)
+    if len(backends) > 1:
+        return ParallelReviewAgent(config, scope)
+    backend = backends[0]
+    if backend != config.reviewer_backend:
+        config = replace(config, reviewer_backend=backend)
     if scope is not None:
         if backend == "claude":
             return ClaudeRefactorReviewAgent(config, scope)
