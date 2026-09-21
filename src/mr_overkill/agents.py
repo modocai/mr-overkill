@@ -1045,6 +1045,7 @@ class BackendSelfReviewAgent(SelfReviewAgent):
                 if config.wip and config.scope_diff_file is not None
                 else ""
             ),
+            scope_diff_file=config.scope_diff_file if config.wip else None,
             original_review_json=json.loads(review_json_str),
             backend=config.self_reviewer_backend or config.fixer_backend,
         )

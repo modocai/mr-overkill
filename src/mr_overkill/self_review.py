@@ -60,6 +60,7 @@ def self_review_subloop(
     dry_run: bool = False,
     fix_nits: bool = False,
     scope_note: str = "",
+    scope_diff_file: Path | None = None,
     original_review_json: dict[str, object] | None = None,
     cwd: Path | None = None,
     backend: str = "claude",
@@ -91,6 +92,9 @@ def self_review_subloop(
     scope_note
         Extra calibration appended to the guidelines, for runs where the diff
         is not purely the fixer's work.
+    scope_diff_file
+        Immutable original WIP snapshot referenced by scope_note. Google
+        reviewers receive a readable copy alongside the current fix diff.
     original_review_json
         Parsed original review dict (for refactoring_plan injection).
     cwd
@@ -164,6 +168,12 @@ def self_review_subloop(
         )
         with evidence_context as (readable, command):
             prompt_vars["DIFF_FILE"] = str(readable)
+            if backend in {"gemini", "agy"} and scope_diff_file is not None:
+                baseline = readable.parent / "wip-original.diff"
+                baseline.write_bytes(scope_diff_file.read_bytes())
+                prompt_vars["EXTRA_REVIEW_GUIDELINES"] = extra_guidelines.replace(
+                    f"`{scope_diff_file}`", f"`{baseline}`",
+                )
             ok = retry_fn(
                 sr_file,
                 "self-review",
