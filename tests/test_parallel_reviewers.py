@@ -1,7 +1,10 @@
 """Parallel review execution, deterministic aggregation, and fail-closed behavior."""
 
 import json
+import sys
 import threading
+import time
+from concurrent.futures import CancelledError, Future
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +13,7 @@ import pytest
 from mr_overkill.agents import ParallelReviewAgent, create_review_agent
 from mr_overkill.loop_engine import review_fix_loop
 from mr_overkill.models import (
+    BudgetScope,
     BudgetTimeoutError,
     FinalStatus,
     LoopConfig,
@@ -17,6 +21,11 @@ from mr_overkill.models import (
     parse_reviewer_backends,
 )
 from mr_overkill.refactor_suggest import run as run_refactor
+from mr_overkill.retry import (
+    retry_codex_cmd,
+    review_cancellation,
+    wait_for_budget,
+)
 
 
 def config_at(path: Path) -> LoopConfig:
@@ -241,3 +250,64 @@ def test_auto_scope_checks_all_reviewers(tmp_path: Path, dry_run: bool) -> None:
         ["gemini", "claude", "codex"] if dry_run else
         ["agy", "gemini", "claude", "codex"]
     )
+
+
+def test_keyboard_interrupt_cancels_budget_waits(tmp_path: Path) -> None:
+    started = threading.Event()
+    stopped = threading.Event()
+
+    def agent(path: Path, iteration: int) -> bool:
+        started.set()
+        try:
+            return wait_for_budget(
+                lambda *_: False, "codex", BudgetScope.MICRO,
+            )
+        finally:
+            stopped.set()
+
+    def interrupt(*args: object, **kwargs: object) -> None:
+        assert started.wait(2)
+        raise KeyboardInterrupt
+
+    start = time.monotonic()
+    with (
+        patch("mr_overkill.agents.create_review_agent", return_value=agent),
+        patch.object(Future, "result", side_effect=interrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        ParallelReviewAgent(config_at(tmp_path))(tmp_path / "review-1.json", 1)
+    assert stopped.is_set()
+    assert time.monotonic() - start < 5
+
+
+@pytest.mark.parametrize("backoff", [False, True])
+def test_cancel_stops_running_cli_and_retry_sleep(
+    tmp_path: Path, backoff: bool,
+) -> None:
+    cancel = threading.Event()
+    timer = threading.Timer(0.3, cancel.set)
+    timer.start()
+    start = time.monotonic()
+    code = (
+        "import sys; print('rate limit', file=sys.stderr); sys.exit(1)" if backoff else
+        "import time; time.sleep(30)"
+    )
+    try:
+        with review_cancellation(cancel), pytest.raises(CancelledError):
+            retry_codex_cmd(
+                tmp_path / "cli.stderr", "test", [sys.executable, "-c", code],
+            )
+    finally:
+        timer.cancel()
+        timer.join()
+    assert time.monotonic() - start < 5
+
+
+def test_parallel_cli_stdin_survives_communication_polling(tmp_path: Path) -> None:
+    code = "import sys,time; time.sleep(.4); print(sys.stdin.read(), file=sys.stderr)"
+    with review_cancellation(threading.Event()):
+        assert retry_codex_cmd(
+            tmp_path / "cli.stderr", "test", [sys.executable, "-c", code],
+            stdin="prompt content",
+        )
+    assert (tmp_path / "cli.stderr").read_text().strip() == "prompt content"

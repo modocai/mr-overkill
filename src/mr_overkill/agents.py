@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from importlib.resources import as_file, files
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 from mr_overkill import commit_scope, wip_scope
@@ -38,6 +39,7 @@ from mr_overkill.retry import (
     retry_claude_cmd,
     retry_codex_cmd,
     retry_gemini_cmd,
+    review_cancellation,
     wait_for_budget,
 )
 from mr_overkill.self_review import self_review_subloop
@@ -477,24 +479,38 @@ class ParallelReviewAgent(ReviewAgent):
         logger.info("Running reviewers in parallel: %s", ", ".join(
             backend for backend, _, _ in jobs
         ))
+        cancel = Event()
+
+        def run(agent: ReviewAgent, path: Path) -> bool:
+            with review_cancellation(cancel):
+                return agent(path, iteration)
+
         with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
-            futures = [pool.submit(agent, path, iteration) for _, agent, path in jobs]
-            for (backend, _, path), future in zip(jobs, futures, strict=True):
-                try:
-                    if not future.result():
-                        logger.error("Reviewer %s failed; see %s", backend, path)
+            try:
+                futures = [pool.submit(run, agent, path) for _, agent, path in jobs]
+                for (backend, _, path), future in zip(jobs, futures, strict=True):
+                    try:
+                        if not future.result():
+                            logger.error("Reviewer %s failed; see %s", backend, path)
+                            failed = True
+                            continue
+                        data, _ = parse_review_json(path, f"{backend} review")
+                        if not _valid_parallel_review(data):
+                            logger.error(
+                                "Invalid review from %s; see %s", backend, path,
+                            )
+                            failed = True
+                            continue
+                        assert data is not None
+                        results.append((
+                            backend, normalize_paths(data, str(Path.cwd())),
+                        ))
+                    except Exception:
+                        logger.exception("Reviewer %s failed", backend)
                         failed = True
-                        continue
-                    data, _ = parse_review_json(path, f"{backend} review")
-                    if not _valid_parallel_review(data):
-                        logger.error("Invalid review from %s; see %s", backend, path)
-                        failed = True
-                        continue
-                    assert data is not None
-                    results.append((backend, normalize_paths(data, str(Path.cwd()))))
-                except Exception:
-                    logger.exception("Reviewer %s failed", backend)
-                    failed = True
+            except BaseException:
+                cancel.set()
+                raise
         if failed:
             return False
         output_path.write_text(json.dumps(_combine_reviews(results)), encoding="utf-8")
