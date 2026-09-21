@@ -101,3 +101,23 @@ def test_bundled_google_guidance_preserves_output_and_scope(scope: str) -> None:
         assert "${TARGET_BRANCH}...${CURRENT_BRANCH}" in text
     else:
         assert "${SOURCE_FILES_PATH}" in text
+
+
+def test_agy_large_diff_is_read_from_file_not_argv(tmp_path: Path) -> None:
+    config = config_for(tmp_path, reviewer_backend="agy")
+    diff = "+large diff evidence\n" * 160_000
+    output = tmp_path / "review.json"
+    output.write_text('{"findings": []}')
+    with (
+        patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout=diff,
+        )),
+        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as retry,
+    ):
+        assert GeminiReviewAgent(config)(output, 1)
+    command = retry.call_args.args[2]
+    assert len(command[-1]) < 10_000
+    evidence = output.with_suffix(".diff")
+    assert str(evidence.resolve()) in command[-1]
+    assert evidence.read_text() == diff
+    assert "+large diff evidence" not in command[-1]

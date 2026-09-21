@@ -297,6 +297,7 @@ def test_run_benchmark_with_fake_runner_archives_outputs(tmp_path: Path) -> None
     assert clean_output.is_file()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="live harness requires POSIX")
 def test_run_gemini_cli_timeout_kills_child_holding_pipes(tmp_path: Path) -> None:
     pidfile = tmp_path / "pipe-child.pid"
     script = tmp_path / "spawn_pipe_child.py"
@@ -328,6 +329,7 @@ def test_run_gemini_cli_timeout_kills_child_holding_pipes(tmp_path: Path) -> Non
     assert not process_exists(child_pid)
 
 
+@pytest.mark.skipif(os.name != "posix", reason="live harness requires POSIX")
 def test_run_gemini_cli_timeout_cleans_child_processes(tmp_path: Path) -> None:
     pidfile = tmp_path / "child.pid"
     script = tmp_path / "spawn_child.py"
@@ -369,6 +371,7 @@ def process_exists(pid: int) -> bool:
     return not proc.stdout.strip().startswith("Z")
 
 
+@pytest.mark.skipif(os.name != "posix", reason="live harness requires POSIX")
 def test_run_gemini_cli_trusts_only_child_process(
     monkeypatch: Any, tmp_path: Path
 ) -> None:
@@ -427,3 +430,21 @@ def test_snapshot_detects_directory_symlink(tmp_path: Path) -> None:
     after = bench.snapshot_repo(case.repo)
     assert bench.diff_snapshots(before, after)["changed"]
     assert after.files["linked-src"]["target"] == "src"
+
+
+def test_live_benchmark_rejects_windows_before_spawning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def unexpected_spawn(*args: Any, **kwargs: Any) -> None:
+        nonlocal called
+        called = True
+        raise AssertionError("Must fail before launching child processes")
+
+    monkeypatch.setattr(bench.subprocess, "Popen", unexpected_spawn)
+    with monkeypatch.context() as local:
+        local.setattr(bench.os, "name", "nt")
+        with pytest.raises(RuntimeError, match="POSIX process groups"):
+            bench.run_gemini_cli(["gemini"], "prompt", tmp_path, 1)
+    assert not called

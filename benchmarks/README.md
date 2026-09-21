@@ -52,3 +52,8 @@ clean reviews are vacuous. Small samples do not establish statistical superiorit
 Cost is unknown (`null`), not free. Raw prompts and outputs are kept in the output
 directory for manual audit. Global CLI session/cache writes are outside the
 fixture snapshot; this measurement is not a security sandbox.
+
+Live CLI runs require POSIX process groups (Linux, macOS, or WSL). Native Windows
+is rejected before spawning: terminating only the wrapper cannot reliably bound
+children holding output pipes. Unit-only fixture/scoring checks do not launch a
+provider. The harness kills the entire POSIX process group on timeout.

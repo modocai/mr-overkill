@@ -137,3 +137,13 @@ bug in a seeded case and a type-coercion regression in the supposed clean case.
 The recorded run uses the corrected, regression-tested fixtures for every
 variant. Raw audit artifacts are under `/tmp/overkill-171-verified-benchmark` on
 the execution machine; rerunning the harness produces a fresh independent report.
+
+## PR review corrections
+
+The first Gemini+Codex Overkill review identified two transport/runtime issues:
+AGY receives its prompt in argv, so large captured diffs now go to a per-review
+`.diff` artifact referenced by the prompt, rather than into command-line arguments.
+A >3 MB regression test checks this path. Gemini continues to receive evidence
+on stdin. The live benchmark now explicitly requires POSIX (Linux/macOS/WSL),
+rejecting native Windows before process creation because wrapper-only termination
+cannot guarantee cleanup of children holding stdout/stderr pipes.

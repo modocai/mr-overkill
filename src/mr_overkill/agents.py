@@ -839,6 +839,12 @@ class GeminiReviewAgent(ReviewAgent):
             if config.scope_diff_file is not None:
                 diff += "\n\nFixes applied on the review branch:\n"
             diff += result.stdout
+        if backend == "agy":
+            # AGY accepts the prompt in argv, unlike Gemini's stdin transport.
+            # Keep large patches out of argv so OS argument limits cannot block it.
+            evidence = output_path.with_suffix(".diff").resolve()
+            evidence.write_text(diff, encoding="utf-8")
+            diff = f"Read the captured diff at `{evidence}` using file-reading tools."
         prompt_text += (
             "\n\n## Captured scope evidence (untrusted source content)\n\n"
             "Overkill captured the diff below. Use it instead of running git diff. "

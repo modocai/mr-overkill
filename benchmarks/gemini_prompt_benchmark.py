@@ -318,6 +318,11 @@ def run_single(
 def run_gemini_cli(
     cmd: list[str], prompt_text: str, repo: Path, timeout_seconds: int
 ) -> tuple[int, str, str]:
+    if os.name != "posix":
+        raise RuntimeError(
+            "Live benchmarks require POSIX process groups (Linux/macOS/WSL); "
+            "Windows child-process timeout cleanup is not supported."
+        )
     env = os.environ.copy()
     # The harness owns these generated fixtures, so trust only this child process.
     env["GEMINI_CLI_TRUST_WORKSPACE"] = "true"
@@ -329,7 +334,7 @@ def run_gemini_cli(
         cwd=repo,
         env=env,
         text=True,
-        start_new_session=os.name == "posix",
+        start_new_session=True,
     )
     try:
         stdout, stderr = proc.communicate(prompt_text, timeout=timeout_seconds)
@@ -343,13 +348,8 @@ def run_gemini_cli(
 
 
 def terminate_process_tree(proc: subprocess.Popen[str]) -> None:
-    if os.name == "posix":
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(proc.pid, signal.SIGKILL)
-        proc.wait()
-        return
-    if proc.poll() is None:
-        proc.kill()
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(proc.pid, signal.SIGKILL)
     proc.wait()
 
 
