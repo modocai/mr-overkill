@@ -1,6 +1,7 @@
 """Parallel review execution, deterministic aggregation, and fail-closed behavior."""
 
 import json
+import os
 import sys
 import threading
 import time
@@ -10,7 +11,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mr_overkill.agents import ParallelReviewAgent, create_review_agent
+from mr_overkill.agents import (
+    ParallelReviewAgent,
+    _combine_reviews,
+    create_review_agent,
+)
 from mr_overkill.loop_engine import review_fix_loop
 from mr_overkill.models import (
     BudgetScope,
@@ -323,3 +328,49 @@ def test_gemini_reviewer_prompts_forbid_edits(name: str) -> None:
     text = prompt.read_text()
     assert "This invocation is review-only. Do NOT modify" in text
     assert "a separate\nfixer will apply them" in text
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups")
+def test_group_signal_denied_falls_back_to_direct_child(tmp_path: Path) -> None:
+    with patch("mr_overkill.retry.os.killpg", side_effect=PermissionError):
+        test_cancel_stops_running_cli_and_retry_sleep(tmp_path, False)
+
+
+@pytest.mark.parametrize("score,expected", [(0.9, 0.8), (None, 0.0), (2, 0.0)])
+def test_combined_confidence_uses_conservative_valid_score(
+    score: float | None, expected: float,
+) -> None:
+    combined = _combine_reviews([
+        ("gemini", {**review(), "overall_confidence_score": score}),
+        ("codex", {**review(), "overall_confidence_score": 0.8}),
+    ])
+    assert combined["overall_confidence_score"] == expected
+
+
+def test_deduplicate_absolute_paths_from_repo_subdirectory(
+    tmp_git_repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    subdir = tmp_git_repo / "src"
+    subdir.mkdir()
+    monkeypatch.chdir(subdir)
+    config = config_at(tmp_git_repo / "logs")
+    config.log_dir.mkdir()
+    config.reviewer_backend = "gemini,codex"
+
+    def factory(child: LoopConfig, **kw: object) -> MagicMock:
+        def run(path: Path, iteration: int) -> bool:
+            file_path = (str(tmp_git_repo / "src/a.py")
+                         if child.reviewer_backend == "gemini" else "src/a.py")
+            path.write_text(json.dumps(review([{
+                "title": "Bug", "body": "Fix",
+                "code_location": {"file_path": file_path},
+            }])))
+            return True
+        return MagicMock(side_effect=run)
+
+    output = config.log_dir / "review-1.json"
+    with patch("mr_overkill.agents.create_review_agent", side_effect=factory):
+        assert ParallelReviewAgent(config)(output, 1)
+    findings = json.loads(output.read_text())["findings"]
+    assert len(findings) == 1
+    assert findings[0]["code_location"]["file_path"] == "src/a.py"

@@ -82,7 +82,11 @@ def _run_command(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[s
         except BaseException:
             with suppress(ProcessLookupError):
                 if os.name == "posix":
-                    os.killpg(process.pid, signal.SIGKILL)
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except PermissionError:
+                        # Some sandboxes allow signalling the direct child only.
+                        process.kill()
                 else:
                     process.kill()
             process.wait()

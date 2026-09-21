@@ -502,9 +502,7 @@ class ParallelReviewAgent(ReviewAgent):
                             failed = True
                             continue
                         assert data is not None
-                        results.append((
-                            backend, normalize_paths(data, str(Path.cwd())),
-                        ))
+                        results.append((backend, data))
                     except Exception:
                         logger.exception("Reviewer %s failed", backend)
                         failed = True
@@ -513,6 +511,14 @@ class ParallelReviewAgent(ReviewAgent):
                 raise
         if failed:
             return False
+        root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=False,
+        )
+        repo_root = root.stdout.strip() if root.returncode == 0 else str(Path.cwd())
+        results = [
+            (backend, normalize_paths(data, repo_root)) for backend, data in results
+        ]
         output_path.write_text(json.dumps(_combine_reviews(results)), encoding="utf-8")
         return True
 
@@ -555,6 +561,12 @@ def _combine_reviews(results: list[tuple[str, dict[str, Any]]]) -> dict[str, Any
     )
     combined: dict[str, Any] = {
         "findings": list(findings.values()),
+        "overall_confidence_score": min(
+            float(score) if isinstance(score, (int, float))
+            and not isinstance(score, bool) and 0 <= score <= 1 else 0.0
+            for _, data in results
+            for score in [data.get("overall_confidence_score")]
+        ),
         "overall_correctness": (
             ("code is clean" if clear else "needs refactoring") if plans else
             ("patch is correct" if clear else "patch is incorrect")
