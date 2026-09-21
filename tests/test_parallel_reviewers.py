@@ -311,3 +311,15 @@ def test_parallel_cli_stdin_survives_communication_polling(tmp_path: Path) -> No
             stdin="prompt content",
         )
     assert (tmp_path / "cli.stderr").read_text().strip() == "prompt content"
+
+
+@pytest.mark.parametrize("name", [
+    "gemini-review.prompt.md",
+    *[f"gemini-refactor-{scope}.prompt.md"
+      for scope in ("micro", "module", "layer", "full")],
+])
+def test_gemini_reviewer_prompts_forbid_edits(name: str) -> None:
+    prompt = Path(__file__).parents[1] / "prompts" / "active" / name
+    text = prompt.read_text()
+    assert "This invocation is review-only. Do NOT modify" in text
+    assert "a separate\nfixer will apply them" in text
