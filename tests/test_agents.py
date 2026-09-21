@@ -498,6 +498,9 @@ class TestClaudeSelfReviewAgent:
             mock_subloop.assert_called_once()
             note = mock_subloop.call_args.kwargs["scope_note"]
             assert bool(note) is expected
+            assert mock_subloop.call_args.kwargs["scope_diff_file"] == (
+                config.scope_diff_file if expected else None
+            )
             if expected:
                 assert "uncommitted draft" in note
 
