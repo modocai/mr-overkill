@@ -1,4 +1,4 @@
-"""Retry-with-backoff wrappers for Claude/Codex CLI calls."""
+"""Retry-with-backoff wrappers for Claude/Codex/Gemini CLI calls."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from pathlib import Path
 from threading import Event
 from typing import Any
 
+from mr_overkill import gemini_trust
 from mr_overkill.classify import classify_cli_error
 from mr_overkill.models import BudgetCheckFn, BudgetScope, ErrorClass
 
@@ -339,6 +340,12 @@ def retry_gemini_cmd(
         error_class = classify_cli_error(stderr_path, rc)
 
         if error_class != ErrorClass.TRANSIENT:
+            if (
+                cmd_args[0] == "gemini"
+                and rc == gemini_trust.UNTRUSTED_EXIT_CODE
+            ):
+                logger.error("[%s] %s", label, gemini_trust.untrusted_hint())
+                return False
             logger.warning(
                 "[%s] Non-transient error (%s, exit=%d). Giving up.",
                 label,
@@ -381,6 +388,8 @@ def _run_gemini_once(
 ) -> int:
     """Execute a single Gemini CLI invocation. Returns the exit code."""
     stderr_path = output_path.with_suffix(".stderr")
+    # agy shares this runner but has no folder-trust gate.
+    env = gemini_trust.sandbox_env() if cmd_args[0] == "gemini" else None
     try:
         with (
             output_path.open("w", encoding="utf-8") as of,
@@ -393,6 +402,7 @@ def _run_gemini_once(
                 stderr=ef,
                 text=True,
                 check=False,
+                env=env,
             )
     except FileNotFoundError:
         logger.error("[%s] %s CLI not found on PATH.", label, cmd_args[0])

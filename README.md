@@ -593,6 +593,13 @@ side effect (for example, Gemini permits its own plan-directory writes). See
 [`docs/gemini-review-guidance.md`](docs/gemini-review-guidance.md) for provenance,
 headless verification limits, and the reproducible prompt benchmark.
 
+Gemini will not run headless in a folder it does not trust, and inside its
+sandbox it cannot read your trust list (`~/.gemini/trustedFolders.json`).
+Overkill reads that list itself and passes `GEMINI_CLI_TRUST_WORKSPACE=true`
+into the sandbox only for folders you have already trusted — trust one by
+running `gemini` in it once. An explicit `GEMINI_CLI_TRUST_WORKSPACE` or
+`GEMINI_RESTRICTED_MODE` in your environment is left as you set it.
+
 CLI options override rc settings. `--resume` restores saved role selections unless
 explicitly overridden on the command line; an inherited self-review selection
 continues to follow the fixer. `--no-self-review` still disables this stage.
