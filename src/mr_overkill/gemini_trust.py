@@ -80,14 +80,39 @@ def is_path_trusted(rules: Mapping[str, object], location: str) -> bool | None:
     return None
 
 
+def _strip_json_comments(text: str) -> str:
+    """Drop ``//`` and ``/* */`` comments, which Gemini accepts in this file."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i : j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            i = n if end == -1 else end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            out.append(" ")
+            i = n if end == -1 else end + 2
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
 def _load_rules(path: Path) -> Mapping[str, object] | None:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_strip_json_comments(path.read_text(encoding="utf-8")))
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as exc:
-        # Gemini accepts comments here; leave anything we cannot parse to it.
-        logger.debug("Cannot read Gemini trust list %s: %s", path, exc)
+        # The sandboxed Gemini cannot read this file either, so grant nothing.
+        logger.warning("Cannot read Gemini trust list %s: %s", path, exc)
         return None
     return data if isinstance(data, dict) else None
 

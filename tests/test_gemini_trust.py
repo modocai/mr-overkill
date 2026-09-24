@@ -130,9 +130,31 @@ class TestSandboxEnv:
 
         assert gemini_trust.sandbox_env(tmp_path, env) is None
 
-    def test_unparseable_trust_list_is_left_to_gemini(self, tmp_path: Path) -> None:
+    def test_trust_list_with_comments(self, tmp_path: Path) -> None:
         path = tmp_path / "trustedFolders.json"
-        path.write_text('{\n  // a comment Gemini accepts\n  "/x": "TRUST_FOLDER"\n}')
+        path.write_text(
+            "{\n  // a comment Gemini accepts\n"
+            f'  {json.dumps(str(tmp_path))}: /* inline */ "TRUST_FOLDER",\n'
+            '  "//server/share": "DO_NOT_TRUST"\n}'
+        )
+
+        env = {"GEMINI_CLI_TRUSTED_FOLDERS_PATH": str(path)}
+
+        result = gemini_trust.sandbox_env(tmp_path, env)
+        assert result is not None
+        assert result[gemini_trust.TRUST_ENV_VAR] == "true"
+
+    def test_comment_markers_inside_strings_are_kept(self) -> None:
+        text = '{"//a/*b": "x\\"//", "c": 1} // tail'
+
+        assert json.loads(gemini_trust._strip_json_comments(text)) == {
+            "//a/*b": 'x"//',
+            "c": 1,
+        }
+
+    def test_unparseable_trust_list_grants_nothing(self, tmp_path: Path) -> None:
+        path = tmp_path / "trustedFolders.json"
+        path.write_text(f"{{{json.dumps(str(tmp_path))}: TRUST_FOLDER}}")
 
         env = {"GEMINI_CLI_TRUSTED_FOLDERS_PATH": str(path)}
 
