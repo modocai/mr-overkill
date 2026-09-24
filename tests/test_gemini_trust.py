@@ -218,3 +218,25 @@ class TestRunner:
         assert mock_run.call_count == 1  # not retried
         assert TRUST_VAR in caplog.text
         assert "Non-transient error" not in caplog.text
+
+    @patch("mr_overkill.retry.subprocess.run")
+    def test_exit_55_is_not_retried_when_stderr_looks_transient(
+        self, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        def fake_run(*_args: object, **kwargs: object) -> MagicMock:
+            kwargs["stderr"].write("warning: capacity-planner/.gemini ignored\n")  # type: ignore[attr-defined]
+            return MagicMock(returncode=gemini_trust.UNTRUSTED_EXIT_CODE)
+
+        mock_run.side_effect = fake_run
+        sleep_fn = MagicMock()
+        with patch.object(gemini_trust, "sandbox_env", return_value=None):
+            ok = retry_gemini_cmd(
+                tmp_path / "out.txt",
+                "gemini review",
+                ["gemini", "--sandbox", "-p", "-"],
+                _sleep_fn=sleep_fn,
+            )
+
+        assert ok is False
+        assert mock_run.call_count == 1
+        sleep_fn.assert_not_called()

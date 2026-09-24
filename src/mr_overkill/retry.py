@@ -336,16 +336,15 @@ def retry_gemini_cmd(
         if rc == 0:
             return True
 
+        # Exit 55 is definitive; stderr keywords must not turn it into a retry.
+        if cmd_args[0] == "gemini" and rc == gemini_trust.UNTRUSTED_EXIT_CODE:
+            logger.error("[%s] %s", label, gemini_trust.untrusted_hint())
+            return False
+
         stderr_path = output_path.with_suffix(".stderr")
         error_class = classify_cli_error(stderr_path, rc)
 
         if error_class != ErrorClass.TRANSIENT:
-            if (
-                cmd_args[0] == "gemini"
-                and rc == gemini_trust.UNTRUSTED_EXIT_CODE
-            ):
-                logger.error("[%s] %s", label, gemini_trust.untrusted_hint())
-                return False
             logger.warning(
                 "[%s] Non-transient error (%s, exit=%d). Giving up.",
                 label,
