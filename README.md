@@ -612,7 +612,8 @@ Every Gemini call is started with a bundled `--policy` file
 web tools enabled a failing search API made gemini-cli retry internally for
 hours without exiting. The policy takes effect under the macOS seatbelt
 sandbox; Docker/Podman sandboxes do not mount the package directory, so there
-Gemini ignores the policy and the reviewer timeout is the only guard.
+Gemini ignores the policy and the reviewer timeout is the only guard. The
+same holds for `agy`, which has no option to disable tools.
 
 CLI options override rc settings. `--resume` restores saved role selections unless
 explicitly overridden on the command line; an inherited self-review selection

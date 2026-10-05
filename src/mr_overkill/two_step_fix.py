@@ -29,6 +29,7 @@ def backend_command(backend: str, *, edit: bool = False) -> list[str]:
             "workspace-write" if edit else "read-only", "-",
         ]
     if backend == "agy":
+        # agy has no way to disable web tools; the reviewer timeout guards it.
         return [
             "agy", "--sandbox", "--mode",
             "accept-edits" if edit else "plan", "--output-format", "text",
