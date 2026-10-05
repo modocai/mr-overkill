@@ -235,9 +235,9 @@ def test_chained_review_preserves_roles(override: str | None) -> None:
     assert exc.value.code == 0
     argv = parse.call_args.args[0]
     assert argv[argv.index("--reviewer") + 1] == "agy"
-    assert "--reviewer-backend" not in argv
-    assert argv[argv.index("--fixer-backend") + 1] == "codex"
-    assert argv[argv.index("--self-reviewer-backend") + 1] == (override or "codex")
+    assert not any(arg.endswith("-backend") for arg in argv)
+    assert argv[argv.index("--fixer") + 1] == "codex"
+    assert argv[argv.index("--self-reviewer") + 1] == (override or "codex")
     # An explicit 0 (no limit) must not fall back to the 1200s default.
     assert argv[argv.index("--reviewer-timeout") + 1] == "0"
 
@@ -266,6 +266,28 @@ def test_real_rc_file_role_selection(
     assert config.fixer_backend == "agy"
     assert config.self_reviewer_backend == self_backend
     assert config.reviewer_backend == "codex"
+
+
+@pytest.mark.parametrize("refactor", [False, True])
+@pytest.mark.parametrize("alias", [False, True])
+def test_fixer_and_self_reviewer_option_names(
+    tmp_path: Path, refactor: bool, alias: bool,
+) -> None:
+    suffix = "-backend" if alias else ""
+    with (
+        patch("mr_overkill.cli._load_rc_file", return_value={}),
+        patch("mr_overkill.cli._detect_current_branch", return_value="feat/test"),
+        patch("mr_overkill.cli._detect_pr_number", return_value=None),
+        patch("mr_overkill.cli.subprocess.run", return_value=MagicMock(
+            returncode=0, stdout=str(tmp_path),
+        )),
+    ):
+        args = ["-n", "1", f"--fixer{suffix}", "codex",
+                f"--self-reviewer{suffix}", "gemini"]
+        config = (parse_refactor_suggest_args(args)[0] if refactor
+                  else parse_review_loop_args(args))
+    assert config.fixer_backend == "codex"
+    assert config.self_reviewer_backend == "gemini"
 
 
 @pytest.mark.parametrize("refactor", [False, True])
@@ -441,6 +463,10 @@ def test_reviewer_help_uses_canonical_name(
     help_text = capsys.readouterr().out
     assert "[--reviewer BACKENDS]" in help_text
     assert "--reviewer-backend" in help_text
+    # Real options, not argparse prefix matches of the -backend names.
+    assert "[--fixer BACKEND]" in help_text
+    assert "[--self-reviewer BACKEND]" in help_text
+    assert "--fixer-backend BACKEND" in help_text
     assert "Comma-separated review backends" in help_text
 
 
