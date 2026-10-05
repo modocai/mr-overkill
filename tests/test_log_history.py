@@ -10,6 +10,7 @@ from mr_overkill.loop_engine import LOG_HISTORY_DIR, LOG_HISTORY_KEEP, _clean_st
 def _previous_run(log_dir: Path) -> None:
     (log_dir / "review-1.json").write_text("{}")
     (log_dir / "review-1.stderr").write_text("codex stderr")
+    (log_dir / "review-1.diff").write_text("gemini evidence")
     (log_dir / "summary.md").write_text("old summary")
     (log_dir / "diff-1-1.diff").write_text("self-review diff")
     gemini = log_dir / "reviewers" / "gemini"
@@ -33,7 +34,13 @@ def test_previous_run_is_archived_not_deleted(tmp_path: Path) -> None:
     assert (run / "reviewers" / "gemini" / "review-1.stderr").read_text() == (
         "HTTP 500, retrying"
     )
-    for name in ("review-1.json", "review-1.stderr", "summary.md", "diff-1-1.diff"):
+    for name in (
+        "review-1.json",
+        "review-1.stderr",
+        "review-1.diff",
+        "summary.md",
+        "diff-1-1.diff",
+    ):
         assert (run / name).is_file()
         assert not (tmp_path / name).exists()
     assert not (tmp_path / "reviewers").exists()

@@ -751,6 +751,7 @@ def _no_diff(target: str, current: str, cwd: Path | None) -> bool:
 # wip*, metadata) belong to the current run and are not listed here.
 _RUN_ARTIFACTS = (
     "review-*.json",
+    "review-*.diff",  # Gemini/agy captured evidence
     "fix-*.md",
     "opinion-*.md",
     "self-review-*.json",
