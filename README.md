@@ -507,6 +507,7 @@ Reference prompts (read-only originals) are in `prompts/reference/`.
 The loop terminates when any of these occur:
 
 - **all_clear** — No findings and overall verdict is "patch is correct"
+- **review_incomplete** — Parallel review: the reviewers that ran found nothing, but at least one reviewer failed or timed out (exit code 1)
 - **no_diff** — No changes between branches
 - **dry_run** — Review-only mode
 - **max_iterations_reached** — Hit the `-n` limit
@@ -570,8 +571,12 @@ overkill review-loop -n 3 --fixer-backend codex --self-reviewer-backend claude
 Reviewer lists are comma-separated, whitespace is ignored, and duplicates are
 collapsed while preserving the first occurrence. When multiple reviewers are
 selected, they run in parallel once per iteration. Their findings are combined
-into a single review for the normal fixer path, and all selected reviewers must
-succeed before fixing begins. Exact duplicate findings are collapsed only by
+into a single review for the normal fixer path. If a reviewer fails or hits
+`--reviewer-timeout`, the others' findings are still fixed and every reviewer
+runs again next iteration; the combined review lists it under
+`missing_reviewers`. A round in which the remaining reviewers find nothing ends
+as `review_incomplete`, never `all_clear`, and the run fails only when every
+reviewer fails. Exact duplicate findings are collapsed only by
 exact match; Mr. Overkill does not semantically merge similar findings. Each
 individual review is written to `reviewers/<backend>/review-N.json`, while the
 combined result remains `review-N.json`. The fixer and self-reviewer behavior is

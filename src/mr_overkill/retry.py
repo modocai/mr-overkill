@@ -34,6 +34,16 @@ BUDGET_POLL_MAX = 1200
 
 _review_cancel: ContextVar[Event | None] = ContextVar("review_cancel", default=None)
 _call_timeout: ContextVar[int | None] = ContextVar("call_timeout", default=None)
+_timeout_record: ContextVar[TimeoutRecord | None] = ContextVar(
+    "timeout_record", default=None,
+)
+
+
+class TimeoutRecord:
+    """Whether any CLI call in a ``call_timeout`` block was killed."""
+
+    def __init__(self) -> None:
+        self.hit = False
 
 
 class CommandTimeoutError(Exception):
@@ -55,20 +65,26 @@ def review_cancellation(event: Event) -> Iterator[None]:
 
 
 @contextmanager
-def call_timeout(seconds: int | None) -> Iterator[None]:
+def call_timeout(seconds: int | None) -> Iterator[TimeoutRecord]:
     """Bound each CLI process started in this context to *seconds*.
 
     The limit is per process, not per retry sequence: budget waits and
     backoff sleeps between attempts are not counted.  None or 0 disables it.
     """
+    record = TimeoutRecord()
     token = _call_timeout.set(seconds or None)
+    record_token = _timeout_record.set(record)
     try:
-        yield
+        yield record
     finally:
+        _timeout_record.reset(record_token)
         _call_timeout.reset(token)
 
 
 def _log_timeout(label: str, exc: CommandTimeoutError) -> None:
+    record = _timeout_record.get()
+    if record is not None:
+        record.hit = True
     # A CLI that hung once (e.g. retrying a failing tool internally) is
     # likely to hang again, so a timeout is final rather than transient.
     logger.error(

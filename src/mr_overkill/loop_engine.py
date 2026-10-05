@@ -441,6 +441,14 @@ def review_fix_loop(
                 can_reuse = False
 
         if can_reuse:
+            saved_review, _ = parse_review_json(review_file, "saved review")
+            if saved_review is not None and _missing_reviewers(saved_review):
+                logger.info(
+                    "[resume] Saved review is missing reviewers; re-running review.",
+                )
+                can_reuse = False
+
+        if can_reuse:
             logger.info("[resume] Reusing saved review: %s", review_file)
         else:
             try:
@@ -486,8 +494,22 @@ def review_fix_loop(
         if findings_count > 0:
             had_findings = True
 
-        # d. All clear?
-        if findings_count == 0 and overall in {"patch is correct", "code is clean"}:
+        missing = _missing_reviewers(review_data)
+        if missing:
+            logger.warning("Reviewers missing from this round: %s", missing)
+
+        # d. All clear?  Not without every reviewer's verdict.
+        clear = findings_count == 0 and overall in {"patch is correct", "code is clean"}
+        if clear and missing:
+            logger.warning(
+                "Remaining reviewers found nothing, but %s did not review; "
+                "not reporting all clear.",
+                missing,
+            )
+            final_status = FinalStatus.REVIEW_INCOMPLETE
+            iterations_run = i
+            break
+        if clear:
             logger.info("All clear — no issues found.")
             if config.pr_number:
                 post_pr_comment(
@@ -653,6 +675,18 @@ def review_fix_loop(
 
 
 # ── Private helpers ──────────────────────────────────────────────────
+
+
+def _missing_reviewers(review: dict[str, object]) -> str:
+    """Describe reviewers a combined review lacks, or "" when complete."""
+    missing = review.get("missing_reviewers")
+    if not isinstance(missing, list):
+        return ""
+    return ", ".join(
+        f"{m.get('reviewer', '?')} ({m.get('reason', 'failed')})"
+        for m in missing
+        if isinstance(m, dict)
+    )
 
 
 def _has_skipped_fix_commit(
