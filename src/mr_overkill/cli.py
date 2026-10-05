@@ -387,12 +387,16 @@ def parse_review_loop_args(
             "(same as OVERKILL_SKIP_BUDGET=1)"
         ),
     )
+    # The -backend spellings are kept as aliases for existing scripts.
     parser.add_argument(
-        "--fixer-backend", choices=["claude", "codex", "gemini", "agy"],
-        default=None, help="Backend for fixes (default: claude)",
+        "--fixer", "--fixer-backend", dest="fixer_backend",
+        choices=["claude", "codex", "gemini", "agy"], metavar="BACKEND",
+        default=None, help="Backend for fixes: claude,codex,gemini,agy "
+        "(default: claude)",
     )
     parser.add_argument(
-        "--self-reviewer-backend", choices=["claude", "codex", "gemini", "agy"],
+        "--self-reviewer", "--self-reviewer-backend", dest="self_reviewer_backend",
+        choices=["claude", "codex", "gemini", "agy"], metavar="BACKEND",
         default=None, help="Backend for self-review (default: same as fixer)",
     )
     parser.add_argument(
@@ -900,12 +904,16 @@ def parse_refactor_suggest_args(
         default=None,
         help="Review-loop iterations (implies --with-review)",
     )
+    # The -backend spellings are kept as aliases for existing scripts.
     parser.add_argument(
-        "--fixer-backend", choices=["claude", "codex", "gemini", "agy"],
-        default=None, help="Backend for fixes (default: claude)",
+        "--fixer", "--fixer-backend", dest="fixer_backend",
+        choices=["claude", "codex", "gemini", "agy"], metavar="BACKEND",
+        default=None, help="Backend for fixes: claude,codex,gemini,agy "
+        "(default: claude)",
     )
     parser.add_argument(
-        "--self-reviewer-backend", choices=["claude", "codex", "gemini", "agy"],
+        "--self-reviewer", "--self-reviewer-backend", dest="self_reviewer_backend",
+        choices=["claude", "codex", "gemini", "agy"], metavar="BACKEND",
         default=None, help="Backend for self-review (default: same as fixer)",
     )
     parser.add_argument(
