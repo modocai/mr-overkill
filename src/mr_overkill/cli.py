@@ -138,7 +138,7 @@ def _load_rc_file(rc_name: str) -> dict[str, str]:
         "REVIEW_LOOPS", "FIX_NITS", "REVIEWER_BACKEND",
         "FIXER_BACKEND", "SELF_REVIEWER_BACKEND",
         "REVIEWER_CONTEXT", "CI_TRIGGER_MODE", "NO_BUDGET_GATE",
-        "COMMIT_SCOPE_PUSH",
+        "COMMIT_SCOPE_PUSH", "REVIEWER_TIMEOUT",
     }
     boolean_keys = {
         "DRY_RUN", "AUTO_COMMIT", "DIAGNOSTIC_LOG",
@@ -243,6 +243,21 @@ def _int_from_rc(
         parser.error(f"invalid integer for {key} in rc file: {raw!r}")
 
 
+def _reviewer_timeout(
+    args: argparse.Namespace,
+    rc: dict[str, str],
+    parser: argparse.ArgumentParser,
+) -> int:
+    timeout = (
+        args.reviewer_timeout
+        if args.reviewer_timeout is not None
+        else _int_from_rc(rc, "REVIEWER_TIMEOUT", "1200", parser)
+    )
+    if timeout < 0:
+        parser.error("--reviewer-timeout must be non-negative")
+    return timeout
+
+
 def _parse_budget_scope(
     raw: str,
     parser: argparse.ArgumentParser,
@@ -302,6 +317,14 @@ def parse_review_loop_args(
         type=int,
         default=None,
         help="Maximum self-review sub-iterations (default: 4)",
+    )
+    parser.add_argument(
+        "--reviewer-timeout",
+        type=int,
+        default=None,
+        metavar="SECONDS",
+        help="Kill a reviewer CLI call that runs longer than this "
+        "(default: 1200; 0 disables)",
     )
     parser.add_argument(
         "--no-self-review",
@@ -727,6 +750,7 @@ def parse_review_loop_args(
         resume=args.resume,
         retry_max_wait=retry_max_wait,
         retry_initial_wait=retry_initial_wait,
+        reviewer_timeout=_reviewer_timeout(args, rc, parser),
         budget_scope=_parse_budget_scope(
             budget_scope_str, parser,
             allowed=frozenset({BudgetScope.MICRO, BudgetScope.MODULE}),
@@ -798,6 +822,14 @@ def parse_refactor_suggest_args(
         type=int,
         default=None,
         help="Maximum self-review sub-iterations (default: 4)",
+    )
+    parser.add_argument(
+        "--reviewer-timeout",
+        type=int,
+        default=None,
+        metavar="SECONDS",
+        help="Kill a reviewer CLI call that runs longer than this "
+        "(default: 1200; 0 disables)",
     )
     parser.add_argument(
         "--no-self-review",
@@ -1048,6 +1080,7 @@ def parse_refactor_suggest_args(
         auto_approve=auto_approve,
         retry_max_wait=retry_max_wait,
         retry_initial_wait=retry_initial_wait,
+        reviewer_timeout=_reviewer_timeout(args, rc, parser),
         budget_scope=_parse_budget_scope(
             budget_scope_str, parser,
             allowed=frozenset({BudgetScope.MICRO, BudgetScope.MODULE}),

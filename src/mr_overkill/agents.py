@@ -36,6 +36,7 @@ from mr_overkill.models import (
     parse_reviewer_backends,
 )
 from mr_overkill.retry import (
+    call_timeout,
     retry_claude_cmd,
     retry_codex_cmd,
     retry_gemini_cmd,
@@ -483,7 +484,11 @@ class ParallelReviewAgent(ReviewAgent):
         cancel = Event()
 
         def run(agent: ReviewAgent, path: Path) -> bool:
-            with review_cancellation(cancel):
+            # Context variables do not follow work into pool threads.
+            with (
+                review_cancellation(cancel),
+                call_timeout(self._config.reviewer_timeout),
+            ):
                 return agent(path, iteration)
 
         with ThreadPoolExecutor(max_workers=len(jobs)) as pool:

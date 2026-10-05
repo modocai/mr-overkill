@@ -190,6 +190,7 @@ class LoopConfig:
     # Retry / budget
     retry_max_wait: int = 7200
     retry_initial_wait: int = 30
+    reviewer_timeout: int = 1200  # Seconds per reviewer CLI call; 0 disables
     budget_scope: BudgetScope = BudgetScope.MICRO
     skip_budget_gate: bool = False
     diagnostic_log: bool = False

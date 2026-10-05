@@ -33,6 +33,7 @@ from mr_overkill.models import (
 )
 from mr_overkill.reporting import generate_summary, post_pr_comment
 from mr_overkill.resume import detect_state
+from mr_overkill.retry import call_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -443,7 +444,8 @@ def review_fix_loop(
             logger.info("[resume] Reusing saved review: %s", review_file)
         else:
             try:
-                review_ok = reviewer(review_file, i)
+                with call_timeout(config.reviewer_timeout):
+                    review_ok = reviewer(review_file, i)
             except BudgetTimeoutError:
                 logger.error("Budget timeout during review (iteration %d).", i)
                 final_status = _BUDGET_TIMEOUT_STATUS.get(
