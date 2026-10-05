@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
-from mr_overkill.loop_engine import LOG_HISTORY_DIR, LOG_HISTORY_KEEP, _clean_stale_logs
+from mr_overkill.loop_engine import (
+    LOG_HISTORY_DIR,
+    LOG_HISTORY_KEEP,
+    _clean_stale_logs,
+    _history_key,
+)
 
 
 def _previous_run(log_dir: Path) -> None:
@@ -76,3 +82,20 @@ def test_only_the_newest_runs_are_kept(tmp_path: Path) -> None:
     assert len(runs) == LOG_HISTORY_KEEP
     assert "20260101T000000Z" not in runs
     assert "20260102T000000Z" not in runs
+
+
+def test_same_second_runs_stay_chronological_past_the_limit(tmp_path: Path) -> None:
+    runs = LOG_HISTORY_KEEP + 7
+    for i in range(runs):
+        _previous_run(tmp_path)
+        (tmp_path / "review-1.json").write_text(str(i))
+        with patch("mr_overkill.loop_engine.datetime") as clock:
+            clock.now.return_value.strftime.return_value = "20261005T000000Z"
+            _clean_stale_logs(tmp_path)
+
+    kept = [(run / "review-1.json").read_text() for run in _runs_in_order(tmp_path)]
+    assert kept == [str(i) for i in range(runs - LOG_HISTORY_KEEP, runs)]
+
+
+def _runs_in_order(log_dir: Path) -> list[Path]:
+    return sorted(_runs(log_dir), key=_history_key)

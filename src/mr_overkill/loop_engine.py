@@ -779,18 +779,27 @@ def _clean_stale_logs(log_dir: Path) -> None:
     if not stale:
         return
     history = log_dir / LOG_HISTORY_DIR
+    history.mkdir(exist_ok=True)
+    runs = sorted((p for p in history.iterdir() if p.is_dir()), key=_history_key)
     stamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
-    dest = history / stamp
-    suffix = 1
-    while dest.exists():
-        suffix += 1
-        dest = history / f"{stamp}-{suffix}"
-    dest.mkdir(parents=True)
+    # Never reuse a pruned name: a run in the same second always gets a
+    # higher suffix than any existing one, so it sorts newest.
+    same_second = [n for name, n in map(_history_key, runs) if name == stamp]
+    dest = history / (
+        f"{stamp}-{max(same_second) + 1}" if same_second else stamp
+    )
+    dest.mkdir()
     for f in stale:
         f.rename(dest / f.name)
     logger.info("Previous run's logs moved to %s", dest)
-    for old in sorted(p for p in history.iterdir() if p.is_dir())[:-LOG_HISTORY_KEEP]:
+    for old in [*runs, dest][:-LOG_HISTORY_KEEP]:
         shutil.rmtree(old, ignore_errors=True)
+
+
+def _history_key(run: Path) -> tuple[str, int]:
+    """Order archive names ``<stamp>`` and ``<stamp>-<n>`` chronologically."""
+    stamp, _, suffix = run.name.partition("-")
+    return stamp, int(suffix) if suffix.isdigit() else 1
 
 
 def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
