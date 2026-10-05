@@ -413,6 +413,20 @@ class _RetryFn:
         )
 
 
+class _ReviewerRetryFn(_RetryFn):
+    """Retry callable whose CLI processes obey the reviewer timeout."""
+
+    def __call__(
+        self,
+        output_path: Path,
+        label: str,
+        cmd_args: list[str],
+        **kw: object,
+    ) -> bool:
+        with call_timeout(self._config.reviewer_timeout):
+            return super().__call__(output_path, label, cmd_args, **kw)
+
+
 def _make_retry_fn(config: LoopConfig) -> RetryFn:
     """Create a retry function bound to config settings."""
     return _RetryFn(config)
@@ -1011,7 +1025,9 @@ class BackendSelfReviewAgent(SelfReviewAgent):
     ) -> None:
         self._config = config
         self._fixer = fixer
-        self._retry_fn = _make_retry_fn(config)
+        # The sub-loop uses retry_fn only for its review step; re-fixes go
+        # through fix_fn, which stays unbounded like the main fixer.
+        self._retry_fn = _ReviewerRetryFn(config)
         self._budget_fn = _make_budget_fn(config)
 
     def __call__(

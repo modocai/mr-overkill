@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mr_overkill import retry
-from mr_overkill.agents import ParallelReviewAgent
+from mr_overkill.agents import BackendSelfReviewAgent, ParallelReviewAgent
 from mr_overkill.cli import parse_refactor_suggest_args, parse_review_loop_args
 from mr_overkill.loop_engine import review_fix_loop
 from mr_overkill.models import FinalStatus, LoopConfig
@@ -174,6 +174,35 @@ class TestWiring:
         assert result.final_status == FinalStatus.CODEX_ERROR
         assert seen == [42]
         assert retry._call_timeout.get() is None
+
+
+def test_self_review_bounds_its_review_step_but_not_the_refix(
+    tmp_path: Path,
+) -> None:
+    config = LoopConfig("feat/x", "develop", 1, log_dir=tmp_path, reviewer_timeout=42)
+    seen: dict[str, int | None] = {}
+
+    def fixer(review_json: str, label: str, **kw: object) -> bool:
+        seen["fix"] = retry._call_timeout.get()
+        return True
+
+    def review_call(*args: object, **kwargs: object) -> bool:
+        seen["review"] = retry._call_timeout.get()
+        return True
+
+    def fake_subloop(**kw: object) -> str:
+        retry_fn = kw["retry_fn"]
+        fix_fn = kw["fix_fn"]
+        with patch("mr_overkill.agents.retry_claude_cmd", side_effect=review_call):
+            retry_fn(tmp_path / "sr.json", "self-review", ["claude", "-p", "-"])  # type: ignore[operator]
+        fix_fn("{}", "refix")  # type: ignore[operator]
+        return ""
+
+    agent = BackendSelfReviewAgent(config, MagicMock(side_effect=fixer))
+    with patch("mr_overkill.agents.self_review_subloop", side_effect=fake_subloop):
+        agent([], 1, tmp_path, 1, "{}")
+
+    assert seen == {"review": 42, "fix": None}
 
 
 _CLI_PATCHES = (
