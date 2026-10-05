@@ -41,6 +41,10 @@
 # Initial backoff delay (seconds); doubles each retry, capped at 300s (default: 30)
 # RETRY_INITIAL_WAIT=30
 
+# Wall-clock limit (seconds) for one reviewer CLI call. A call that runs
+# longer is killed, not retried, and that reviewer fails (default: 1200; 0 disables)
+# REVIEWER_TIMEOUT=1200
+
 # Pre-flight budget check scope: micro (<90%) or module (<75%) (default: module)
 # BUDGET_SCOPE="module"
 

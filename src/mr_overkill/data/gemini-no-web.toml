@@ -1,0 +1,10 @@
+# Passed to every overkill Gemini call with --policy.
+#
+# Reviews and fixes only need the diff and the repository. Web tools let
+# untrusted diff content reach outbound requests, and when the search API
+# keeps failing, gemini-cli retries it internally and never exits.
+[[rule]]
+toolName = ["google_web_search", "web_fetch"]
+decision = "deny"
+priority = 900
+denyMessage = "Web access is disabled for overkill runs; use the diff and the repository."

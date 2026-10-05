@@ -112,6 +112,9 @@ Options:
   -n, --max-loop <N>       Maximum review-fix iterations (required, unless --resume)
   --max-subloop <N>        Maximum self-review sub-iterations per fix (default: 4)
   --no-self-review         Disable self-review (equivalent to --max-subloop 0)
+  --reviewer-timeout <s>   Kill a reviewer CLI call that runs longer than this
+                           many seconds and fail that reviewer (default: 1200;
+                           0 disables)
   --dry-run                Run review only, do not fix
   --no-auto-commit         Fix but do not commit/push (single iteration)
   --resume                 Resume from a previously interrupted run (reuses existing logs)
@@ -255,6 +258,9 @@ Options:
   -n, --max-loop <N>       Maximum analysis-fix iterations (default: 1)
   --max-subloop <N>        Maximum self-review sub-iterations per fix (default: 4)
   --no-self-review         Disable self-review (equivalent to --max-subloop 0)
+  --reviewer-timeout <s>   Kill a reviewer CLI call that runs longer than this
+                           many seconds and fail that reviewer (default: 1200;
+                           0 disables)
   --dry-run                Run analysis only, do not apply fixes
   --no-dry-run             Force fixes even if .refactorsuggestrc sets DRY_RUN=true
   --auto-approve           Skip interactive confirmation for layer/full scope
@@ -599,6 +605,15 @@ Overkill reads that list itself and passes `GEMINI_CLI_TRUST_WORKSPACE=true`
 into the sandbox only for folders you have already trusted — trust one by
 running `gemini` in it once. An explicit `GEMINI_CLI_TRUST_WORKSPACE` or
 `GEMINI_RESTRICTED_MODE` in your environment is left as you set it.
+
+Every Gemini call is started with a bundled `--policy` file
+(`mr_overkill/data/gemini-no-web.toml`) that denies `google_web_search` and
+`web_fetch`. Reviews and fixes only need the diff and the repository, and with
+web tools enabled a failing search API made gemini-cli retry internally for
+hours without exiting. The policy takes effect under the macOS seatbelt
+sandbox; Docker/Podman sandboxes do not mount the package directory, so there
+Gemini ignores the policy and the reviewer timeout is the only guard. The
+same holds for `agy`, which has no option to disable tools.
 
 CLI options override rc settings. `--resume` restores saved role selections unless
 explicitly overridden on the command line; an inherited self-review selection
