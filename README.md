@@ -397,6 +397,11 @@ PROMPTS_DIR="./custom-prompts"
 
 All logs are git-ignored by default (inside `.overkill/`).
 
+A fresh run moves the previous run's logs into `history/<UTC timestamp>/` in the
+same directory (for example `.overkill/logs/history/20261005T120000Z/`), keeping
+the five most recent runs, so re-running never overwrites the evidence of a failed
+run. `--resume` continues from the logs in place.
+
 ### review-loop logs (`.overkill/logs/`)
 
 | File | Description |
@@ -409,6 +414,7 @@ All logs are git-ignored by default (inside `.overkill/`).
 | `refix-opinion-N-M.md` | Claude's opinion on self-review findings (iteration N, sub M) |
 | `refix-N-M.md` | Claude re-fix log (iteration N, sub-iteration M) |
 | `summary.md` | Final summary with status and per-iteration results |
+| `history/<timestamp>/` | Logs of the five previous runs |
 
 ### refactor-suggest logs (`.overkill/logs/refactor/`)
 
@@ -423,6 +429,7 @@ All logs are git-ignored by default (inside `.overkill/`).
 | `refix-opinion-N-M.md` | Claude's opinion on self-review findings |
 | `refix-N-M.md` | Claude re-fix log (iteration N, sub-iteration M) |
 | `summary.md` | Final summary with scope, status, and per-iteration results |
+| `history/<timestamp>/` | Logs of the five previous runs |
 
 ## Token Budget Checker
 
