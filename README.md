@@ -123,8 +123,8 @@ Options:
                            constraints)
   --reviewer <be[,be]>     Reviewer backend(s): claude|codex|gemini|agy
                            (default: codex)
-  --fixer-backend <be>     Fixer backend: claude|codex|gemini|agy (default: claude)
-  --self-reviewer-backend <be>  Self-review backend (default: same as fixer)
+  --fixer <be>             Fixer backend: claude|codex|gemini|agy (default: claude)
+  --self-reviewer <be>     Self-review backend (default: same as fixer)
   --ci-trigger-mode <m>    CI trigger policy: every|last-only|none (default: last-only).
                            'last-only' tags each iteration commit with [skip ci]
                            and pushes a single empty trigger commit on PASS —
@@ -270,8 +270,8 @@ Options:
   --with-review-loops <N>  Set review-loop iteration count (implies --with-review)
   --reviewer <be[,be]>     Reviewer backend(s): claude|codex|gemini|agy
                            (default: codex)
-  --fixer-backend <be>     Fixer backend: claude|codex|gemini|agy (default: claude)
-  --self-reviewer-backend <be>  Self-review backend (default: same as fixer)
+  --fixer <be>             Fixer backend: claude|codex|gemini|agy (default: claude)
+  --self-reviewer <be>     Self-review backend (default: same as fixer)
   --diagnostic-log         Save full Claude event stream to sidecar files
   --no-budget-gate         Skip token-budget checks and run regardless
                            (same as OVERKILL_SKIP_BUDGET=1)
@@ -556,16 +556,19 @@ uv run pytest --tb=short
 ### Selecting role backends
 
 Both `review-loop` and `refactor-suggest` accept independent reviewer and fixer
-backends. `--reviewer` selects one or more review backends; `--reviewer-backend`
-remains a compatible alias. The rc key `REVIEWER_BACKEND` is unchanged.
-Defaults remain Codex review and Claude fix. Self-review follows the
-fixer unless `--self-reviewer-backend` / `SELF_REVIEWER_BACKEND` is set.
+backends. `--reviewer` selects one or more review backends, `--fixer` the fixer
+and `--self-reviewer` the self-reviewer. The older `--reviewer-backend`,
+`--fixer-backend` and `--self-reviewer-backend` spellings remain compatible
+aliases, and the rc keys (`REVIEWER_BACKEND`, `FIXER_BACKEND`,
+`SELF_REVIEWER_BACKEND`) are unchanged. Defaults remain Codex review and Claude
+fix. Self-review follows the fixer unless `--self-reviewer` /
+`SELF_REVIEWER_BACKEND` is set.
 
 ```sh
-overkill review-loop -n 3 --reviewer gemini --fixer-backend codex
+overkill review-loop -n 3 --reviewer gemini --fixer codex
 overkill review-loop -n 3 --reviewer codex,claude,gemini
 # Optional independent verification of the fix:
-overkill review-loop -n 3 --fixer-backend codex --self-reviewer-backend claude
+overkill review-loop -n 3 --fixer codex --self-reviewer claude
 ```
 
 Reviewer lists are comma-separated, whitespace is ignored, and duplicates are
@@ -627,8 +630,8 @@ continues to follow the fixer. `--no-self-review` still disables this stage.
 Antigravity CLI is supported explicitly as `agy` for all three roles:
 
 ```sh
-overkill review-loop -n 3 --reviewer agy --fixer-backend codex
-overkill refactor-suggest --scope module --fixer-backend agy
+overkill review-loop -n 3 --reviewer agy --fixer codex
+overkill refactor-suggest --scope module --fixer agy
 ```
 
 Google announced the consumer transition from Gemini CLI on May 19, 2026, with
