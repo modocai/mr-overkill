@@ -469,7 +469,12 @@ class SelfReviewAgent(ABC):
 
 
 class ParallelReviewAgent(ReviewAgent):
-    """Run isolated reviewer calls, then publish one complete combined review."""
+    """Run isolated reviewer calls, then publish one combined review.
+
+    Reviewers that fail are recorded under ``missing_reviewers`` instead of
+    discarding the others' findings; the loop refuses ``all_clear`` for such
+    a review.  Only when every reviewer fails does the review fail.
+    """
 
     def __init__(self, config: LoopConfig, scope: str | None = None) -> None:
         self._config = config
@@ -491,46 +496,61 @@ class ParallelReviewAgent(ReviewAgent):
             ))
 
         results: list[tuple[str, dict[str, Any]]] = []
-        failed = False
+        missing: list[dict[str, str]] = []
         logger.info("Running reviewers in parallel: %s", ", ".join(
             backend for backend, _, _ in jobs
         ))
         cancel = Event()
 
-        def run(agent: ReviewAgent, path: Path) -> bool:
+        def run(agent: ReviewAgent, path: Path) -> tuple[bool, bool]:
             # Context variables do not follow work into pool threads.
             with (
                 review_cancellation(cancel),
-                call_timeout(self._config.reviewer_timeout),
+                call_timeout(self._config.reviewer_timeout) as timeout,
             ):
-                return agent(path, iteration)
+                return agent(path, iteration), timeout.hit
 
         with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
             try:
                 futures = [pool.submit(run, agent, path) for _, agent, path in jobs]
                 for (backend, _, path), future in zip(jobs, futures, strict=True):
                     try:
-                        if not future.result():
-                            logger.error("Reviewer %s failed; see %s", backend, path)
-                            failed = True
+                        ok, timed_out = future.result()
+                        if not ok:
+                            reason = (
+                                f"timed out after {self._config.reviewer_timeout}s"
+                                if timed_out else "failed"
+                            )
+                            logger.error(
+                                "Reviewer %s %s; see %s", backend, reason, path,
+                            )
+                            missing.append({"reviewer": backend, "reason": reason})
                             continue
                         data, _ = parse_review_json(path, f"{backend} review")
                         if not _valid_parallel_review(data):
                             logger.error(
                                 "Invalid review from %s; see %s", backend, path,
                             )
-                            failed = True
+                            missing.append(
+                                {"reviewer": backend, "reason": "invalid review"},
+                            )
                             continue
                         assert data is not None
                         results.append((backend, data))
                     except Exception:
                         logger.exception("Reviewer %s failed", backend)
-                        failed = True
+                        missing.append({"reviewer": backend, "reason": "failed"})
             except BaseException:
                 cancel.set()
                 raise
-        if failed:
+        if not results:
             return False
+        if missing:
+            logger.warning(
+                "Continuing with %s; missing: %s",
+                ", ".join(backend for backend, _ in results),
+                ", ".join(f"{m['reviewer']} ({m['reason']})" for m in missing),
+            )
         root = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True, text=True, check=False,
@@ -539,7 +559,10 @@ class ParallelReviewAgent(ReviewAgent):
         results = [
             (backend, normalize_paths(data, repo_root)) for backend, data in results
         ]
-        output_path.write_text(json.dumps(_combine_reviews(results)), encoding="utf-8")
+        combined = _combine_reviews(results)
+        if missing:
+            combined["missing_reviewers"] = missing
+        output_path.write_text(json.dumps(combined), encoding="utf-8")
         return True
 
 

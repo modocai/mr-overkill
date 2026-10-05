@@ -58,16 +58,23 @@ def generate_summary(
 
         count = "?"
         verdict = "?"
+        missing = ""
         try:
             data = json.loads(rf.read_text(encoding="utf-8"))
             findings = data.get("findings", [])
             count = str(len(findings)) if isinstance(findings, list) else "?"
             verdict = data.get("overall_correctness", "?")
+            missing = ", ".join(
+                f"{m.get('reviewer', '?')} ({m.get('reason', 'failed')})"
+                for m in data.get("missing_reviewers") or []
+                if isinstance(m, dict)
+            )
         except (json.JSONDecodeError, OSError, AttributeError, TypeError):
             pass
 
         lines.append(
             f"- **Iteration {iter_num}**: {count} findings, verdict: {verdict}"
+            + (f", missing reviewers: {missing}" if missing else "")
         )
 
         # Self-review sub-iterations
