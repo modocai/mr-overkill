@@ -33,6 +33,15 @@ BUDGET_POLL_INITIAL = 600
 BUDGET_POLL_MAX = 1200
 
 _review_cancel: ContextVar[Event | None] = ContextVar("review_cancel", default=None)
+_call_timeout: ContextVar[int | None] = ContextVar("call_timeout", default=None)
+
+
+class CommandTimeoutError(Exception):
+    """A CLI call ran past its wall-clock limit and was killed."""
+
+    def __init__(self, seconds: int) -> None:
+        super().__init__(f"Timed out after {seconds}s")
+        self.seconds = seconds
 
 
 @contextmanager
@@ -43,6 +52,30 @@ def review_cancellation(event: Event) -> Iterator[None]:
         yield
     finally:
         _review_cancel.reset(token)
+
+
+@contextmanager
+def call_timeout(seconds: int | None) -> Iterator[None]:
+    """Bound each CLI process started in this context to *seconds*.
+
+    The limit is per process, not per retry sequence: budget waits and
+    backoff sleeps between attempts are not counted.  None or 0 disables it.
+    """
+    token = _call_timeout.set(seconds or None)
+    try:
+        yield
+    finally:
+        _call_timeout.reset(token)
+
+
+def _log_timeout(label: str, exc: CommandTimeoutError) -> None:
+    # A CLI that hung once (e.g. retrying a failing tool internally) is
+    # likely to hang again, so a timeout is final rather than transient.
+    logger.error(
+        "[%s] Timed out after %ds; process killed. Adjust with "
+        "--reviewer-timeout or REVIEWER_TIMEOUT.",
+        label, exc.seconds,
+    )
 
 
 def _check_cancelled() -> None:
@@ -60,9 +93,11 @@ def _sleep(seconds: float, sleep_fn: SleepFn) -> None:
 
 
 def _run_command(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    """Keep the ordinary run path; poll parallel CLI processes for cancellation."""
-    if _review_cancel.get() is None:
+    """Keep the ordinary run path; poll for cancellation or a timeout."""
+    timeout = _call_timeout.get()
+    if _review_cancel.get() is None and timeout is None:
         return subprocess.run(cmd, **kwargs)
+    deadline = None if timeout is None else time.monotonic() + timeout
     _check_cancelled()
     stdin = kwargs.pop("input", None)
     kwargs.pop("check", None)
@@ -78,6 +113,9 @@ def _run_command(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[s
         try:
             while True:
                 _check_cancelled()
+                if deadline is not None and time.monotonic() >= deadline:
+                    assert timeout is not None
+                    raise CommandTimeoutError(timeout)
                 try:
                     stdout, stderr = communication.result(timeout=0.2)
                     return subprocess.CompletedProcess(
@@ -206,9 +244,13 @@ def retry_claude_cmd(
 
     while True:
         _check_cancelled()
-        rc = _run_claude_once(
-            cmd_args, stdin, output_path, stream_file, diagnostic_log, label
-        )
+        try:
+            rc = _run_claude_once(
+                cmd_args, stdin, output_path, stream_file, diagnostic_log, label
+            )
+        except CommandTimeoutError as exc:
+            _log_timeout(label, exc)
+            return False
 
         if rc == 0:
             return True
@@ -331,7 +373,11 @@ def retry_gemini_cmd(
 
     while True:
         _check_cancelled()
-        rc = _run_gemini_once(cmd_args, stdin, output_path, label)
+        try:
+            rc = _run_gemini_once(cmd_args, stdin, output_path, label)
+        except CommandTimeoutError as exc:
+            _log_timeout(label, exc)
+            return False
 
         if rc == 0:
             return True
@@ -448,6 +494,9 @@ def retry_codex_cmd(
                 logger.error(
                     "[%s] Command not found: %s", label, cmd_args[0]
                 )
+                return False
+            except CommandTimeoutError as exc:
+                _log_timeout(label, exc)
                 return False
 
         if result.returncode == 0:

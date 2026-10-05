@@ -92,6 +92,7 @@ def main() -> None:
                 "--fixer-backend", config.fixer_backend,
                 "--self-reviewer-backend",
                 config.self_reviewer_backend or config.fixer_backend,
+                "--reviewer-timeout", str(config.reviewer_timeout),
             ]
             if config.skip_budget_gate:
                 review_argv.append("--no-budget-gate")
