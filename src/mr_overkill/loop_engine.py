@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -745,25 +747,59 @@ def _no_diff(target: str, current: str, cwd: Path | None) -> bool:
     return result.returncode == 0
 
 
-def _clean_stale_logs(log_dir: Path) -> None:
-    """Remove iteration artifacts from prior runs.
+# Per-run artifacts. Files the CLI writes before the loop starts (scope.diff,
+# wip*, metadata) belong to the current run and are not listed here.
+_RUN_ARTIFACTS = (
+    "review-*.json",
+    "review-*.diff",  # Gemini/agy captured evidence
+    "fix-*.md",
+    "opinion-*.md",
+    "self-review-*.json",
+    "refix-*.md",
+    "refix-opinion-*.md",
+    "summary.md",
+    "*.stream.jsonl",
+    "*.stderr",
+    "diff-*-*.diff",
+    "diff-hash-*.txt",
+    "reviewers",
+)
+LOG_HISTORY_DIR = "history"
+LOG_HISTORY_KEEP = 5
 
-    Cleanup stale log files from previous runs so that fresh runs
-    do not mix stale review/fix/summary files into new results.
+
+def _clean_stale_logs(log_dir: Path) -> None:
+    """Move the previous run's artifacts into ``history/<timestamp>/``.
+
+    A fresh run must not mix stale results into new ones, but deleting them
+    loses the evidence of what went wrong last time (for example a reviewer's
+    stderr).  The newest ``LOG_HISTORY_KEEP`` runs are kept.
     """
-    patterns = [
-        "review-*.json",
-        "fix-*.md",
-        "opinion-*.md",
-        "self-review-*.json",
-        "refix-*.md",
-        "refix-opinion-*.md",
-        "summary.md",
-        "*.stream.jsonl",
-    ]
-    for pat in patterns:
-        for f in log_dir.glob(pat):
-            f.unlink()
+    stale = sorted({f for pat in _RUN_ARTIFACTS for f in log_dir.glob(pat)})
+    if not stale:
+        return
+    history = log_dir / LOG_HISTORY_DIR
+    history.mkdir(exist_ok=True)
+    runs = sorted((p for p in history.iterdir() if p.is_dir()), key=_history_key)
+    stamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
+    # Never reuse a pruned name: a run in the same second always gets a
+    # higher suffix than any existing one, so it sorts newest.
+    same_second = [n for name, n in map(_history_key, runs) if name == stamp]
+    dest = history / (
+        f"{stamp}-{max(same_second) + 1}" if same_second else stamp
+    )
+    dest.mkdir()
+    for f in stale:
+        f.rename(dest / f.name)
+    logger.info("Previous run's logs moved to %s", dest)
+    for old in [*runs, dest][:-LOG_HISTORY_KEEP]:
+        shutil.rmtree(old, ignore_errors=True)
+
+
+def _history_key(run: Path) -> tuple[str, int]:
+    """Order archive names ``<stamp>`` and ``<stamp>-<n>`` chronologically."""
+    stamp, _, suffix = run.name.partition("-")
+    return stamp, int(suffix) if suffix.isdigit() else 1
 
 
 def _save_metadata(config: LoopConfig, cwd: Path | None) -> None:
