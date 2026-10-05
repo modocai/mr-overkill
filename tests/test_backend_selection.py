@@ -217,7 +217,7 @@ def test_chained_review_preserves_roles(override: str | None) -> None:
 
     config = LoopConfig(
         "feat/test", "develop", 1, reviewer_backend="agy", fixer_backend="codex",
-        self_reviewer_backend=override,
+        self_reviewer_backend=override, reviewer_timeout=0,
     )
     extra = MagicMock(with_review=True, review_loops=2, create_pr=False)
     with (
@@ -238,6 +238,8 @@ def test_chained_review_preserves_roles(override: str | None) -> None:
     assert "--reviewer-backend" not in argv
     assert argv[argv.index("--fixer-backend") + 1] == "codex"
     assert argv[argv.index("--self-reviewer-backend") + 1] == (override or "codex")
+    # An explicit 0 (no limit) must not fall back to the 1200s default.
+    assert argv[argv.index("--reviewer-timeout") + 1] == "0"
 
 
 @pytest.mark.parametrize("refactor", [False, True])
