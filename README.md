@@ -610,7 +610,9 @@ Every Gemini call is started with a bundled `--policy` file
 (`mr_overkill/data/gemini-no-web.toml`) that denies `google_web_search` and
 `web_fetch`. Reviews and fixes only need the diff and the repository, and with
 web tools enabled a failing search API made gemini-cli retry internally for
-hours without exiting.
+hours without exiting. The policy takes effect under the macOS seatbelt
+sandbox; Docker/Podman sandboxes do not mount the package directory, so there
+Gemini ignores the policy and the reviewer timeout is the only guard.
 
 CLI options override rc settings. `--resume` restores saved role selections unless
 explicitly overridden on the command line; an inherited self-review selection

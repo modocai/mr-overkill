@@ -15,7 +15,9 @@ from mr_overkill.models import BudgetCheckFn, BudgetScope, RetryFn
 
 logger = logging.getLogger(__name__)
 
-# Installed as a regular file, so Gemini can read it from the sandbox.
+# The macOS seatbelt sandbox can read it from site-packages (verified on
+# gemini-cli 0.62.0). Container sandboxes do not mount that path, and Gemini
+# silently skips a missing policy file, so web tools stay enabled there.
 GEMINI_POLICY = str(files("mr_overkill.data").joinpath("gemini-no-web.toml"))
 
 
