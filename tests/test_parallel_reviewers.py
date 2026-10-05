@@ -73,7 +73,7 @@ def test_parallel_calls_isolated_and_joined(tmp_path: Path) -> None:
 @pytest.mark.parametrize("failure", [
     "false", "exception", "budget", "missing", "invalid", "findings", "verdict", "plan",
 ])
-def test_any_failed_reviewer_discards_aggregate(tmp_path: Path, failure: str) -> None:
+def test_failed_reviewer_is_recorded_not_fatal(tmp_path: Path, failure: str) -> None:
     config = config_at(tmp_path)
     output = tmp_path / "review-1.json"
     output.write_text(json.dumps(review()))
@@ -101,14 +101,34 @@ def test_any_failed_reviewer_discards_aggregate(tmp_path: Path, failure: str) ->
                 }[failure]
                 path.write_text(data)
             else:
-                path.write_text(json.dumps(review()))
+                path.write_text(json.dumps(review([{"title": child.reviewer_backend}])))
             return True
         return MagicMock(side_effect=run)
 
     with patch("mr_overkill.agents.create_review_agent", side_effect=factory):
+        assert ParallelReviewAgent(config)(output, 1)
+    assert set(completed) == {"gemini", "claude", "codex"}
+    merged = json.loads(output.read_text())
+    # The survivors' findings are kept; the stale claude output is not reused.
+    assert [f["title"] for f in merged["findings"]] == ["gemini", "codex"]
+    assert merged["missing_reviewers"] == [{
+        "reviewer": "claude",
+        "reason": "invalid review"
+        if failure in {"missing", "invalid", "findings", "verdict", "plan"}
+        else "failed",
+    }]
+
+
+def test_every_reviewer_failing_fails_the_review(tmp_path: Path) -> None:
+    config = config_at(tmp_path)
+    output = tmp_path / "review-1.json"
+    output.write_text(json.dumps(review()))
+    with patch(
+        "mr_overkill.agents.create_review_agent",
+        return_value=MagicMock(return_value=False),
+    ):
         assert not ParallelReviewAgent(config)(output, 1)
     assert not output.exists()
-    assert set(completed) == {"gemini", "claude", "codex"}
 
 
 @pytest.mark.parametrize("different", [False, True])
