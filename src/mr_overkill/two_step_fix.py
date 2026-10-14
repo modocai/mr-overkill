@@ -7,19 +7,12 @@ from __future__ import annotations
 
 import logging
 import string
-from importlib.resources import files
 from pathlib import Path
 
 from mr_overkill.git_ops import gen_uuid
-from mr_overkill.models import BudgetCheckFn, BudgetScope, RetryFn
+from mr_overkill.models import GOOGLE_BACKENDS, BudgetCheckFn, BudgetScope, RetryFn
 
 logger = logging.getLogger(__name__)
-
-# The macOS seatbelt sandbox can read it from site-packages (verified on
-# gemini-cli 0.62.0). Container sandboxes do not mount that path, and Gemini
-# silently skips a missing policy file, so web tools stay enabled there.
-GEMINI_POLICY = str(files("mr_overkill.data").joinpath("gemini-no-web.toml"))
-
 
 def backend_command(backend: str, *, edit: bool = False) -> list[str]:
     """Build non-interactive commands with role-appropriate permissions."""
@@ -28,17 +21,13 @@ def backend_command(backend: str, *, edit: bool = False) -> list[str]:
             "codex", "exec", "--sandbox",
             "workspace-write" if edit else "read-only", "-",
         ]
-    if backend == "agy":
+    if backend in GOOGLE_BACKENDS:
+        # "gemini" names the model family; Google retired Gemini CLI for
+        # most users in favour of Antigravity CLI, so both run through agy.
         # agy has no way to disable web tools; the reviewer timeout guards it.
         return [
             "agy", "--sandbox", "--mode",
             "accept-edits" if edit else "plan", "--output-format", "text",
-        ]
-    if backend == "gemini":
-        return [
-            "gemini", "--sandbox", "--approval-mode",
-            "yolo" if edit else "plan", "--policy", GEMINI_POLICY,
-            "--output-format", "text", "-p", "-",
         ]
     if backend == "claude":
         return [

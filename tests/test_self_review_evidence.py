@@ -37,8 +37,10 @@ def test_self_review_evidence(
         seen.append(evidence)
         assert evidence.read_text() == content
         if backend in {"gemini", "agy"}:
-            flag = "--add-dir" if backend == "agy" else "--include-directories"
-            assert command == [*backend_command(backend), flag, str(evidence.parent)]
+            assert command[0] == "agy"
+            assert command == [
+                *backend_command(backend), "--add-dir", str(evidence.parent),
+            ]
             assert evidence.is_absolute()
             assert tmp_path not in evidence.parents
             if wip:

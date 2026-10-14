@@ -2,6 +2,10 @@
 
 Follow-up to #171, separate from parallel reviewers (#170).
 
+> Since #193, the `gemini` backend runs through the Antigravity CLI (`agy`),
+> not Gemini CLI. The Gemini CLI observations and benchmark numbers below are
+> kept as the historical record of how the prompts were developed.
+
 ## Contract
 
 Review and refactoring analysis use the existing role-aware `backend_command`:

@@ -11,7 +11,7 @@ from mr_overkill.agents import (
     create_self_review_agent,
 )
 from mr_overkill.cli import parse_refactor_suggest_args, parse_review_loop_args
-from mr_overkill.models import LoopConfig
+from mr_overkill.models import LoopConfig, parse_reviewer_backends
 from mr_overkill.two_step_fix import backend_command, claude_two_step_fix
 
 
@@ -99,26 +99,44 @@ def test_two_step_handoff(
         assert "Apply agreed fixes." in execution.kwargs["stdin"]
 
 
-@pytest.mark.parametrize("backend", ["codex", "gemini"])
-def test_retry_dispatch(tmp_path: Path, backend: str) -> None:
+def test_retry_dispatch(tmp_path: Path) -> None:
     config = LoopConfig(
         "feat/test", "develop", 1, retry_max_wait=12, retry_initial_wait=3,
     )
     output = tmp_path / "result.md"
-    with patch(f"mr_overkill.agents.retry_{backend}_cmd", return_value=True) as run:
-        assert _RetryFn(config)(output, "test", backend_command(backend), stdin="body")
+    with patch("mr_overkill.agents.retry_codex_cmd", return_value=True) as run:
+        assert _RetryFn(config)(output, "test", backend_command("codex"), stdin="body")
     assert run.call_args.kwargs["stdin"] == "body"
     assert run.call_args.kwargs["max_wait"] == 12
-    if backend == "codex":
-        assert run.call_args.args[2][-2:] == ["-o", str(output)]
+    assert run.call_args.args[2][-2:] == ["-o", str(output)]
+
+
+@pytest.mark.parametrize("edit", [False, True])
+def test_gemini_runs_through_antigravity(edit: bool) -> None:
+    # "gemini" names the model family; Gemini CLI is retired for most users.
+    assert backend_command("gemini", edit=edit) == backend_command("agy", edit=edit)
+    assert backend_command("gemini", edit=edit)[0] == "agy"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("gemini,agy", ["gemini"]),
+        ("agy,codex,gemini", ["agy", "codex"]),
+        ("codex,gemini,claude", ["codex", "gemini", "claude"]),
+    ],
+)
+def test_gemini_and_agy_are_one_reviewer(value: str, expected: list[str]) -> None:
+    assert parse_reviewer_backends(value) == expected
 
 
 def test_permission_modes() -> None:
     assert "read-only" in backend_command("codex")
     assert "workspace-write" in backend_command("codex", edit=True)
-    assert "plan" in backend_command("gemini")
-    assert "yolo" in backend_command("gemini", edit=True)
-    assert "--sandbox" in backend_command("gemini", edit=True)
+    for backend in ("gemini", "agy"):
+        assert "plan" in backend_command(backend)
+        assert "accept-edits" in backend_command(backend, edit=True)
+        assert "--sandbox" in backend_command(backend, edit=True)
 
 
 @pytest.mark.parametrize("refactor", [False, True])
@@ -150,7 +168,7 @@ def test_resume_preserves_inheritance(
 def test_agy_retry_uses_print_argument(tmp_path: Path) -> None:
     config = LoopConfig("feat/test", "develop", 1)
     (tmp_path / "output").write_text("Done")
-    with patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as run:
+    with patch("mr_overkill.agents.retry_agy_cmd", return_value=True) as run:
         assert _RetryFn(config)(
             tmp_path / "output", "agy fix", backend_command("agy", edit=True),
             stdin="Review these findings.",
@@ -175,7 +193,7 @@ def test_agy_reviewer(tmp_path: Path, refactor: bool) -> None:
     for name in ("gemini-review.prompt.md", "gemini-refactor-module.prompt.md"):
         (tmp_path / name).write_text("Review $CURRENT_BRANCH")
     with (
-        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as run,
+        patch("mr_overkill.agents.retry_agy_cmd", return_value=True) as run,
         patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
             returncode=0, stdout="",
         )),
@@ -207,7 +225,7 @@ def test_agy_empty_success_is_failure(tmp_path: Path, exists: bool) -> None:
     if exists:
         output.write_text("  ")
     config = LoopConfig("feat/test", "develop", 1)
-    with patch("mr_overkill.agents.retry_gemini_cmd", return_value=True):
+    with patch("mr_overkill.agents.retry_agy_cmd", return_value=True):
         assert not _RetryFn(config)(output, "review", backend_command("agy"))
 
 
@@ -486,7 +504,7 @@ def test_google_reviewers_never_auto_approve_edits(
     output = tmp_path / "review.json"
     output.write_text('{"findings": []}')
     with (
-        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as run,
+        patch("mr_overkill.agents.retry_agy_cmd", return_value=True) as run,
         patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
             returncode=0, stdout="",
         )),

@@ -19,15 +19,28 @@ class BudgetTimeoutError(Exception):
     """Raised when a tool budget wait times out."""
 
 
+# Both names run Antigravity CLI (agy); "gemini" reads as the model family.
+GOOGLE_BACKENDS = frozenset({"gemini", "agy"})
+
+
 def parse_reviewer_backends(value: str) -> list[str]:
-    """Validate reviewer names and deduplicate in user-specified order."""
+    """Validate reviewer names and deduplicate in user-specified order.
+
+    ``gemini`` and ``agy`` run the same CLI, so only the first one listed is
+    kept rather than running the same review twice.
+    """
     backends = [part.strip() for part in value.split(",")]
     if any(name not in {"claude", "codex", "gemini", "agy"} for name in backends):
         raise ValueError(
             "REVIEWER_BACKEND must be a comma-separated list of "
             f"'claude', 'codex', 'gemini', or 'agy', got {value!r}"
         )
-    return list(dict.fromkeys(backends))
+    result: list[str] = []
+    for name in dict.fromkeys(backends):
+        if name in GOOGLE_BACKENDS and GOOGLE_BACKENDS & set(result):
+            continue
+        result.append(name)
+    return result
 
 
 # ── Enums ────────────────────────────────────────────────────────────

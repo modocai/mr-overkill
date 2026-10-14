@@ -374,11 +374,10 @@ def process_exists(pid: int) -> bool:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="live harness requires POSIX")
-def test_run_gemini_cli_trusts_only_child_process(
+def test_run_gemini_cli_passes_the_prompt_as_an_argument(
     monkeypatch: Any, tmp_path: Path
 ) -> None:
     captured: dict[str, Any] = {}
-    monkeypatch.delenv("GEMINI_CLI_TRUST_WORKSPACE", raising=False)
 
     class FakePopen:
         returncode = 0
@@ -397,14 +396,16 @@ def test_run_gemini_cli_trusts_only_child_process(
 
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
 
-    code, stdout, stderr = bench.run_gemini_cli(["gemini"], "prompt", tmp_path, 3)
+    code, stdout, stderr = bench.run_gemini_cli(["agy"], "prompt", tmp_path, 3)
 
     assert (code, stdout, stderr) == (0, "{}", "")
-    assert captured["kwargs"]["env"]["GEMINI_CLI_TRUST_WORKSPACE"] == "true"
-    assert os.environ.get("GEMINI_CLI_TRUST_WORKSPACE") is None
+    # agy print mode reads the prompt from argv, not stdin.
+    assert captured["args"][0] == ["agy", "-p", "prompt"]
+    assert captured["kwargs"]["stdin"] == subprocess.DEVNULL
+    assert "env" not in captured["kwargs"]
     assert captured["kwargs"]["cwd"] == tmp_path
     assert captured["kwargs"]["start_new_session"] is (os.name == "posix")
-    assert captured["input"] == "prompt"
+    assert captured["input"] is None
     assert captured["timeout"] == 3
 
 
