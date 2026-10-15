@@ -37,9 +37,9 @@ from mr_overkill.models import (
 )
 from mr_overkill.retry import (
     call_timeout,
+    retry_agy_cmd,
     retry_claude_cmd,
     retry_codex_cmd,
-    retry_gemini_cmd,
     review_cancellation,
     wait_for_budget,
 )
@@ -378,8 +378,8 @@ class _RetryFn:
                 initial_wait=self._config.retry_initial_wait,
             )
         if cmd_args[0] == "agy":
-            # agy print mode takes the prompt as an argument, not Gemini's dash.
-            ok = retry_gemini_cmd(
+            # agy print mode takes the prompt as an argument, not stdin.
+            ok = retry_agy_cmd(
                 output_path, label, [*cmd_args, "-p", str(stdin or "")],
                 max_wait=self._config.retry_max_wait,
                 initial_wait=self._config.retry_initial_wait,
@@ -395,13 +395,6 @@ class _RetryFn:
                 )
                 return False
             return ok
-        if cmd_args[0] == "gemini":
-            return retry_gemini_cmd(
-                output_path, label, cmd_args,
-                stdin=str(stdin) if stdin is not None else None,
-                max_wait=self._config.retry_max_wait,
-                initial_wait=self._config.retry_initial_wait,
-            )
         return retry_claude_cmd(
             output_path,
             label,

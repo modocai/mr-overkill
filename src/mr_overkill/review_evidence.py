@@ -17,6 +17,5 @@ def google_review_evidence(
         root = Path(directory).resolve()
         evidence = root / "evidence.txt"
         evidence.write_text(content, encoding="utf-8")
-        flag = "--add-dir" if backend == "agy" else "--include-directories"
-        yield evidence, [*backend_command(backend), flag, str(root)]
+        yield evidence, [*backend_command(backend), "--add-dir", str(root)]
 

@@ -216,8 +216,8 @@ def run_benchmark(
 ) -> list[RunResult]:
     """Run selected benchmark matrix and return per-run metrics.
 
-    ``runner`` is injectable for tests. The production default calls Gemini CLI
-    through ``backend_command("gemini")`` in read-only/plan mode.
+    ``runner`` is injectable for tests. The production default calls the
+    Antigravity CLI through ``backend_command("gemini")`` in read-only plan mode.
     """
 
     prompts = build_prompt_variants()
@@ -323,21 +323,18 @@ def run_gemini_cli(
             "Live benchmarks require POSIX process groups (Linux/macOS/WSL); "
             "Windows child-process timeout cleanup is not supported."
         )
-    env = os.environ.copy()
-    # The harness owns these generated fixtures, so trust only this child process.
-    env["GEMINI_CLI_TRUST_WORKSPACE"] = "true"
+    # agy print mode takes the prompt as an argument, not stdin.
     proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.PIPE,
+        [*cmd, "-p", prompt_text],
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=repo,
-        env=env,
         text=True,
         start_new_session=True,
     )
     try:
-        stdout, stderr = proc.communicate(prompt_text, timeout=timeout_seconds)
+        stdout, stderr = proc.communicate(timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
         terminate_process_tree(proc)
         stdout, stderr = proc.communicate()
@@ -1030,7 +1027,7 @@ def report_metadata(
         "cases": list(cases),
         "workers": workers,
         "timeout_seconds": timeout_seconds,
-        "cli_model_metadata": "manual: Gemini CLI/model auto-configured externally",
+        "cli_model_metadata": "manual: agy CLI/model auto-configured externally",
     }
 
 

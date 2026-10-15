@@ -1,4 +1,4 @@
-"""Reviewer CLI calls are bounded in time, and Gemini runs without web tools."""
+"""Reviewer CLI calls are bounded in time."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import logging
 import os
 import sys
 import time
-import tomllib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -22,11 +21,10 @@ from mr_overkill.models import FinalStatus, LoopConfig
 from mr_overkill.retry import (
     CommandTimeoutError,
     call_timeout,
+    retry_agy_cmd,
     retry_claude_cmd,
     retry_codex_cmd,
-    retry_gemini_cmd,
 )
-from mr_overkill.two_step_fix import GEMINI_POLICY, backend_command
 
 HANG = [sys.executable, "-c", "import time; time.sleep(60)"]
 
@@ -110,7 +108,7 @@ class TestRunner:
             if runner == "claude":
                 ok = retry_claude_cmd(tmp_path / "out.txt", "t", ["claude", "-p", "-"])
             else:
-                ok = retry_gemini_cmd(tmp_path / "out.txt", "t", ["gemini", "-p", "-"])
+                ok = retry_agy_cmd(tmp_path / "out.txt", "t", ["gemini", "-p", "-"])
 
         assert ok is False
         assert mock_run.call_count == 1
@@ -250,21 +248,3 @@ class TestCli:
     def test_negative_is_rejected(self) -> None:
         with _cli({}), pytest.raises(SystemExit):
             parse_review_loop_args(["-n", "1", "--reviewer-timeout", "-1"])
-
-
-class TestGeminiPolicy:
-    @pytest.mark.parametrize("edit", [False, True])
-    def test_every_gemini_call_loads_the_policy(self, edit: bool) -> None:
-        cmd = backend_command("gemini", edit=edit)
-        assert cmd[cmd.index("--policy") + 1] == GEMINI_POLICY
-        assert cmd[-2:] == ["-p", "-"]
-
-    def test_policy_denies_web_tools(self) -> None:
-        rules = tomllib.loads(Path(GEMINI_POLICY).read_text())["rule"]
-        denied = {
-            name
-            for rule in rules
-            if rule["decision"] == "deny"
-            for name in rule["toolName"]
-        }
-        assert {"google_web_search", "web_fetch"} <= denied
