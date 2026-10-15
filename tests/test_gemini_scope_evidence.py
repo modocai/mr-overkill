@@ -22,13 +22,26 @@ def config_for(path: Path, **kwargs: object) -> LoopConfig:
     return config
 
 
+def _respond(output_path: Path, label: str, command: list[str], **kw: object) -> bool:
+    """Stand in for agy, which must leave a non-empty response."""
+    output_path.write_text('{"findings": []}')
+    return True
+
+
+def _prompt(retry: MagicMock) -> str:
+    """agy takes the prompt as the final ``-p`` argument."""
+    command = retry.call_args.args[2]
+    assert command[-2] == "-p"
+    return str(command[-1])
+
+
 def test_branch_evidence_uses_requested_target_without_external_diff(tmp_path: Path):
     config = config_for(tmp_path)
     with (
         patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
             returncode=0, stdout="captured branch diff",
         )) as git,
-        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as retry,
+        patch("mr_overkill.agents.retry_agy_cmd", side_effect=_respond) as retry,
     ):
         assert GeminiReviewAgent(config)(tmp_path / "out", 1)
     assert git.call_args.args[0] == [
@@ -36,7 +49,7 @@ def test_branch_evidence_uses_requested_target_without_external_diff(tmp_path: P
         "release-base...feature", "--",
     ]
     assert (tmp_path / "out.diff").read_text() == "captured branch diff"
-    assert "Captured evidence file:" in retry.call_args.kwargs["stdin"]
+    assert "Captured evidence file:" in _prompt(retry)
 
 
 @pytest.mark.parametrize("wip", [False, True])
@@ -46,12 +59,12 @@ def test_scope_artifact_does_not_require_reviewer_shell(tmp_path: Path, wip: boo
     config = config_for(tmp_path, scope_diff_file=diff, wip=wip)
     with (
         patch("mr_overkill.agents.subprocess.run") as git,
-        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as retry,
+        patch("mr_overkill.agents.retry_agy_cmd", side_effect=_respond) as retry,
     ):
         assert GeminiReviewAgent(config)(tmp_path / "out", 1)
     git.assert_not_called()
     assert (tmp_path / "out.diff").read_text() == "captured scoped diff"
-    assert "Captured evidence file:" in retry.call_args.kwargs["stdin"]
+    assert "Captured evidence file:" in _prompt(retry)
 
 
 @pytest.mark.parametrize("missing_artifact", [False, True])
@@ -65,7 +78,7 @@ def test_missing_scope_evidence_fails_before_model(
         patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
             returncode=1, stdout="", stderr="bad revision",
         )),
-        patch("mr_overkill.agents.retry_gemini_cmd") as retry,
+        patch("mr_overkill.agents.retry_agy_cmd") as retry,
     ):
         assert not GeminiReviewAgent(config)(tmp_path / "out", 1)
     retry.assert_not_called()
@@ -80,7 +93,7 @@ def test_commit_followup_includes_fix_diff(tmp_path: Path) -> None:
         patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
             returncode=0, stdout="subsequent fix diff",
         )),
-        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True),
+        patch("mr_overkill.agents.retry_agy_cmd", side_effect=_respond),
     ):
         assert GeminiReviewAgent(config)(tmp_path / "out", 2)
     evidence = (tmp_path / "out.diff").read_text()
@@ -115,15 +128,15 @@ def test_large_diff_is_read_from_file_not_argv(tmp_path: Path, backend: str) -> 
         patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
             returncode=0, stdout=diff,
         )),
-        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as retry,
+        patch("mr_overkill.agents.retry_agy_cmd", return_value=True) as retry,
     ):
         assert GeminiReviewAgent(config)(output, 1)
     command = retry.call_args.args[2]
-    prompt = command[-1] if backend == "agy" else retry.call_args.kwargs["stdin"]
+    assert command[0] == "agy"
+    prompt = _prompt(retry)
     assert len(prompt) < 10_000
     evidence = output.with_suffix(".diff")
-    flag = "--add-dir" if backend == "agy" else "--include-directories"
-    readable_dir = Path(command[command.index(flag) + 1])
+    readable_dir = Path(command[command.index("--add-dir") + 1])
     assert str(readable_dir / "evidence.txt") in prompt
     assert not readable_dir.exists()
     assert evidence.read_text() == diff
@@ -139,7 +152,7 @@ def test_wip_followup_preserves_draft_and_supplies_current_evidence(tmp_path: Pa
             MagicMock(returncode=0, stdout="current tracked draft and fixes"),
             MagicMock(returncode=0, stdout="new helper.py\0draft.py\0"),
         ]) as git,
-        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True) as retry,
+        patch("mr_overkill.agents.retry_agy_cmd", side_effect=_respond) as retry,
     ):
         assert GeminiReviewAgent(config)(tmp_path / "review.json", 2)
     assert git.call_args_list[0].args[0][-2:] == ["HEAD", "--"]
@@ -151,7 +164,7 @@ def test_wip_followup_preserves_draft_and_supplies_current_evidence(tmp_path: Pa
     assert "current tracked draft and fixes" in evidence
     assert '"new helper.py"' in evidence
     assert original.read_text() == "author draft"
-    assert "frozen draft snapshot" in retry.call_args.kwargs["stdin"]
+    assert "frozen draft snapshot" in _prompt(retry)
 
 
 def test_wip_followup_does_not_review_incomplete_capture(tmp_path: Path):
@@ -163,21 +176,20 @@ def test_wip_followup_does_not_review_incomplete_capture(tmp_path: Path):
             MagicMock(returncode=1, stdout=""),
             MagicMock(returncode=0, stdout=""),
         ]),
-        patch("mr_overkill.agents.retry_gemini_cmd") as retry,
+        patch("mr_overkill.agents.retry_agy_cmd") as retry,
     ):
         assert not GeminiReviewAgent(config)(tmp_path / "review.json", 2)
     retry.assert_not_called()
 
 
-@pytest.mark.parametrize("backend,flag", [
-    ("gemini", "--include-directories"), ("agy", "--add-dir"),
-])
-def test_evidence_workspace_is_scoped_and_removed(backend: str, flag: str):
+@pytest.mark.parametrize("backend", ["gemini", "agy"])
+def test_evidence_workspace_is_scoped_and_removed(backend: str):
     from mr_overkill.review_evidence import google_review_evidence
 
     with google_review_evidence(backend, "scoped evidence") as (path, command):
         assert path.read_text() == "scoped evidence"
-        assert command[command.index(flag) + 1] == str(path.parent)
+        assert command[0] == "agy"
+        assert command[command.index("--add-dir") + 1] == str(path.parent)
         assert ".overkill" not in path.parts
         assert "plan" in command
     assert not path.parent.exists()
@@ -195,7 +207,7 @@ def test_zero_confidence_no_findings_is_not_success(tmp_path: Path) -> None:
         patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
             returncode=0, stdout="diff",
         )),
-        patch("mr_overkill.agents.retry_gemini_cmd", return_value=True),
+        patch("mr_overkill.agents.retry_agy_cmd", return_value=True),
     ):
         assert not GeminiReviewAgent(config)(output, 1)
 
@@ -208,7 +220,7 @@ def test_refactor_inventory_failure_stops_before_provider(tmp_path: Path) -> Non
         patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
             returncode=1, stdout="",
         )),
-        patch("mr_overkill.agents.retry_gemini_cmd") as retry,
+        patch("mr_overkill.agents.retry_agy_cmd") as retry,
     ):
         assert not GeminiRefactorReviewAgent(config, "module")(tmp_path / "out", 1)
     retry.assert_not_called()

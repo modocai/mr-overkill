@@ -273,12 +273,20 @@ class TestClaudeRefactorReviewAgent:
 # ── GeminiReviewAgent ────────────────────────────────────────────────
 
 
+def _agy_responds(
+    output_path: Path, label: str, command: list[str], **kw: object
+) -> bool:
+    """Stand in for agy, which must leave a non-empty response."""
+    output_path.write_text('{"findings": []}')
+    return True
+
+
 class TestGeminiReviewAgent:
     @patch("mr_overkill.agents.subprocess.run", return_value=MagicMock(
         returncode=0, stdout="diff evidence",
     ))
     @patch("mr_overkill.agents._make_budget_fn")
-    @patch("mr_overkill.agents.retry_gemini_cmd", return_value=True)
+    @patch("mr_overkill.agents.retry_agy_cmd", return_value=True)
     def test_calls_gemini_with_rendered_prompt(
         self,
         mock_retry: MagicMock,
@@ -302,12 +310,14 @@ class TestGeminiReviewAgent:
         agent = GeminiReviewAgent(config)
 
         output = tmp_path / "review.json"
+        mock_retry.side_effect = _agy_responds
         assert agent(output, 1) is True
         mock_retry.assert_called_once()
 
-        call_kw = mock_retry.call_args.kwargs
-        assert "feat/test" in call_kw["stdin"]
-        assert "develop" in call_kw["stdin"]
+        command = mock_retry.call_args.args[2]
+        assert command[0] == "agy"
+        assert "feat/test" in command[-1]
+        assert "develop" in command[-1]
 
     def test_fails_on_missing_prompt(
         self,
@@ -328,7 +338,7 @@ class TestGeminiReviewAgent:
 
 class TestGeminiRefactorReviewAgent:
     @patch("mr_overkill.agents._make_budget_fn")
-    @patch("mr_overkill.agents.retry_gemini_cmd", return_value=True)
+    @patch("mr_overkill.agents.retry_agy_cmd", return_value=True)
     @patch("mr_overkill.agents.subprocess.run")
     def test_calls_gemini_with_scope_prompt(
         self,
@@ -356,11 +366,11 @@ class TestGeminiRefactorReviewAgent:
         agent = GeminiRefactorReviewAgent(config, "module")
 
         output = tmp_path / "review.json"
+        mock_retry.side_effect = _agy_responds
         assert agent(output, 1) is True
         mock_retry.assert_called_once()
 
-        call_kw = mock_retry.call_args.kwargs
-        assert "feat/test" in call_kw["stdin"]
+        assert "feat/test" in mock_retry.call_args.args[2][-1]
 
 
 # ── ClaudeFixAgent ───────────────────────────────────────────────────

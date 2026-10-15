@@ -1,7 +1,7 @@
 # Gemini Prompt Benchmark
 
 Stdlib-only harness for issue #171. It creates tiny temporary Git repos, renders
-Gemini review prompt variants, runs the Gemini CLI in bounded read-only plan mode,
+Gemini review prompt variants, runs Gemini through the Antigravity CLI (`agy`) in bounded read-only plan mode,
 and writes prompts, raw CLI output, snapshots, `results.json`, `report.json`, and
 `report.md` to the selected output directory.
 

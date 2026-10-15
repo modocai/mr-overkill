@@ -54,7 +54,7 @@ You need these to participate in the madness:
 
 - [OpenAI](https://platform.openai.com/) account (paid plan) — because free tier is for weak code
 - [Anthropic](https://console.anthropic.com/) account (Pro/Max plan or API credits) — because Claude needs to think *deeply* about your variable names
-- [Google AI](https://aistudio.google.com/) account (API key) — because Gemini wants in on the overkill too
+- Google account signed in to [Antigravity CLI](https://antigravity.google/docs/cli/) (`agy`) — because Gemini wants in on the overkill too
 
 **Runtime**:
 
@@ -67,8 +67,9 @@ You need these to participate in the madness:
 ```bash
 npm install -g @openai/codex             # Codex CLI
 npm install -g @anthropic-ai/claude-code  # Claude Code CLI
-npm install -g @google/gemini-cli         # Gemini CLI
 ```
+
+Gemini models run through the [Antigravity CLI](https://antigravity.google/docs/cli/) (`agy`); install and sign in to it if you select `gemini` or `agy`.
 
 - [jq](https://jqlang.github.io/jq/) — JSON processor
 - [gh](https://cli.github.com/) — GitHub CLI (optional, for PR comments)
@@ -593,15 +594,15 @@ combined result remains `review-N.json`. The fixer and self-reviewer behavior is
 unchanged.
 
 Install and authenticate each selected CLI before running. Codex fixes use
-`workspace-write`; Gemini fixes use sandboxed `yolo` mode. Opinion and self-review
-use Codex `read-only` or Gemini `plan` mode (requires a Gemini CLI supporting that
-mode). Claude retains its existing two-step session. Codex and Gemini receive the
+`workspace-write`; Gemini (agy) fixes use sandboxed `accept-edits` mode. Opinion and
+self-review use Codex `read-only` or agy `plan` mode. Claude retains its existing
+two-step session. Codex and Gemini receive the
 opinion and original findings explicitly in the editing step. Existing
 `claude-*-fix*` and `claude-self-review` prompt filenames remain shared templates
 for compatibility with custom prompt directories.
 
 Gemini reviewers (including refactoring analysis) also use sandboxed `plan` mode,
-never `yolo`. Overkill supplies the requested diff directly because plan mode may
+never an editing mode. Overkill supplies the requested diff directly because plan mode may
 disable shell tools; commit/WIP scope remains authoritative. The bundled Gemini
 prompts include evidence-driven review guidance without invoking an installed
 `/code-review` command, changing the target to `origin/HEAD`, or replacing the
@@ -610,47 +611,34 @@ after inspecting any customizations. Permission failures are not code defects;
 there is no automatic fallback to editing mode.
 
 Plan mode is a CLI permission policy, not a guarantee against every possible
-side effect (for example, Gemini permits its own plan-directory writes). See
+side effect. See
 [`docs/gemini-review-guidance.md`](docs/gemini-review-guidance.md) for provenance,
 headless verification limits, and the reproducible prompt benchmark.
-
-Gemini will not run headless in a folder it does not trust, and inside its
-sandbox it cannot read your trust list (`~/.gemini/trustedFolders.json`).
-Overkill reads that list itself and passes `GEMINI_CLI_TRUST_WORKSPACE=true`
-into the sandbox only for folders you have already trusted — trust one by
-running `gemini` in it once. An explicit `GEMINI_CLI_TRUST_WORKSPACE` or
-`GEMINI_RESTRICTED_MODE` in your environment is left as you set it.
-
-Every Gemini call is started with a bundled `--policy` file
-(`mr_overkill/data/gemini-no-web.toml`) that denies `google_web_search` and
-`web_fetch`. Reviews and fixes only need the diff and the repository, and with
-web tools enabled a failing search API made gemini-cli retry internally for
-hours without exiting. The policy takes effect under the macOS seatbelt
-sandbox; Docker/Podman sandboxes do not mount the package directory, so there
-Gemini ignores the policy and the reviewer timeout is the only guard. The
-same holds for `agy`, which has no option to disable tools.
 
 CLI options override rc settings. `--resume` restores saved role selections unless
 explicitly overridden on the command line; an inherited self-review selection
 continues to follow the fixer. `--no-self-review` still disables this stage.
 
-Antigravity CLI is supported explicitly as `agy` for all three roles:
+`gemini` selects the Gemini model family and runs through the Antigravity CLI
+(`agy`); `agy` is an equivalent name. Both work for all three roles, and listing
+both as reviewers runs one review:
 
 ```sh
-overkill review-loop -n 3 --reviewer agy --fixer codex
+overkill review-loop -n 3 --reviewer gemini --fixer codex
 overkill refactor-suggest --scope module --fixer agy
 ```
 
-Google announced the consumer transition from Gemini CLI on May 19, 2026, with
-free/Pro/Ultra access ending June 18; enterprise and paid API-key access remain.
-See the [official announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
-Existing `gemini` selections continue to invoke `gemini`; no automatic executable
-or account switching occurs. Authenticate `agy` separately before use.
+Google retired Gemini CLI for free, Google AI Pro and Ultra users on June 18,
+2026, and new Gemini models ship in Antigravity first. See the
+[official announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
+Overkill no longer invokes `gemini` (Gemini CLI); sign in to `agy` before use.
+The model is whatever your `agy` defaults to.
 
 Antigravity uses `--mode plan` for review/opinion and `--mode accept-edits` for
 fixes, with `--sandbox` in both. It does not bypass permissions: shell commands
 may be denied in headless mode unless your Antigravity policy permits them.
-Use an up-to-date CLI that applies `--mode` to headless runs. Antigravity shares
+Use an up-to-date CLI that applies `--mode` to headless runs. agy has no option
+to disable web tools; the reviewer timeout bounds a hung call. Antigravity shares
 the existing `gemini-*` review prompts. Local Antigravity quota preflight data is
 not available; runtime errors go through the retry/error handling path.
 See [headless mode](https://antigravity.google/docs/cli/headless/) and

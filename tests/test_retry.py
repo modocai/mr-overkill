@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, patch
 from mr_overkill.models import BudgetScope
 from mr_overkill.retry import (
     extract_result_from_stream,
+    retry_agy_cmd,
     retry_claude_cmd,
     retry_codex_cmd,
-    retry_gemini_cmd,
     wait_for_budget,
 )
 
@@ -240,7 +240,7 @@ class TestRetryGemini:
         output = tmp_path / "output.txt"
         mock_run.return_value = MagicMock(returncode=0)
 
-        result = retry_gemini_cmd(
+        result = retry_agy_cmd(
             output, "test", ["gemini", "--yolo", "-p", "-"]
         )
         assert result is True
@@ -262,7 +262,7 @@ class TestRetryGemini:
 
         mock_run.side_effect = side_effect
         sleeps: list[float] = []
-        result = retry_gemini_cmd(
+        result = retry_agy_cmd(
             output,
             "test",
             ["gemini", "--yolo", "-p", "-"],
@@ -284,7 +284,7 @@ class TestRetryGemini:
             return MagicMock(returncode=1)
 
         mock_run.side_effect = side_effect
-        result = retry_gemini_cmd(
+        result = retry_agy_cmd(
             output, "test", ["gemini", "--yolo", "-p", "-"]
         )
         assert result is False
